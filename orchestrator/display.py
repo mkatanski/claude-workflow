@@ -34,6 +34,7 @@ ICONS = {
     "play": "\u25B6",
     "pause": "\u23F8",
     "stop": "\u23F9",
+    "skip": "\u23ED",
     "loop": "\U0001F501",
     "package": "\U0001F4E6",
     "folder": "\U0001F4C1",
@@ -335,6 +336,25 @@ def print_step_result(success: bool, duration: float, output_var: Optional[str] 
         result_text.append(f" -> {output_var}", style="dim cyan")
 
     console.print(result_text)
+
+
+def print_step_skipped(
+    step: Step,
+    context: ExecutionContext,
+    step_num: int,
+    total_steps: int,
+    reason: str,
+) -> None:
+    """Print step skipped message."""
+    step_name = context.interpolate(step.name)
+
+    skip_text = Text()
+    skip_text.append(f"\n{ICONS['skip']} ", style="bold yellow")
+    skip_text.append(f"Step {step_num}/{total_steps} skipped: ", style="yellow")
+    skip_text.append(step_name, style="bold yellow")
+    skip_text.append(f"\n   Condition not met: ", style="dim")
+    skip_text.append(reason, style="dim italic")
+    console.print(skip_text)
 
 
 def print_phase_complete(iter_num: int, total_iters: int, duration: float) -> None:

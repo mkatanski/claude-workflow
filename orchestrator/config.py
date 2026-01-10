@@ -39,6 +39,7 @@ class Step:
     on_error: str = "stop"
     visible: bool = False
     cwd: Optional[str] = None
+    when: Optional[str] = None
 
 
 @dataclass
@@ -63,6 +64,7 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         on_error=step_data.get("on_error", "stop"),
         visible=step_data.get("visible", False),
         cwd=step_data.get("cwd"),
+        when=step_data.get("when"),
     )
 
 

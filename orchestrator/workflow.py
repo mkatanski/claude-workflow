@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from .conditions import ConditionError, ConditionEvaluator
 from .config import Step, WorkflowConfig
 from .context import ExecutionContext
 from .display import (
@@ -16,6 +17,7 @@ from .display import (
     print_hook_setup_instructions,
     print_phase_complete,
     print_step_result,
+    print_step_skipped,
     print_summary,
     print_workflow_interrupted,
     print_workflow_start,
@@ -67,6 +69,21 @@ class WorkflowRunner:
         self, step: Step, step_num: int, total_steps: int
     ) -> None:
         """Execute a single workflow step."""
+        # Check condition first if present
+        if step.when:
+            try:
+                evaluator = ConditionEvaluator(self.context)
+                result = evaluator.evaluate(step.when)
+
+                if not result.satisfied:
+                    print_step_skipped(
+                        step, self.context, step_num, total_steps, result.reason
+                    )
+                    return  # Skip this step
+            except ConditionError as e:
+                console.print(f"[yellow]Warning: Condition error: {e}. Skipping step.[/yellow]")
+                return
+
         step_start_time = time.time()
 
         console.print()
@@ -112,6 +129,7 @@ class WorkflowRunner:
             "on_error": step.on_error,
             "visible": step.visible,
             "cwd": step.cwd,
+            "when": step.when,
         }
 
     def run_iteration(
