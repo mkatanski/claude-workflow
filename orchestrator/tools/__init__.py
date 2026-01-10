@@ -5,6 +5,8 @@ from typing import Dict, List
 from .base import BaseTool, ToolResult
 from .bash import BashTool
 from .claude import ClaudeTool
+from .goto import GotoTool
+from .set import SetTool
 
 
 class ToolRegistry:
@@ -48,6 +50,8 @@ class ToolRegistry:
 # Auto-register built-in tools
 ToolRegistry.register(ClaudeTool())
 ToolRegistry.register(BashTool())
+ToolRegistry.register(GotoTool())
+ToolRegistry.register(SetTool())
 
 
 __all__ = [
@@ -56,4 +60,6 @@ __all__ = [
     "ToolRegistry",
     "ClaudeTool",
     "BashTool",
+    "GotoTool",
+    "SetTool",
 ]

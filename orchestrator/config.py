@@ -40,6 +40,12 @@ class Step:
     visible: bool = False
     cwd: Optional[str] = None
     when: Optional[str] = None
+    # Fields for goto and set tools
+    target: Optional[str] = None  # For goto: target step name
+    var: Optional[str] = None     # For set: variable name
+    value: Optional[str] = None   # For set: variable value
+    # Fields for bash tool
+    strip_output: bool = True     # Strip whitespace from output
 
 
 @dataclass
@@ -47,7 +53,6 @@ class WorkflowConfig:
     """Complete workflow configuration."""
 
     name: str
-    variables: Dict[str, List[Any]]
     steps: List[Step]
     tmux: TmuxConfig = field(default_factory=TmuxConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
@@ -65,6 +70,10 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         visible=step_data.get("visible", False),
         cwd=step_data.get("cwd"),
         when=step_data.get("when"),
+        target=step_data.get("target"),
+        var=step_data.get("var"),
+        value=step_data.get("value"),
+        strip_output=step_data.get("strip_output", True),
     )
 
 
@@ -111,7 +120,6 @@ def load_config(project_path: Path) -> WorkflowConfig:
 
     return WorkflowConfig(
         name=data.get("name", "Workflow"),
-        variables=data.get("variables", {}),
         steps=steps,
         tmux=tmux_config,
         claude=claude_config,

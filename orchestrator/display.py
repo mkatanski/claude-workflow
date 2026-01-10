@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from rich import box
 from rich.console import Console, Group
@@ -139,20 +139,8 @@ def create_config_table(
     table.add_column("Key", style="bold white", no_wrap=True)
     table.add_column("Value", style="bright_white")
 
-    # Get iteration info
-    if config.variables:
-        iter_key = list(config.variables.keys())[0]
-        iter_values = config.variables[iter_key]
-        iter_display = f"{len(iter_values)} ({iter_key}: {iter_values})"
-        total_steps = len(iter_values) * len(config.steps)
-    else:
-        iter_display = "1 (no variables)"
-        total_steps = len(config.steps)
-
     table.add_row(ICONS["folder"], "Project Path", str(project_path.resolve()))
-    table.add_row(ICONS["loop"], "Iterations", iter_display)
-    table.add_row(ICONS["target"], "Steps per Iteration", str(len(config.steps)))
-    table.add_row(ICONS["fire"], "Total Steps", str(total_steps))
+    table.add_row(ICONS["target"], "Steps", str(len(config.steps)))
     table.add_row(
         ICONS["terminal"],
         "Tmux Mode",
@@ -217,18 +205,6 @@ def create_step_panel(
         padding=(0, 1),
         expand=False,
     )
-
-
-def create_iteration_header(
-    iter_key: str, iter_value: Any, iter_num: int, total_iters: int
-) -> Text:
-    """Create an iteration header."""
-    text = Text()
-    text.append(f"{ICONS['rocket']} ", style="bold yellow")
-    text.append(f"{iter_key.upper()} ", style="bold white")
-    text.append(str(iter_value), style="bold yellow")
-    text.append(f" ({iter_num}/{total_iters})", style="dim white")
-    return text
 
 
 def print_hook_setup_instructions(project_path: Optional[Path] = None) -> None:
@@ -357,16 +333,6 @@ def print_step_skipped(
     console.print(skip_text)
 
 
-def print_phase_complete(iter_num: int, total_iters: int, duration: float) -> None:
-    """Print phase completion message."""
-    phase_text = Text()
-    phase_text.append(f"{ICONS['check']} ", style="bold green")
-    phase_text.append(f"Phase {iter_num}/{total_iters} completed", style="green")
-    phase_text.append(f" ({format_duration(duration)})", style="dim")
-    console.print()
-    console.print(phase_text)
-
-
 def print_workflow_start() -> None:
     """Print workflow start message."""
     console.print()
@@ -401,7 +367,6 @@ def print_cleanup_message() -> None:
 def print_summary(
     completed_steps: int,
     total_elapsed: float,
-    phase_times: list[float],
     step_times: list[float],
 ) -> None:
     """Print workflow completion summary."""
@@ -424,12 +389,6 @@ def print_summary(
         f"{ICONS['clock']} Total time",
         format_duration(total_elapsed),
     )
-
-    if phase_times:
-        avg_phase = sum(phase_times) / len(phase_times)
-        stats_table.add_row(
-            f"{ICONS['loop']} Avg phase time", format_duration(avg_phase)
-        )
 
     if step_times:
         avg_step = sum(step_times) / len(step_times)

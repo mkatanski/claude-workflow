@@ -11,11 +11,9 @@ from .display import (
     console,
     create_config_table,
     create_header_panel,
-    create_iteration_header,
     create_step_panel,
     print_cleanup_message,
     print_hook_setup_instructions,
-    print_phase_complete,
     print_step_result,
     print_step_skipped,
     print_summary,
@@ -48,7 +46,6 @@ class WorkflowRunner:
         # Time tracking
         self.workflow_start_time: Optional[float] = None
         self.step_times: List[float] = []
-        self.phase_times: List[float] = []
 
         # Progress tracking
         self.completed_steps = 0
@@ -67,8 +64,12 @@ class WorkflowRunner:
 
     def run_step(
         self, step: Step, step_num: int, total_steps: int
-    ) -> None:
-        """Execute a single workflow step."""
+    ) -> Optional[str]:
+        """Execute a single workflow step.
+
+        Returns:
+            Target step name if goto was executed, None otherwise.
+        """
         # Check condition first if present
         if step.when:
             try:
@@ -79,10 +80,10 @@ class WorkflowRunner:
                     print_step_skipped(
                         step, self.context, step_num, total_steps, result.reason
                     )
-                    return  # Skip this step
+                    return None  # Skip this step
             except ConditionError as e:
                 console.print(f"[yellow]Warning: Condition error: {e}. Skipping step.[/yellow]")
-                return
+                return None
 
         step_start_time = time.time()
 
@@ -118,6 +119,9 @@ class WorkflowRunner:
                 raise StepError(f"Step '{step.name}' failed: {error_msg}")
             # on_error == "continue": just proceed to next step
 
+        # Return goto target if present
+        return result.goto_step
+
     def _step_to_dict(self, step: Step) -> Dict[str, Any]:
         """Convert Step dataclass to dict for tool execution."""
         return {
@@ -130,35 +134,37 @@ class WorkflowRunner:
             "visible": step.visible,
             "cwd": step.cwd,
             "when": step.when,
+            "target": step.target,
+            "var": step.var,
+            "value": step.value,
+            "strip_output": step.strip_output,
         }
 
-    def run_iteration(
-        self, iter_key: str, iter_value: Any, iter_num: int, total_iters: int
-    ) -> None:
-        """Run all steps for a single iteration (phase)."""
-        phase_start_time = time.time()
+    def _run_steps(self) -> None:
+        """Run all steps with goto support."""
+        step_index_map = {step.name: idx for idx, step in enumerate(self.config.steps)}
 
-        # Set iteration variable in context
-        self.context.set(iter_key, iter_value)
+        step_idx = 0
+        total_steps = len(self.config.steps)
 
-        console.print()
-        console.print(create_iteration_header(iter_key, iter_value, iter_num, total_iters))
+        while step_idx < total_steps:
+            step = self.config.steps[step_idx]
+            goto_target = self.run_step(step, step_idx + 1, total_steps)
 
-        for step_num, step in enumerate(self.config.steps, 1):
-            self.run_step(step, step_num, len(self.config.steps))
+            if goto_target:
+                # Handle goto: find target step index
+                if goto_target not in step_index_map:
+                    available_steps = list(step_index_map.keys())
+                    raise StepError(
+                        f"Goto target step '{goto_target}' not found. "
+                        f"Available steps: {available_steps}"
+                    )
+                step_idx = step_index_map[goto_target]
+            else:
+                # Normal sequential execution
+                step_idx += 1
+
             time.sleep(0.5)
-
-        phase_duration = time.time() - phase_start_time
-        self.phase_times.append(phase_duration)
-
-        print_phase_complete(iter_num, total_iters, phase_duration)
-
-    def _get_iteration_config(self) -> tuple[str, List[Any]]:
-        """Get the iteration key and values from config, with defaults."""
-        if self.config.variables:
-            iter_key = list(self.config.variables.keys())[0]
-            return iter_key, self.config.variables[iter_key]
-        return "step", [1]
 
     def run(self) -> None:
         """Run the complete workflow."""
@@ -167,15 +173,12 @@ class WorkflowRunner:
         if not self.tmux_manager.hook_configured:
             print_hook_setup_instructions(self.project_path)
 
-        iter_key, iter_values = self._get_iteration_config()
-
         print_workflow_start()
 
         self.workflow_start_time = time.time()
 
         try:
-            for iter_num, iter_value in enumerate(iter_values, 1):
-                self.run_iteration(iter_key, iter_value, iter_num, len(iter_values))
+            self._run_steps()
         except StepError as e:
             console.print(f"\n[bold red]Error: {e}[/bold red]")
         except KeyboardInterrupt:
@@ -198,6 +201,5 @@ class WorkflowRunner:
         print_summary(
             self.completed_steps,
             total_elapsed,
-            self.phase_times,
             self.step_times,
         )

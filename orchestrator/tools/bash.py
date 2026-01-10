@@ -42,14 +42,15 @@ class BashTool(BaseTool):
         # Always default to project_path for cwd
         cwd = context.interpolate_optional(step.get("cwd")) or str(context.project_path)
         visible = step.get("visible", False)
+        strip_output = step.get("strip_output", True)
 
         if visible:
-            return self._execute_visible(command, cwd, tmux_manager)
+            return self._execute_visible(command, cwd, tmux_manager, strip_output)
         else:
-            return self._execute_subprocess(command, cwd)
+            return self._execute_subprocess(command, cwd, strip_output)
 
     def _execute_subprocess(
-        self, command: str, cwd: str | None
+        self, command: str, cwd: str | None, strip_output: bool
     ) -> ToolResult:
         """Execute command in background subprocess."""
         status_text = Text()
@@ -71,6 +72,9 @@ class BashTool(BaseTool):
             output = process.stdout or ""
             if process.stderr:
                 output += f"\n[STDERR]\n{process.stderr}"
+
+            if strip_output:
+                output = output.strip()
 
             success = process.returncode == 0
 
@@ -95,6 +99,7 @@ class BashTool(BaseTool):
         command: str,
         cwd: str | None,
         tmux_manager: "TmuxManager",
+        strip_output: bool,
     ) -> ToolResult:
         """Execute command in visible tmux pane."""
         # Launch bash pane
@@ -103,6 +108,9 @@ class BashTool(BaseTool):
         try:
             # Wait for completion using idle detection
             output = self._wait_for_completion(tmux_manager)
+
+            if strip_output:
+                output = output.strip()
 
             return ToolResult(
                 success=True,  # Can't easily determine exit code in tmux

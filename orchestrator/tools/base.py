@@ -16,6 +16,7 @@ class ToolResult:
     success: bool
     output: Optional[str] = None
     error: Optional[str] = None
+    goto_step: Optional[str] = None  # Target step name for goto tool
 
 
 class BaseTool(ABC):
