@@ -25,7 +25,16 @@ from rich import box
 from rich.panel import Panel
 from rich.text import Text
 
-from orchestrator import ICONS, WorkflowRunner, console, load_config
+from orchestrator import (
+    ICONS,
+    WorkflowRunner,
+    console,
+    discover_workflows,
+    find_workflow_by_name,
+    format_workflow_list,
+    load_config,
+    select_workflow_interactive,
+)
 
 
 def main() -> None:
@@ -37,20 +46,31 @@ def main() -> None:
 {ICONS['rocket']} Examples:
     python runner.py /path/to/project
     python runner.py .
+    python runner.py . -w "Build and Test"
+    python runner.py . --workflow "Portfolio CMS"
 
 {ICONS['info']} Note: Must be run inside a tmux session!
     tmux new -s workflow
     python runner.py /path/to/project
 
-{ICONS['file']} The workflow file should be at:
-    <project>/.claude/workflow.yml
+{ICONS['file']} Workflow files:
+    - Located in: <project>/.claude/
+    - Must have: type: claude-workflow
+    - Extensions: .yml or .yaml
         """,
     )
     parser.add_argument(
         "project_path",
         nargs="?",
         default=".",
-        help="Path to the project containing .claude/workflow.yml (default: current directory)",
+        help="Path to the project containing .claude/ workflows (default: current directory)",
+    )
+    parser.add_argument(
+        "-w",
+        "--workflow",
+        dest="workflow_name",
+        default=None,
+        help="Name of the workflow to run (interactive picker if not specified)",
     )
 
     args = parser.parse_args()
@@ -87,33 +107,103 @@ def main() -> None:
         console.print()
         sys.exit(1)
 
-    # Check workflow file exists
-    workflow_yml = project_path / ".claude" / "workflow.yml"
-    workflow_yaml = project_path / ".claude" / "workflow.yaml"
+    # Discover available workflows
+    workflows = discover_workflows(project_path)
+    workflow_file = None
 
-    if not workflow_yml.exists() and not workflow_yaml.exists():
-        console.print()
-        error_panel = Panel(
-            Text.from_markup(
-                f"[bold red]{ICONS['cross']} Workflow file not found![/bold red]\n\n"
-                f"[white]Expected location:[/white]\n"
-                f"  [cyan]{workflow_yml}[/cyan]\n"
-                f"  [dim]or[/dim]\n"
-                f"  [cyan]{workflow_yaml}[/cyan]\n\n"
-                f"[white]Create a workflow.yml file with your workflow configuration.[/white]"
-            ),
-            title="[bold red]Error[/bold red]",
-            border_style="red",
-            box=box.ROUNDED,
-            expand=False,
-        )
-        console.print(error_panel)
-        console.print()
-        sys.exit(1)
+    if args.workflow_name:
+        # User specified a workflow name
+        found = find_workflow_by_name(workflows, args.workflow_name)
+
+        if found is None:
+            console.print()
+            if workflows:
+                error_msg = (
+                    f"[bold red]{ICONS['cross']} Workflow '{args.workflow_name}' "
+                    f"not found![/bold red]\n\n"
+                    f"[white]Available workflows:[/white]\n"
+                    f"{format_workflow_list(workflows)}"
+                )
+            else:
+                error_msg = (
+                    f"[bold red]{ICONS['cross']} No workflows found![/bold red]\n\n"
+                    f"[white]Create workflow files in:[/white]\n"
+                    f"  [cyan]{project_path / '.claude'}[/cyan]\n\n"
+                    f"[white]Workflow files must have:[/white]\n"
+                    f"  [cyan]type: claude-workflow[/cyan]"
+                )
+
+            error_panel = Panel(
+                Text.from_markup(error_msg),
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+                box=box.ROUNDED,
+                expand=False,
+            )
+            console.print(error_panel)
+            console.print()
+            sys.exit(1)
+
+        workflow_file = found.file_path
+
+    elif workflows:
+        # No workflow specified, but workflows exist
+        if len(workflows) == 1:
+            # Only one workflow, use it directly
+            workflow_file = workflows[0].file_path
+            console.print(f"[dim]Using workflow: {workflows[0].name}[/dim]")
+        else:
+            # Multiple workflows, show picker
+            selected = select_workflow_interactive(workflows)
+            if selected is None:
+                console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
+                sys.exit(0)
+            workflow_file = selected.file_path
+
+    else:
+        # No workflows found - try legacy fallback
+        legacy_yml = project_path / ".claude" / "workflow.yml"
+        legacy_yaml = project_path / ".claude" / "workflow.yaml"
+
+        if legacy_yml.exists():
+            workflow_file = legacy_yml
+            console.print(
+                f"[yellow]{ICONS['warning']} Using legacy workflow file "
+                f"(add 'type: claude-workflow' marker)[/yellow]"
+            )
+        elif legacy_yaml.exists():
+            workflow_file = legacy_yaml
+            console.print(
+                f"[yellow]{ICONS['warning']} Using legacy workflow file "
+                f"(add 'type: claude-workflow' marker)[/yellow]"
+            )
+        else:
+            # No workflows at all
+            console.print()
+            error_panel = Panel(
+                Text.from_markup(
+                    f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
+                    f"[white]Create a workflow file at:[/white]\n"
+                    f"  [cyan]{project_path / '.claude' / 'workflow.yml'}[/cyan]\n\n"
+                    f"[white]With the marker:[/white]\n"
+                    f"  [cyan]type: claude-workflow[/cyan]\n"
+                    f"  [cyan]name: My Workflow[/cyan]\n"
+                    f"  [cyan]steps:[/cyan]\n"
+                    f"  [cyan]  - name: First Step[/cyan]\n"
+                    f"  [cyan]    prompt: ...[/cyan]"
+                ),
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+                box=box.ROUNDED,
+                expand=False,
+            )
+            console.print(error_panel)
+            console.print()
+            sys.exit(1)
 
     # Load and run
     try:
-        config = load_config(project_path)
+        config = load_config(project_path, workflow_file)
         runner = WorkflowRunner(config, project_path)
         runner.run()
     except yaml.YAMLError as e:

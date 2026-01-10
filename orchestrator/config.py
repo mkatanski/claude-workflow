@@ -38,6 +38,14 @@ class ClaudeSdkConfig:
 
 
 @dataclass
+class WorkflowInfo:
+    """Metadata about a discovered workflow file."""
+
+    name: str  # From the 'name' field in YAML
+    file_path: Path  # Absolute path to the workflow file
+
+
+@dataclass
 class Step:
     """A single workflow step."""
 
@@ -158,18 +166,28 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
     )
 
 
-def load_config(project_path: Path) -> WorkflowConfig:
-    """Load and parse workflow YAML configuration from .claude/workflow.yml."""
-    workflow_path = project_path / ".claude" / "workflow.yml"
+def load_config(
+    project_path: Path,
+    workflow_file: Optional[Path] = None,
+) -> WorkflowConfig:
+    """Load and parse workflow YAML configuration.
 
-    if not workflow_path.exists():
-        workflow_path = project_path / ".claude" / "workflow.yaml"
+    Args:
+        project_path: Path to the project root
+        workflow_file: Optional specific workflow file to load.
+                      If None, falls back to legacy behavior (workflow.yml)
+    """
+    if workflow_file is not None:
+        workflow_path = workflow_file
+    else:
+        # Legacy fallback for backward compatibility
+        workflow_path = project_path / ".claude" / "workflow.yml"
+        if not workflow_path.exists():
+            workflow_path = project_path / ".claude" / "workflow.yaml"
 
     if not workflow_path.exists():
         raise FileNotFoundError(
-            f"Workflow file not found at:\n"
-            f"  {project_path / '.claude' / 'workflow.yml'}\n"
-            f"  {project_path / '.claude' / 'workflow.yaml'}"
+            f"Workflow file not found at:\n  {workflow_path}"
         )
 
     with open(workflow_path, "r") as f:
@@ -212,3 +230,81 @@ def load_config(project_path: Path) -> WorkflowConfig:
         claude=claude_config,
         claude_sdk=claude_sdk_config,
     )
+
+
+def discover_workflows(project_path: Path) -> List[WorkflowInfo]:
+    """Discover all workflow files with 'type: claude-workflow' marker.
+
+    Scans the .claude/ directory for YAML files containing the marker.
+
+    Args:
+        project_path: Path to the project root
+
+    Returns:
+        List of WorkflowInfo sorted by name
+    """
+    claude_dir = project_path / ".claude"
+
+    if not claude_dir.exists():
+        return []
+
+    workflows: List[WorkflowInfo] = []
+
+    # Scan for .yml and .yaml files
+    for pattern in ("*.yml", "*.yaml"):
+        for file_path in claude_dir.glob(pattern):
+            if not file_path.is_file():
+                continue
+
+            try:
+                with open(file_path, "r") as f:
+                    data = yaml.safe_load(f)
+
+                if not isinstance(data, dict):
+                    continue
+
+                # Check for workflow marker
+                if data.get("type") == "claude-workflow":
+                    workflow_name = data.get("name", file_path.stem)
+                    workflows.append(
+                        WorkflowInfo(
+                            name=workflow_name,
+                            file_path=file_path,
+                        )
+                    )
+            except (yaml.YAMLError, OSError):
+                continue
+
+    # Sort by name for consistent ordering
+    workflows.sort(key=lambda w: w.name.lower())
+
+    return workflows
+
+
+def find_workflow_by_name(
+    workflows: List[WorkflowInfo],
+    name: str,
+) -> Optional[WorkflowInfo]:
+    """Find a workflow by name (case-insensitive).
+
+    Args:
+        workflows: List of discovered workflows
+        name: Workflow name to search for
+
+    Returns:
+        Matching WorkflowInfo or None if not found
+    """
+    name_lower = name.lower()
+
+    # First try exact match
+    for workflow in workflows:
+        if workflow.name.lower() == name_lower:
+            return workflow
+
+    # Then try partial match (single match only)
+    matches = [w for w in workflows if name_lower in w.name.lower()]
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
