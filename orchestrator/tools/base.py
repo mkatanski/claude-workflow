@@ -1,12 +1,21 @@
 """Base tool abstraction for workflow steps."""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
     from ..context import ExecutionContext
     from ..tmux import TmuxManager
+
+
+class LoopSignal(Enum):
+    """Signal for loop control flow."""
+
+    NONE = "none"
+    BREAK = "break"
+    CONTINUE = "continue"
 
 
 @dataclass
@@ -17,6 +26,7 @@ class ToolResult:
     output: Optional[str] = None
     error: Optional[str] = None
     goto_step: Optional[str] = None  # Target step name for goto tool
+    loop_signal: LoopSignal = field(default=LoopSignal.NONE)  # Loop control signal
 
 
 class BaseTool(ABC):

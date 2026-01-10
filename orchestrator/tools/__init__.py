@@ -2,10 +2,13 @@
 
 from typing import Dict, List
 
-from .base import BaseTool, ToolResult
+from .base import BaseTool, LoopSignal, ToolResult
 from .bash import BashTool
+from .break_tool import BreakTool
 from .claude import ClaudeTool
 from .claude_sdk import ClaudeSdkTool
+from .continue_tool import ContinueTool
+from .foreach import ForEachTool
 from .goto import GotoTool
 from .linear_manage import LinearManageTool
 from .linear_tasks import LinearTasksTool
@@ -58,10 +61,14 @@ ToolRegistry.register(GotoTool())
 ToolRegistry.register(SetTool())
 ToolRegistry.register(LinearTasksTool())
 ToolRegistry.register(LinearManageTool())
+ToolRegistry.register(ForEachTool())
+ToolRegistry.register(BreakTool())
+ToolRegistry.register(ContinueTool())
 
 
 __all__ = [
     "BaseTool",
+    "LoopSignal",
     "ToolResult",
     "ToolRegistry",
     "ClaudeTool",
@@ -71,4 +78,7 @@ __all__ = [
     "SetTool",
     "LinearTasksTool",
     "LinearManageTool",
+    "ForEachTool",
+    "BreakTool",
+    "ContinueTool",
 ]

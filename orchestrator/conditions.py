@@ -43,8 +43,8 @@ class ConditionEvaluator:
     # Build pattern dynamically from operators
     OPERATOR_PATTERN = "|".join(re.escape(op) for op in OPERATORS)
 
-    # Pattern to extract variable reference like {var_name}
-    VAR_PATTERN = re.compile(r"\{([\w_]+)\}")
+    # Pattern to extract variable reference like {var_name} or {var.field.nested}
+    VAR_PATTERN = re.compile(r"\{([\w_][\w_\d]*(?:\.[\w_\d]+)*)\}")
 
     # Pattern for simple conditions: {var} operator value
     SIMPLE_PATTERN = re.compile(
@@ -105,12 +105,15 @@ class ConditionEvaluator:
         # Strip quotes first
         value = self._strip_quotes(value)
 
-        # Check if this is a variable reference like {var_name}
+        # Check if this is a variable reference like {var_name} or {var.field.nested}
         var_match = self.VAR_PATTERN.fullmatch(value)
         if var_match:
-            var_name = var_match.group(1)
-            result = self.context.get(var_name, "")
-            return str(result) if result is not None else ""
+            # Use interpolate which handles both simple vars and dot notation
+            result = self.context.interpolate(value)
+            # If interpolation returned the original placeholder, treat as empty
+            if result == value:
+                return ""
+            return result
 
         # Otherwise interpolate any embedded variables
         return self.context.interpolate(value)

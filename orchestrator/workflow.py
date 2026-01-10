@@ -123,8 +123,11 @@ class WorkflowRunner:
         return result.goto_step
 
     def _step_to_dict(self, step: Step) -> Dict[str, Any]:
-        """Convert Step dataclass to dict for tool execution."""
-        return {
+        """Convert Step dataclass to dict for tool execution.
+
+        Handles recursive conversion for nested steps (foreach).
+        """
+        result: Dict[str, Any] = {
             "name": step.name,
             "tool": step.tool,
             "prompt": step.prompt,
@@ -148,12 +151,23 @@ class WorkflowRunner:
             "max_turns": step.max_turns,
             "timeout": step.timeout,
             "verbose": step.verbose,
+            # foreach tool fields
+            "source": step.source,
+            "item_var": step.item_var,
+            "index_var": step.index_var,
+            "on_item_error": step.on_item_error,
             # Workflow-level claude_sdk config for fallback
             "_workflow_claude_sdk": {
                 "system_prompt": self.config.claude_sdk.system_prompt,
                 "model": self.config.claude_sdk.model,
             },
         }
+
+        # Recursively convert nested steps for foreach
+        if step.steps:
+            result["steps"] = [self._step_to_dict(s) for s in step.steps]
+
+        return result
 
     def _run_steps(self) -> None:
         """Run all steps with goto support."""

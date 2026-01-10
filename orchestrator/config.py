@@ -1,5 +1,7 @@
 """Configuration dataclasses and YAML loading for workflow orchestrator."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -79,6 +81,12 @@ class Step:
     max_turns: int = 10  # Max SDK agentic turns
     timeout: int = 60000  # Timeout in milliseconds
     verbose: bool = False  # Capture full transcript in output
+    # Fields for foreach tool
+    source: Optional[str] = None  # Variable name containing JSON array
+    item_var: Optional[str] = None  # Current item variable name
+    index_var: Optional[str] = None  # Current index variable name (optional)
+    on_item_error: str = "stop"  # Error handling: stop | stop_loop | continue
+    steps: Optional[List[Step]] = None  # Nested steps for foreach
 
 
 @dataclass
@@ -93,7 +101,15 @@ class WorkflowConfig:
 
 
 def _parse_step(step_data: Dict[str, Any]) -> Step:
-    """Parse a step dictionary into a Step dataclass."""
+    """Parse a step dictionary into a Step dataclass.
+
+    Handles recursive parsing for nested steps (foreach).
+    """
+    # Parse nested steps recursively if present
+    nested_steps: Optional[List[Step]] = None
+    if "steps" in step_data and step_data["steps"]:
+        nested_steps = [_parse_step(s) for s in step_data["steps"]]
+
     return Step(
         name=step_data["name"],
         tool=step_data.get("tool", "claude"),
@@ -133,6 +149,12 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         max_turns=step_data.get("max_turns", 10),
         timeout=step_data.get("timeout", 60000),
         verbose=step_data.get("verbose", False),
+        # foreach tool fields
+        source=step_data.get("source"),
+        item_var=step_data.get("item_var"),
+        index_var=step_data.get("index_var"),
+        on_item_error=step_data.get("on_item_error", "stop"),
+        steps=nested_steps,
     )
 
 
