@@ -39,7 +39,8 @@ class BashTool(BaseTool):
         If visible=False (default), runs in background subprocess.
         """
         command = context.interpolate(step["command"])
-        cwd = context.interpolate_optional(step.get("cwd"))
+        # Always default to project_path for cwd
+        cwd = context.interpolate_optional(step.get("cwd")) or str(context.project_path)
         visible = step.get("visible", False)
 
         if visible:

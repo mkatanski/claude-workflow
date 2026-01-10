@@ -1,6 +1,7 @@
 """Execution context for variable storage and interpolation."""
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
@@ -12,6 +13,7 @@ class ExecutionContext:
     dynamic variables captured from tool outputs.
     """
 
+    project_path: Path = field(default_factory=lambda: Path.cwd())
     variables: Dict[str, Any] = field(default_factory=dict)
 
     def set(self, name: str, value: Any) -> None:

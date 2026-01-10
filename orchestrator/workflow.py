@@ -41,7 +41,7 @@ class WorkflowRunner:
             config.claude,
             project_path,
         )
-        self.context = ExecutionContext()
+        self.context = ExecutionContext(project_path=project_path)
 
         # Time tracking
         self.workflow_start_time: Optional[float] = None
