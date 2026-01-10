@@ -15,14 +15,13 @@ Requirements:
     - pip install pyyaml rich
 """
 
-import sys
-import os
-import time
-import json
-import uuid
 import argparse
-import subprocess
 import hashlib
+import json
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
@@ -76,16 +75,15 @@ def _check_hook_exists(
     settings: Dict[str, Any], hook_name: str, marker_extension: str
 ) -> bool:
     """Check if a specific hook with our marker command exists in settings."""
-    hooks = settings.get("hooks", {})
-    hook_list = hooks.get(hook_name, [])
+    hook_list = settings.get("hooks", {}).get(hook_name, [])
 
-    for hook_group in hook_list:
-        for hook in hook_group.get("hooks", []):
-            if hook.get("type") == "command":
-                cmd = hook.get("command", "")
-                if "/tmp/claude-orchestrator" in cmd and marker_extension in cmd:
-                    return True
-    return False
+    return any(
+        "/tmp/claude-orchestrator" in hook.get("command", "")
+        and marker_extension in hook.get("command", "")
+        for hook_group in hook_list
+        for hook in hook_group.get("hooks", [])
+        if hook.get("type") == "command"
+    )
 
 
 def check_hook_configuration(project_path: Optional[Path] = None) -> bool:
@@ -97,7 +95,6 @@ def check_hook_configuration(project_path: Optional[Path] = None) -> bool:
     Returns True only if BOTH hooks are properly configured.
     """
     settings_paths = [Path.home() / ".claude" / "settings.json"]
-
     if project_path:
         settings_paths.insert(0, project_path / ".claude" / "settings.json")
 
@@ -109,7 +106,6 @@ def check_hook_configuration(project_path: Optional[Path] = None) -> bool:
             with open(settings_path, "r") as f:
                 settings = json.load(f)
 
-            # Check if both Stop and SessionEnd hooks exist with our marker commands
             has_stop_hook = _check_hook_exists(settings, "Stop", ".done")
             has_session_end_hook = _check_hook_exists(settings, "SessionEnd", ".exited")
 
@@ -463,33 +459,16 @@ class WorkflowRunner:
         MARKER_DIR.mkdir(parents=True, exist_ok=True)
         self._cleanup_all_marker_files()
 
-    def _get_marker_file(self, pane_id: Optional[str] = None) -> Optional[Path]:
-        """Get the stop marker file path (.done) for the given or current pane."""
+    def _get_marker_file(self, pane_id: Optional[str] = None, extension: str = ".done") -> Optional[Path]:
+        """Get the marker file path for the given or current pane."""
         pane = pane_id or self.claude_pane
         if not pane:
             return None
-        # Pane ID is like %123, use it as filename
-        return MARKER_DIR / f"{pane}.done"
+        return MARKER_DIR / f"{pane}{extension}"
 
-    def _get_session_end_marker_file(self, pane_id: Optional[str] = None) -> Optional[Path]:
-        """Get the session end marker file path (.exited) for the given or current pane."""
-        pane = pane_id or self.claude_pane
-        if not pane:
-            return None
-        return MARKER_DIR / f"{pane}.exited"
-
-    def _cleanup_marker_file(self, pane_id: Optional[str] = None) -> None:
-        """Remove the stop marker file if it exists."""
-        marker_file = self._get_marker_file(pane_id)
-        if marker_file and marker_file.exists():
-            try:
-                marker_file.unlink()
-            except OSError:
-                pass
-
-    def _cleanup_session_end_marker_file(self, pane_id: Optional[str] = None) -> None:
-        """Remove the session end marker file if it exists."""
-        marker_file = self._get_session_end_marker_file(pane_id)
+    def _cleanup_marker_file(self, pane_id: Optional[str] = None, extension: str = ".done") -> None:
+        """Remove a marker file if it exists."""
+        marker_file = self._get_marker_file(pane_id, extension)
         if marker_file and marker_file.exists():
             try:
                 marker_file.unlink()
@@ -508,20 +487,9 @@ class WorkflowRunner:
         except OSError:
             pass
 
-    def _wait_for_session_end_marker(
-        self, pane_id: str, timeout: float = 30.0
-    ) -> bool:
-        """
-        Wait for the session end marker file to appear.
-
-        Args:
-            pane_id: The pane ID to wait for
-            timeout: Maximum seconds to wait
-
-        Returns:
-            True if marker file appeared, False if timeout
-        """
-        marker_file = self._get_session_end_marker_file(pane_id)
+    def _wait_for_session_end_marker(self, pane_id: str, timeout: float = 30.0) -> bool:
+        """Wait for the session end marker file to appear."""
+        marker_file = self._get_marker_file(pane_id, ".exited")
         if not marker_file:
             return False
 
@@ -546,46 +514,13 @@ class WorkflowRunner:
             return False
 
     def _wait_for_pane_close(self, pane_id: str, timeout: float = 10.0) -> bool:
-        """
-        Wait for a pane to be closed.
-
-        Args:
-            pane_id: The tmux pane ID to wait for
-            timeout: Maximum seconds to wait
-
-        Returns:
-            True if pane is closed, False if timeout
-        """
+        """Wait for a pane to be closed."""
         start_time = time.time()
         while time.time() - start_time < timeout:
             if not self._pane_exists(pane_id):
                 return True
             time.sleep(0.2)
         return False
-
-    def _wait_for_marker_file(self, timeout: Optional[float] = None) -> bool:
-        """
-        Wait for the marker file to appear.
-
-        Args:
-            timeout: Maximum seconds to wait (None for no timeout)
-
-        Returns:
-            True if marker file appeared, False if timeout
-        """
-        marker_file = self._get_marker_file()
-        if not marker_file:
-            return False
-
-        start_time = time.time()
-        while True:
-            if marker_file.exists():
-                return True
-
-            if timeout and (time.time() - start_time > timeout):
-                return False
-
-            time.sleep(0.5)
 
     def _build_claude_command(self, prompt: Optional[str] = None) -> str:
         """Build the Claude Code command with all options."""
@@ -653,69 +588,50 @@ class WorkflowRunner:
             timeout=5,
         )
 
+    def _kill_pane_safely(self, pane_id: str) -> None:
+        """Attempt to kill a tmux pane, ignoring errors if already closed."""
+        try:
+            self.controller.kill_pane(pane_id)
+        except Exception:
+            pass
+
     def close_claude_pane(self) -> None:
         """Close the current Claude pane and wait for it to be fully closed.
 
         Flow:
-        1. Send Ctrl+D twice to force exit Claude Code (works even when busy)
+        1. Send Ctrl+C to interrupt, then Ctrl+D twice to force exit
         2. Wait for SessionEnd hook marker (confirms session terminated)
-        3. Kill the tmux pane
-        4. Wait for pane to be fully closed
+        3. Kill the tmux pane and wait for closure
         """
         if not self.claude_pane:
             return
 
         pane_to_close = self.claude_pane
-        self.claude_pane = None  # Clear reference first
+        self.claude_pane = None
 
-        # Clean up any stale session end marker before sending exit
-        self._cleanup_session_end_marker_file(pane_to_close)
+        self._cleanup_marker_file(pane_to_close, ".exited")
 
         try:
-            # Send Ctrl+C first to interrupt any running process
             self.controller.send_interrupt(pane_to_close)
             time.sleep(0.3)
 
-            # Send Ctrl+D twice to force exit Claude Code
-            # This works even when Claude is still processing
             self._send_ctrl_d(pane_to_close)
             time.sleep(0.2)
             self._send_ctrl_d(pane_to_close)
             time.sleep(0.3)
 
-            # Wait for SessionEnd hook to fire (session gracefully terminated)
             if self.hook_configured:
-                session_ended = self._wait_for_session_end_marker(
-                    pane_to_close, timeout=30.0
-                )
-                if not session_ended:
-                    # Session didn't end gracefully, will force kill below
-                    pass
+                self._wait_for_session_end_marker(pane_to_close, timeout=30.0)
 
-            # Now kill the tmux pane
-            try:
-                self.controller.kill_pane(pane_to_close)
-            except Exception:
-                pass  # Pane might already be closed
-
+            self._kill_pane_safely(pane_to_close)
         except Exception:
-            # Try to force kill the pane on any error
-            try:
-                self.controller.kill_pane(pane_to_close)
-            except Exception:
-                pass
+            self._kill_pane_safely(pane_to_close)
 
-        # Wait for pane to be fully closed before proceeding
         if not self._wait_for_pane_close(pane_to_close, timeout=10.0):
-            # If pane still exists after timeout, try force kill again
-            try:
-                self.controller.kill_pane(pane_to_close)
-                self._wait_for_pane_close(pane_to_close, timeout=5.0)
-            except Exception:
-                pass
+            self._kill_pane_safely(pane_to_close)
+            self._wait_for_pane_close(pane_to_close, timeout=5.0)
 
-        # Clean up session end marker
-        self._cleanup_session_end_marker_file(pane_to_close)
+        self._cleanup_marker_file(pane_to_close, ".exited")
 
     def _get_pane_content_hash(self) -> str:
         """Get hash of current pane content."""
@@ -786,26 +702,17 @@ class WorkflowRunner:
 
         prompt = interpolate(step.prompt, variables)
 
-        # Clean up ALL marker files before launching new pane
-        # This ensures no stale markers from previous steps with same pane ID
         self._cleanup_all_marker_files()
-
-        # Launch a fresh Claude pane with the prompt
         self.claude_pane = self.launch_claude_pane(prompt)
-
-        # Double-check: clean up both marker files for this specific pane
         self._cleanup_marker_file()
-        self._cleanup_session_end_marker_file()
+        self._cleanup_marker_file(extension=".exited")
 
         try:
-            # Wait for completion (no timeout)
             self.wait_for_completion()
 
-            # Calculate step duration
             step_duration = time.time() - step_start_time
             self.step_times.append(step_duration)
 
-            # Display result with timing
             result_text = Text()
             result_text.append(f"\n{ICONS['check']} ", style="bold green")
             result_text.append("Step completed", style="green")
@@ -813,10 +720,8 @@ class WorkflowRunner:
             console.print(result_text)
             self.completed_steps += 1
         finally:
-            # Clean up both marker files (stop and session end)
             self._cleanup_marker_file()
-            self._cleanup_session_end_marker_file()
-            # Close the Claude pane after step completion
+            self._cleanup_marker_file(extension=".exited")
             self.close_claude_pane()
 
     def run_iteration(
@@ -829,17 +734,13 @@ class WorkflowRunner:
         console.print()
         console.print(create_iteration_header(iter_key, iter_value, iter_num, total_iters))
 
-        total_steps = len(self.config.steps)
-
         for step_num, step in enumerate(self.config.steps, 1):
-            self.run_step(step, variables, step_num, total_steps)
+            self.run_step(step, variables, step_num, len(self.config.steps))
             time.sleep(0.5)
 
-        # Calculate and store phase duration
         phase_duration = time.time() - phase_start_time
         self.phase_times.append(phase_duration)
 
-        # Display phase completion with timing
         phase_text = Text()
         phase_text.append(f"{ICONS['check']} ", style="bold green")
         phase_text.append(f"Phase {iter_num}/{total_iters} completed", style="green")
@@ -847,23 +748,21 @@ class WorkflowRunner:
         console.print()
         console.print(phase_text)
 
+    def _get_iteration_config(self) -> tuple[str, List[Any]]:
+        """Get the iteration key and values from config, with defaults."""
+        if self.config.variables:
+            iter_key = list(self.config.variables.keys())[0]
+            return iter_key, self.config.variables[iter_key]
+        return "step", [1]
+
     def run(self) -> None:
         """Run the complete workflow."""
         self.print_header()
 
-        # Check hook configuration and warn if not set up
         if not self.hook_configured:
             print_hook_setup_instructions(self.project_path)
 
-        # Get iteration variable
-        if self.config.variables:
-            iter_key = list(self.config.variables.keys())[0]
-            iter_values = self.config.variables[iter_key]
-        else:
-            iter_key = "step"
-            iter_values = [1]
-
-        total_iters = len(iter_values)
+        iter_key, iter_values = self._get_iteration_config()
 
         console.print()
         start_text = Text()
@@ -880,7 +779,7 @@ class WorkflowRunner:
 
         try:
             for iter_num, iter_value in enumerate(iter_values, 1):
-                self.run_iteration(iter_key, iter_value, iter_num, total_iters)
+                self.run_iteration(iter_key, iter_value, iter_num, len(iter_values))
         except KeyboardInterrupt:
             console.print()
             interrupt_text = Text()
@@ -888,13 +787,11 @@ class WorkflowRunner:
             interrupt_text.append("Workflow interrupted by user", style="yellow")
             console.print(interrupt_text)
         finally:
-            # Clean up any running Claude pane
             self._cleanup()
             self._print_summary()
 
     def _cleanup(self) -> None:
         """Clean up resources on exit."""
-        # Kill any running Claude pane
         if self.claude_pane:
             cleanup_text = Text()
             cleanup_text.append(f"{ICONS['gear']} ", style="dim")
@@ -902,7 +799,6 @@ class WorkflowRunner:
             console.print(cleanup_text)
             self.close_claude_pane()
 
-        # Clean up all marker files
         self._cleanup_all_marker_files()
 
     def _print_summary(self) -> None:
@@ -911,44 +807,31 @@ class WorkflowRunner:
 
         console.print()
 
-        # Create summary content
         summary = Text()
         summary.append(f"{ICONS['sparkles']} ", style="bold green")
         summary.append("Workflow Complete!", style="bold green")
         summary.append(f" {ICONS['sparkles']}\n", style="bold green")
 
-        # Stats table
         stats_table = Table(show_header=False, box=None, padding=(0, 1), expand=False)
         stats_table.add_column("Metric", style="dim", no_wrap=True)
         stats_table.add_column("Value", style="bold white", no_wrap=True)
 
-        # Completed steps
         stats_table.add_row(
             f"{ICONS['check']} Completed steps",
             f"[green]{self.completed_steps}[/green]",
         )
-
-        # Total workflow time
         stats_table.add_row(
             f"{ICONS['clock']} Total time",
             format_duration(total_elapsed),
         )
 
-        # Average phase time
         if self.phase_times:
             avg_phase = sum(self.phase_times) / len(self.phase_times)
-            stats_table.add_row(
-                f"{ICONS['loop']} Avg phase time",
-                format_duration(avg_phase),
-            )
+            stats_table.add_row(f"{ICONS['loop']} Avg phase time", format_duration(avg_phase))
 
-        # Average step time
         if self.step_times:
             avg_step = sum(self.step_times) / len(self.step_times)
-            stats_table.add_row(
-                f"{ICONS['target']} Avg step time",
-                format_duration(avg_step),
-            )
+            stats_table.add_row(f"{ICONS['target']} Avg step time", format_duration(avg_step))
 
         summary_panel = Panel(
             Group(summary, stats_table),
