@@ -28,6 +28,14 @@ class ClaudeConfig:
 
 
 @dataclass
+class ClaudeSdkConfig:
+    """Claude SDK tool configuration at workflow level."""
+
+    system_prompt: Optional[str] = None  # Default system prompt for all claude_sdk steps
+    model: Optional[str] = None  # Default model alias (sonnet, opus, haiku)
+
+
+@dataclass
 class Step:
     """A single workflow step."""
 
@@ -61,6 +69,16 @@ class Step:
     skip_blocked: bool = True  # Skip blocked issues in get_next
     filter: Optional[Dict[str, Any]] = None  # Custom GraphQL filter
     api_key: Optional[str] = None  # Optional API key override
+    # Fields for claude_sdk tool
+    model: Optional[str] = None  # Model alias: sonnet, opus, haiku
+    system_prompt: Optional[str] = None  # Override workflow-level system prompt
+    output_type: Optional[str] = None  # boolean, enum, decision, schema
+    values: Optional[List[str]] = None  # For enum output_type
+    schema: Optional[Dict[str, Any]] = None  # For schema output_type
+    max_retries: int = 3  # Schema validation retries
+    max_turns: int = 10  # Max SDK agentic turns
+    timeout: int = 60000  # Timeout in milliseconds
+    verbose: bool = False  # Capture full transcript in output
 
 
 @dataclass
@@ -71,6 +89,7 @@ class WorkflowConfig:
     steps: List[Step]
     tmux: TmuxConfig = field(default_factory=TmuxConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    claude_sdk: ClaudeSdkConfig = field(default_factory=ClaudeSdkConfig)
 
 
 def _parse_step(step_data: Dict[str, Any]) -> Step:
@@ -104,6 +123,16 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         skip_blocked=step_data.get("skip_blocked", True),
         filter=step_data.get("filter"),
         api_key=step_data.get("api_key"),
+        # claude_sdk tool fields
+        model=step_data.get("model"),
+        system_prompt=step_data.get("system_prompt"),
+        output_type=step_data.get("output_type"),
+        values=step_data.get("values"),
+        schema=step_data.get("schema"),
+        max_retries=step_data.get("max_retries", 3),
+        max_turns=step_data.get("max_turns", 10),
+        timeout=step_data.get("timeout", 60000),
+        verbose=step_data.get("verbose", False),
     )
 
 
@@ -148,9 +177,16 @@ def load_config(project_path: Path) -> WorkflowConfig:
         allowed_tools=allowed_tools,
     )
 
+    claude_sdk_data = data.get("claude_sdk", {})
+    claude_sdk_config = ClaudeSdkConfig(
+        system_prompt=claude_sdk_data.get("system_prompt"),
+        model=claude_sdk_data.get("model"),
+    )
+
     return WorkflowConfig(
         name=data.get("name", "Workflow"),
         steps=steps,
         tmux=tmux_config,
         claude=claude_config,
+        claude_sdk=claude_sdk_config,
     )

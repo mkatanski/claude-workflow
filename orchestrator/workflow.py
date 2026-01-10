@@ -138,6 +138,21 @@ class WorkflowRunner:
             "var": step.var,
             "value": step.value,
             "strip_output": step.strip_output,
+            # claude_sdk tool fields
+            "model": step.model,
+            "system_prompt": step.system_prompt,
+            "output_type": step.output_type,
+            "values": step.values,
+            "schema": step.schema,
+            "max_retries": step.max_retries,
+            "max_turns": step.max_turns,
+            "timeout": step.timeout,
+            "verbose": step.verbose,
+            # Workflow-level claude_sdk config for fallback
+            "_workflow_claude_sdk": {
+                "system_prompt": self.config.claude_sdk.system_prompt,
+                "model": self.config.claude_sdk.model,
+            },
         }
 
     def _run_steps(self) -> None:

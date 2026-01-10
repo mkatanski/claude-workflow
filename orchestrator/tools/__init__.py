@@ -5,6 +5,7 @@ from typing import Dict, List
 from .base import BaseTool, ToolResult
 from .bash import BashTool
 from .claude import ClaudeTool
+from .claude_sdk import ClaudeSdkTool
 from .goto import GotoTool
 from .linear_manage import LinearManageTool
 from .linear_tasks import LinearTasksTool
@@ -51,6 +52,7 @@ class ToolRegistry:
 
 # Auto-register built-in tools
 ToolRegistry.register(ClaudeTool())
+ToolRegistry.register(ClaudeSdkTool())
 ToolRegistry.register(BashTool())
 ToolRegistry.register(GotoTool())
 ToolRegistry.register(SetTool())
@@ -63,6 +65,7 @@ __all__ = [
     "ToolResult",
     "ToolRegistry",
     "ClaudeTool",
+    "ClaudeSdkTool",
     "BashTool",
     "GotoTool",
     "SetTool",
