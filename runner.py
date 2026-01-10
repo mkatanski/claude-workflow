@@ -22,6 +22,7 @@ import json
 import uuid
 import argparse
 import subprocess
+import hashlib
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
@@ -716,35 +717,63 @@ class WorkflowRunner:
         # Clean up session end marker
         self._cleanup_session_end_marker_file(pane_to_close)
 
+    def _get_pane_content_hash(self) -> str:
+        """Get hash of current pane content."""
+        if not self.claude_pane:
+            return ""
+        try:
+            content = self.controller.capture_pane(self.claude_pane)
+            return hashlib.md5(content.encode()).hexdigest()
+        except Exception:
+            return ""
+
     def wait_for_completion(self) -> None:
-        """Wait for Claude to finish processing with animated output."""
+        """Wait for Claude to finish processing with animated output.
+
+        Uses two detection methods:
+        1. Primary: Marker file from Stop hook (if configured)
+        2. Fallback: Hash-based idle detection (60s of no output change)
+        """
         if not self.claude_pane:
             raise RuntimeError("Claude pane not initialized")
 
         start = time.time()
         waiter = AnimatedWaiter()
 
+        # Hash-based idle detection state
+        last_hash = ""
+        last_hash_change_time = time.time()
+        last_hash_check_time = 0.0
+        hash_check_interval = 10.0  # Check hash every 10 seconds
+        idle_timeout = 60.0  # Consider done after 60s of no change
+
         with Live(console=console, refresh_per_second=10) as live:
             while True:
                 elapsed = time.time() - start
                 live.update(waiter.create_display(elapsed))
 
+                # Primary: Check for marker file (most reliable)
                 if self.hook_configured:
-                    # Primary: Check for marker file (most reliable)
                     marker_file = self._get_marker_file()
                     if marker_file and marker_file.exists():
                         return
-                    # Brief sleep before next check
-                    time.sleep(0.5)
-                else:
-                    # Fallback: Check if idle (less reliable)
-                    is_idle = self.controller.wait_for_idle(
-                        pane_id=self.claude_pane,
-                        idle_time=self.config.tmux.idle_time,
-                        timeout=1,
-                    )
-                    if is_idle:
+
+                # Fallback: Hash-based idle detection
+                current_time = time.time()
+                if current_time - last_hash_check_time >= hash_check_interval:
+                    last_hash_check_time = current_time
+                    current_hash = self._get_pane_content_hash()
+
+                    if current_hash != last_hash:
+                        # Content changed, reset timer
+                        last_hash = current_hash
+                        last_hash_change_time = current_time
+                    elif current_time - last_hash_change_time >= idle_timeout:
+                        # No change for idle_timeout seconds, consider done
                         return
+
+                # Brief sleep before next iteration
+                time.sleep(0.5)
 
     def run_step(
         self, step: Step, variables: Dict[str, Any], step_num: int, total_steps: int
