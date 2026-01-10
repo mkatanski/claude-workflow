@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 
@@ -46,6 +46,21 @@ class Step:
     value: Optional[str] = None   # For set: variable value
     # Fields for bash tool
     strip_output: bool = True     # Strip whitespace from output
+    # Fields for linear tools
+    action: Optional[str] = None  # Linear action type
+    team: Optional[str] = None  # Team key or name
+    project: Optional[str] = None  # Project name
+    issue_id: Optional[str] = None  # Issue identifier
+    title: Optional[str] = None  # Issue title
+    description: Optional[str] = None  # Issue description
+    priority: Optional[int] = None  # Priority level (0-4)
+    labels: Optional[Union[List[str], str]] = None  # Label names
+    status: Optional[str] = None  # Workflow state name
+    assignee: Optional[str] = None  # User identifier
+    body: Optional[str] = None  # Comment body
+    skip_blocked: bool = True  # Skip blocked issues in get_next
+    filter: Optional[Dict[str, Any]] = None  # Custom GraphQL filter
+    api_key: Optional[str] = None  # Optional API key override
 
 
 @dataclass
@@ -74,6 +89,21 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         var=step_data.get("var"),
         value=step_data.get("value"),
         strip_output=step_data.get("strip_output", True),
+        # Linear tool fields
+        action=step_data.get("action"),
+        team=step_data.get("team"),
+        project=step_data.get("project"),
+        issue_id=step_data.get("issue_id"),
+        title=step_data.get("title"),
+        description=step_data.get("description"),
+        priority=step_data.get("priority"),
+        labels=step_data.get("labels"),
+        status=step_data.get("status"),
+        assignee=step_data.get("assignee"),
+        body=step_data.get("body"),
+        skip_blocked=step_data.get("skip_blocked", True),
+        filter=step_data.get("filter"),
+        api_key=step_data.get("api_key"),
     )
 
 

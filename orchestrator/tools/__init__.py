@@ -6,6 +6,8 @@ from .base import BaseTool, ToolResult
 from .bash import BashTool
 from .claude import ClaudeTool
 from .goto import GotoTool
+from .linear_manage import LinearManageTool
+from .linear_tasks import LinearTasksTool
 from .set import SetTool
 
 
@@ -52,6 +54,8 @@ ToolRegistry.register(ClaudeTool())
 ToolRegistry.register(BashTool())
 ToolRegistry.register(GotoTool())
 ToolRegistry.register(SetTool())
+ToolRegistry.register(LinearTasksTool())
+ToolRegistry.register(LinearManageTool())
 
 
 __all__ = [
@@ -62,4 +66,6 @@ __all__ = [
     "BashTool",
     "GotoTool",
     "SetTool",
+    "LinearTasksTool",
+    "LinearManageTool",
 ]
