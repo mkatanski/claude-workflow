@@ -1,5 +1,6 @@
 """Claude Code Workflow Orchestrator package."""
 
+from .cli import main
 from .config import (
     ClaudeConfig,
     Step,
@@ -19,6 +20,8 @@ from .tools import BaseTool, BashTool, ClaudeTool, ToolRegistry, ToolResult
 from .workflow import StepError, WorkflowRunner
 
 __all__ = [
+    # CLI
+    "main",
     # Config
     "ClaudeConfig",
     "Step",
