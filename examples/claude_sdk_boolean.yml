@@ -1,0 +1,61 @@
+# Claude SDK Boolean Decisions
+# Demonstrates: output_type: boolean for yes/no decisions
+# Use case: Quick AI-powered decision gates in workflows
+
+type: claude-workflow
+version: 2
+
+name: "Claude SDK Boolean Decisions"
+
+claude:
+  interactive: true
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 3.0
+
+steps:
+  # Get some context to make decisions about
+  - name: "Get git status"
+    tool: bash
+    command: "git status --porcelain 2>/dev/null || echo 'not a git repo'"
+    output_var: git_status
+
+  - name: "Check for uncommitted changes"
+    tool: claude_sdk
+    prompt: |
+      Analyze this git status output and determine if there are uncommitted changes:
+
+      {git_status}
+
+      Return true if there are uncommitted changes, false if the working directory is clean.
+    output_type: boolean
+    output_var: has_changes
+
+  - name: "Report uncommitted changes"
+    tool: bash
+    command: "echo 'Has uncommitted changes: {has_changes}'"
+    output_var: changes_report
+
+  # Chained boolean decision
+  - name: "Get file list"
+    tool: bash
+    command: "ls -la *.py 2>/dev/null || echo 'no python files'"
+    output_var: python_files
+
+  - name: "Check if Python project"
+    tool: claude_sdk
+    prompt: |
+      Based on this file listing, determine if this is a Python project:
+
+      {python_files}
+
+      Return true if Python files exist, false otherwise.
+    output_type: boolean
+    output_var: is_python
+
+  - name: "Python project decision"
+    tool: bash
+    command: "echo 'Is Python project: {is_python}'"
+    when: "{is_python} == true"

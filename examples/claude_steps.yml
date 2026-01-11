@@ -1,0 +1,28 @@
+# Workflow with Claude Code steps
+# Tests: claude tool execution, prompt interpolation
+
+type: claude-workflow
+version: 2
+
+name: "Claude Steps Workflow"
+
+claude:
+  interactive: true
+  model: sonnet
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 5.0
+
+steps:
+  - name: "Get project info"
+    tool: bash
+    command: "echo 'My Test Project'"
+    output_var: project_name
+
+  - name: "Claude analysis"
+    prompt: "Analyze the project named {project_name}"
+
+  - name: "Claude review"
+    prompt: "Review the changes and suggest improvements"

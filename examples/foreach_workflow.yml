@@ -1,0 +1,38 @@
+# Workflow with foreach loop
+# Tests: foreach tool, nested steps, item/index variables
+
+type: claude-workflow
+version: 2
+
+name: "ForEach Workflow"
+
+claude:
+  interactive: true
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 3.0
+
+steps:
+  - name: "Set items list"
+    tool: set
+    var: items
+    value: '["apple", "banana", "cherry"]'
+
+  - name: "Process each item"
+    tool: foreach
+    source: items
+    item_var: current_item
+    index_var: item_index
+    on_item_error: continue
+    steps:
+      - name: "Process item"
+        tool: bash
+        command: "echo 'Processing item {item_index}: {current_item}'"
+        output_var: item_result
+
+  - name: "Finished processing"
+    tool: bash
+    command: "echo 'All items processed'"
+    output_var: final_result

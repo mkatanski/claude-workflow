@@ -1,0 +1,162 @@
+# Linear Issue Lifecycle
+# Demonstrates: Full issue lifecycle with create, update, comment
+# Use case: Automated issue management in development workflows
+
+type: claude-workflow
+version: 2
+
+name: "Linear Issue Lifecycle"
+
+claude:
+  interactive: true
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 3.0
+
+steps:
+  # ===========================================
+  # Phase 1: Create a new issue
+  # ===========================================
+
+  - name: "Set issue details"
+    tool: set
+    var: issue_title
+    value: "Automated: Performance optimization task"
+
+  - name: "Set issue description"
+    tool: set
+    var: issue_description
+    value: |
+      This issue was created automatically by the workflow.
+
+      ## Objective
+      Optimize database queries for the dashboard.
+
+      ## Acceptance Criteria
+      - Query response time < 100ms
+      - No N+1 queries
+
+  - name: "Create new issue"
+    tool: linear_manage
+    action: create
+    team: "ENG"
+    title: "{issue_title}"
+    description: "{issue_description}"
+    priority: 2
+    labels:
+      - "automation"
+      - "performance"
+    output_var: created_issue_id
+
+  - name: "Report created issue"
+    tool: bash
+    command: "echo 'Created issue: {created_issue_id}'"
+    when: "{created_issue_id} is not empty"
+
+  # ===========================================
+  # Phase 2: Get issue details
+  # ===========================================
+
+  - name: "Get issue details"
+    tool: linear_tasks
+    action: get
+    issue_id: "{created_issue_id}"
+    output_var: issue_details
+    when: "{created_issue_id} is not empty"
+
+  - name: "Show issue details"
+    tool: bash
+    command: "echo 'Issue details: {issue_details}'"
+    when: "{issue_details} is not empty"
+
+  # ===========================================
+  # Phase 3: Update issue status
+  # ===========================================
+
+  - name: "Move to In Progress"
+    tool: linear_manage
+    action: update
+    issue_id: "{created_issue_id}"
+    status: "In Progress"
+    output_var: update_result
+    when: "{created_issue_id} is not empty"
+
+  - name: "Report status update"
+    tool: bash
+    command: "echo 'Updated issue status to In Progress'"
+    when: "{update_result} is not empty"
+
+  # ===========================================
+  # Phase 4: Add work comment
+  # ===========================================
+
+  - name: "Get current timestamp"
+    tool: bash
+    command: "date '+%Y-%m-%d %H:%M:%S'"
+    output_var: timestamp
+
+  - name: "Add progress comment"
+    tool: linear_manage
+    action: comment
+    issue_id: "{created_issue_id}"
+    body: |
+      ## Progress Update ({timestamp})
+
+      Work started on this issue.
+
+      ### Next Steps
+      - [ ] Analyze current query patterns
+      - [ ] Identify slow queries
+      - [ ] Implement optimizations
+    output_var: comment_id
+    when: "{created_issue_id} is not empty"
+
+  - name: "Report comment added"
+    tool: bash
+    command: "echo 'Added comment: {comment_id}'"
+    when: "{comment_id} is not empty"
+
+  # ===========================================
+  # Phase 5: Simulate work and complete
+  # ===========================================
+
+  - name: "Simulate work"
+    tool: bash
+    command: "echo 'Performing optimization work...'"
+    output_var: work_output
+
+  - name: "Add completion comment"
+    tool: linear_manage
+    action: comment
+    issue_id: "{created_issue_id}"
+    body: |
+      ## Work Complete
+
+      Optimizations have been applied.
+
+      ### Results
+      - Query time reduced by 60%
+      - N+1 queries eliminated
+
+      Ready for review.
+    output_var: completion_comment
+    when: "{created_issue_id} is not empty"
+
+  - name: "Move to Review"
+    tool: linear_manage
+    action: update
+    issue_id: "{created_issue_id}"
+    status: "In Review"
+    output_var: final_update
+    when: "{created_issue_id} is not empty"
+
+  # ===========================================
+  # Summary
+  # ===========================================
+
+  - name: "Lifecycle complete"
+    tool: bash
+    command: "echo 'Issue lifecycle complete: {created_issue_id}'"
+    output_var: done

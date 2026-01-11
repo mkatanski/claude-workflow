@@ -1,0 +1,85 @@
+# Claude SDK Enum Classification
+# Demonstrates: output_type: enum for constrained classification
+# Use case: Categorize items into predefined buckets
+
+type: claude-workflow
+version: 2
+
+name: "Claude SDK Enum Classification"
+
+claude:
+  interactive: true
+  dangerously_skip_permissions: true
+
+claude_sdk:
+  model: haiku
+
+tmux:
+  split: vertical
+  idle_time: 3.0
+
+steps:
+  # Get project information
+  - name: "List project files"
+    tool: bash
+    command: "ls -la 2>/dev/null | head -20"
+    output_var: file_listing
+
+  - name: "Check for package files"
+    tool: bash
+    command: "cat package.json 2>/dev/null || cat pyproject.toml 2>/dev/null || cat Cargo.toml 2>/dev/null || cat go.mod 2>/dev/null || echo 'no package file found'"
+    output_var: package_info
+
+  # Classify project type using enum
+  - name: "Classify project type"
+    tool: claude_sdk
+    prompt: |
+      Based on the file listing and package information, classify this project:
+
+      Files:
+      {file_listing}
+
+      Package info:
+      {package_info}
+
+      Determine the primary programming language/framework of this project.
+    output_type: enum
+    values:
+      - python
+      - javascript
+      - typescript
+      - go
+      - rust
+      - java
+      - other
+    output_var: project_type
+
+  - name: "Report project type"
+    tool: bash
+    command: "echo 'Detected project type: {project_type}'"
+
+  # Classify code quality (another enum example)
+  - name: "Get recent commits"
+    tool: bash
+    command: "git log --oneline -5 2>/dev/null || echo 'no git history'"
+    output_var: recent_commits
+
+  - name: "Assess commit quality"
+    tool: claude_sdk
+    prompt: |
+      Analyze these recent commit messages and assess their quality:
+
+      {recent_commits}
+
+      Rate the overall commit message quality.
+    output_type: enum
+    values:
+      - excellent
+      - good
+      - needs_improvement
+      - poor
+    output_var: commit_quality
+
+  - name: "Report commit quality"
+    tool: bash
+    command: "echo 'Commit message quality: {commit_quality}'"

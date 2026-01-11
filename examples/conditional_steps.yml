@@ -1,0 +1,44 @@
+# Workflow with conditional step execution
+# Tests: conditions, variable interpolation, step skipping
+
+type: claude-workflow
+version: 2
+
+name: "Conditional Steps Workflow"
+
+claude:
+  interactive: true
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 3.0
+
+steps:
+  - name: "Set environment"
+    tool: set
+    var: env
+    value: "production"
+
+  - name: "Production step"
+    tool: bash
+    command: "echo 'Running in production'"
+    when: "{env} == production"
+    output_var: prod_output
+
+  - name: "Development step"
+    tool: bash
+    command: "echo 'Running in development'"
+    when: "{env} == development"
+    output_var: dev_output
+
+  - name: "Check non-empty"
+    tool: bash
+    command: "echo 'some output'"
+    output_var: some_var
+
+  - name: "Run if var is not empty"
+    tool: bash
+    command: "echo 'Variable was not empty'"
+    when: "{some_var} is not empty"
+    output_var: check_result
