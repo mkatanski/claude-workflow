@@ -29,7 +29,17 @@ from orchestrator.config import (
     validate_workflow_file,
 )
 from orchestrator.display import ICONS, console
+from orchestrator.hooks import (
+    HookStatus,
+    check_hooks_status,
+    install_hooks,
+    print_manual_hook_instructions,
+    prompt_hook_installation,
+    prompt_hook_update,
+    workflow_uses_claude_tool,
+)
 from orchestrator.selector import format_workflow_list, select_workflow_interactive
+from orchestrator.server import ServerManager
 from orchestrator.workflow import WorkflowRunner
 
 
@@ -76,6 +86,13 @@ def main() -> None:
         dest="workflow_file",
         default=None,
         help="Direct path to a workflow file (must have valid type and version)",
+    )
+    parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        default=7432,
+        help="Port for completion signal server (default: 7432)",
     )
 
     args = parser.parse_args()
@@ -222,17 +239,89 @@ def main() -> None:
             console.print()
             sys.exit(1)
 
-    # Load and run
+    # Load config
     try:
         config = load_config(project_path, workflow_file)
-        runner = WorkflowRunner(config, project_path)
-        runner.run()
     except yaml.YAMLError as e:
         console.print()
-        console.print(f"[bold red]{ICONS['cross']} Invalid YAML in workflow file:[/bold red]")
+        console.print(
+            f"[bold red]{ICONS['cross']} Invalid YAML in workflow file:[/bold red]"
+        )
         console.print(f"  {e}")
         console.print()
         sys.exit(1)
+
+    # Check hooks only if workflow uses claude tool
+    if workflow_uses_claude_tool(config):
+        hook_result = check_hooks_status(project_path)
+
+        if hook_result.status == HookStatus.MISSING:
+            # No hooks found - ask user where to install
+            settings_path = prompt_hook_installation(project_path)
+            if settings_path:
+                if install_hooks(settings_path):
+                    console.print()
+                    console.print(
+                        f"[green]{ICONS['check']} Hooks installed to {settings_path}[/green]"
+                    )
+                    console.print(
+                        "[yellow]Please restart Claude Code for hooks to take effect.[/yellow]"
+                    )
+                    console.print()
+                else:
+                    print_manual_hook_instructions()
+                    sys.exit(1)
+            else:
+                console.print()
+                console.print(
+                    f"[red]{ICONS['cross']} Cannot run without hooks configured.[/red]"
+                )
+                console.print()
+                sys.exit(1)
+
+        elif hook_result.status == HookStatus.OUTDATED:
+            # Hooks exist but are outdated - ask user to update
+            if prompt_hook_update(hook_result.settings_path):
+                if install_hooks(hook_result.settings_path, update=True):
+                    console.print()
+                    console.print(
+                        f"[green]{ICONS['check']} Hooks updated in {hook_result.settings_path}[/green]"
+                    )
+                    console.print(
+                        "[yellow]Please restart Claude Code for hooks to take effect.[/yellow]"
+                    )
+                    console.print()
+                else:
+                    print_manual_hook_instructions()
+                    sys.exit(1)
+            else:
+                console.print()
+                console.print(
+                    f"[red]{ICONS['cross']} Cannot run with outdated hooks.[/red]"
+                )
+                console.print()
+                sys.exit(1)
+
+        # HookStatus.CURRENT - hooks are up-to-date, continue normally
+
+    # Start server (auto-finds available port if needed)
+    server = ServerManager(port=args.port)
+    try:
+        server.start()
+    except RuntimeError as e:
+        console.print()
+        console.print(f"[bold red]{ICONS['cross']} Server failed to start: {e}[/bold red]")
+        console.print()
+        sys.exit(1)
+
+    # Show actual port (may differ from requested if auto-found)
+    if server.port != args.port:
+        console.print(f"[dim]Port {args.port} busy, using {server.port}[/dim]")
+
+    # Run workflow
+    try:
+        runner = WorkflowRunner(config, project_path, server)
+        runner.run()
     except KeyboardInterrupt:
         console.print()
         console.print(f"\n[yellow]{ICONS['stop']} Aborted[/yellow]")
@@ -242,6 +331,8 @@ def main() -> None:
         console.print(f"[bold red]{ICONS['cross']} Error: {e}[/bold red]")
         console.print()
         sys.exit(1)
+    finally:
+        server.stop()
 
 
 if __name__ == "__main__":

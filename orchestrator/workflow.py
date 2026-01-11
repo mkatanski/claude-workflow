@@ -2,7 +2,7 @@
 
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .conditions import ConditionError, ConditionEvaluator
 from .config import Step, WorkflowConfig
@@ -13,7 +13,6 @@ from .display import (
     create_header_panel,
     create_step_panel,
     print_cleanup_message,
-    print_hook_setup_instructions,
     print_step_result,
     print_step_skipped,
     print_summary,
@@ -22,6 +21,9 @@ from .display import (
 )
 from .tmux import TmuxManager
 from .tools import ToolRegistry
+
+if TYPE_CHECKING:
+    from .server import ServerManager
 
 
 class StepError(Exception):
@@ -33,13 +35,17 @@ class StepError(Exception):
 class WorkflowRunner:
     """Orchestrates workflow execution with tool dispatch."""
 
-    def __init__(self, config: WorkflowConfig, project_path: Path) -> None:
+    def __init__(
+        self, config: WorkflowConfig, project_path: Path, server: "ServerManager"
+    ) -> None:
         self.config = config
         self.project_path = project_path
+        self.server = server
         self.tmux_manager = TmuxManager(
             config.tmux,
             config.claude,
             project_path,
+            server,
         )
         self.context = ExecutionContext(project_path=project_path)
 
@@ -55,10 +61,9 @@ class WorkflowRunner:
         console.print()
         console.print(create_header_panel(self.config.name))
         console.print()
+        # Hooks are now required, so always show as configured
         console.print(
-            create_config_table(
-                self.config, self.project_path, self.tmux_manager.hook_configured
-            )
+            create_config_table(self.config, self.project_path, hook_configured=True)
         )
         console.print()
 
@@ -198,10 +203,6 @@ class WorkflowRunner:
     def run(self) -> None:
         """Run the complete workflow."""
         self.print_header()
-
-        if not self.tmux_manager.hook_configured:
-            print_hook_setup_instructions(self.project_path)
-
         print_workflow_start()
 
         self.workflow_start_time = time.time()
@@ -221,8 +222,6 @@ class WorkflowRunner:
         if self.tmux_manager.current_pane:
             print_cleanup_message()
             self.tmux_manager.close_pane()
-
-        self.tmux_manager.cleanup_all()
 
     def _print_summary(self) -> None:
         """Print workflow completion summary."""

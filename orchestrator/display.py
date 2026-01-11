@@ -64,6 +64,8 @@ ICONS = {
 }
 
 # Required hook configuration for ~/.claude/settings.json
+# Uses environment variable $ORCHESTRATOR_PORT to support multiple concurrent instances
+# Uses --data-urlencode to properly handle tmux pane IDs (which start with %)
 REQUIRED_HOOK_CONFIG = {
     "hooks": {
         "Stop": [
@@ -72,7 +74,12 @@ REQUIRED_HOOK_CONFIG = {
                 "hooks": [
                     {
                         "type": "command",
-                        "command": '/bin/bash -c \'mkdir -p /tmp/claude-orchestrator && echo "$(date -Iseconds)" > "/tmp/claude-orchestrator/$(tmux display-message -p "#{pane_id}" 2>/dev/null || echo "unknown").done"\'',
+                        "command": (
+                            "curl -s -X POST "
+                            '"http://localhost:$ORCHESTRATOR_PORT/complete" '
+                            '--data-urlencode "pane=$TMUX_PANE" '
+                            "2>/dev/null || true"
+                        ),
                     }
                 ],
             }
@@ -83,7 +90,12 @@ REQUIRED_HOOK_CONFIG = {
                 "hooks": [
                     {
                         "type": "command",
-                        "command": '/bin/bash -c \'mkdir -p /tmp/claude-orchestrator && echo "$(date -Iseconds)" > "/tmp/claude-orchestrator/$(tmux display-message -p "#{pane_id}" 2>/dev/null || echo "unknown").exited"\'',
+                        "command": (
+                            "curl -s -X POST "
+                            '"http://localhost:$ORCHESTRATOR_PORT/exited" '
+                            '--data-urlencode "pane=$TMUX_PANE" '
+                            "2>/dev/null || true"
+                        ),
                     }
                 ],
             }
@@ -208,7 +220,7 @@ def create_step_panel(
 
 
 def print_hook_setup_instructions(project_path: Optional[Path] = None) -> None:
-    """Print instructions for setting up the stop hook."""
+    """Print instructions for setting up the hooks manually."""
     global_path = Path.home() / ".claude" / "settings.json"
     project_settings = (
         f"{project_path}/.claude/settings.json" if project_path else None
@@ -224,15 +236,15 @@ def print_hook_setup_instructions(project_path: Optional[Path] = None) -> None:
     console.print()
     warning_panel = Panel(
         Text.from_markup(
-            f"[bold yellow]{ICONS['warning']} Stop hook not configured![/bold yellow]\n\n"
-            f"[white]For reliable completion detection, add this to:[/white]\n"
+            f"[bold yellow]{ICONS['warning']} Hooks not configured![/bold yellow]\n\n"
+            f"[white]Hooks are required for the orchestrator to detect when Claude finishes.[/white]\n"
+            f"[white]Add this to one of these files:[/white]\n"
             f"{location_text}\n\n"
             f"[white]Add or merge into your settings:[/white]\n"
             f'[dim]{json.dumps(REQUIRED_HOOK_CONFIG, indent=2)}[/dim]\n\n'
-            f"[white]Then restart Claude Code for changes to take effect.[/white]\n\n"
-            f"[dim]Falling back to idle-based detection (less reliable).[/dim]"
+            f"[white]Then restart Claude Code for changes to take effect.[/white]"
         ),
-        title="[bold yellow]Configuration Required[/bold yellow]",
+        title="[bold yellow]Manual Hook Configuration[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
         expand=False,

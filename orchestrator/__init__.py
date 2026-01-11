@@ -14,8 +14,19 @@ from .config import (
 )
 from .context import ExecutionContext
 from .display import ICONS, console
+from .hooks import (
+    HookCheckResult,
+    HookStatus,
+    check_curl_hooks_configured,
+    check_hooks_status,
+    install_hooks,
+    prompt_hook_installation,
+    prompt_hook_update,
+    workflow_uses_claude_tool,
+)
 from .selector import format_workflow_list, select_workflow_interactive
-from .tmux import TmuxManager, check_hook_configuration
+from .server import OrchestratorServer, ServerManager
+from .tmux import TmuxManager
 from .tools import BaseTool, BashTool, ClaudeTool, ToolRegistry, ToolResult
 from .workflow import StepError, WorkflowRunner
 
@@ -37,12 +48,23 @@ __all__ = [
     # Display
     "ICONS",
     "console",
+    # Hooks
+    "HookCheckResult",
+    "HookStatus",
+    "check_curl_hooks_configured",
+    "check_hooks_status",
+    "install_hooks",
+    "prompt_hook_installation",
+    "prompt_hook_update",
+    "workflow_uses_claude_tool",
     # Selector
     "format_workflow_list",
     "select_workflow_interactive",
+    # Server
+    "OrchestratorServer",
+    "ServerManager",
     # Tmux
     "TmuxManager",
-    "check_hook_configuration",
     # Tools
     "BaseTool",
     "BashTool",
