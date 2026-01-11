@@ -263,8 +263,8 @@ def discover_workflows(project_path: Path) -> List[WorkflowInfo]:
                 if not isinstance(data, dict):
                     continue
 
-                # Check for workflow marker
-                if data.get("type") == "claude-workflow":
+                # Check for workflow marker and version
+                if data.get("type") == "claude-workflow" and data.get("version") == 2:
                     workflow_name = data.get("name", file_path.stem)
                     workflows.append(
                         WorkflowInfo(

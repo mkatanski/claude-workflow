@@ -147,59 +147,37 @@ def main() -> None:
         workflow_file = found.file_path
 
     elif workflows:
-        # No workflow specified, but workflows exist
-        if len(workflows) == 1:
-            # Only one workflow, use it directly
-            workflow_file = workflows[0].file_path
-            console.print(f"[dim]Using workflow: {workflows[0].name}[/dim]")
-        else:
-            # Multiple workflows, show picker
-            selected = select_workflow_interactive(workflows)
-            if selected is None:
-                console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
-                sys.exit(0)
-            workflow_file = selected.file_path
+        # No workflow specified, show interactive picker
+        selected = select_workflow_interactive(workflows)
+        if selected is None:
+            console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
+            sys.exit(0)
+        workflow_file = selected.file_path
 
     else:
-        # No workflows found - try legacy fallback
-        legacy_yml = project_path / ".claude" / "workflow.yml"
-        legacy_yaml = project_path / ".claude" / "workflow.yaml"
-
-        if legacy_yml.exists():
-            workflow_file = legacy_yml
-            console.print(
-                f"[yellow]{ICONS['warning']} Using legacy workflow file "
-                f"(add 'type: claude-workflow' marker)[/yellow]"
-            )
-        elif legacy_yaml.exists():
-            workflow_file = legacy_yaml
-            console.print(
-                f"[yellow]{ICONS['warning']} Using legacy workflow file "
-                f"(add 'type: claude-workflow' marker)[/yellow]"
-            )
-        else:
-            # No workflows at all
-            console.print()
-            error_panel = Panel(
-                Text.from_markup(
-                    f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
-                    f"[white]Create a workflow file at:[/white]\n"
-                    f"  [cyan]{project_path / '.claude' / 'workflow.yml'}[/cyan]\n\n"
-                    f"[white]With the marker:[/white]\n"
-                    f"  [cyan]type: claude-workflow[/cyan]\n"
-                    f"  [cyan]name: My Workflow[/cyan]\n"
-                    f"  [cyan]steps:[/cyan]\n"
-                    f"  [cyan]  - name: First Step[/cyan]\n"
-                    f"  [cyan]    prompt: ...[/cyan]"
-                ),
-                title="[bold red]Error[/bold red]",
-                border_style="red",
-                box=box.ROUNDED,
-                expand=False,
-            )
-            console.print(error_panel)
-            console.print()
-            sys.exit(1)
+        # No valid workflows found
+        console.print()
+        error_panel = Panel(
+            Text.from_markup(
+                f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
+                f"[white]Create a workflow file at:[/white]\n"
+                f"  [cyan]{project_path / '.claude' / 'workflow.yml'}[/cyan]\n\n"
+                f"[white]Required fields:[/white]\n"
+                f"  [cyan]type: claude-workflow[/cyan]\n"
+                f"  [cyan]version: 2[/cyan]\n"
+                f"  [cyan]name: My Workflow[/cyan]\n"
+                f"  [cyan]steps:[/cyan]\n"
+                f"  [cyan]  - name: First Step[/cyan]\n"
+                f"  [cyan]    prompt: ...[/cyan]"
+            ),
+            title="[bold red]Error[/bold red]",
+            border_style="red",
+            box=box.ROUNDED,
+            expand=False,
+        )
+        console.print(error_panel)
+        console.print()
+        sys.exit(1)
 
     # Load and run
     try:
