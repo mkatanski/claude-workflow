@@ -31,6 +31,13 @@ dependencies = [
     "claude-code-tools>=0.1.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.0.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/michalkatanski/claude-workflow"
 Repository = "https://github.com/michalkatanski/claude-workflow"
