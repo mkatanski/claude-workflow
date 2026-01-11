@@ -34,6 +34,7 @@ from orchestrator import (
     format_workflow_list,
     load_config,
     select_workflow_interactive,
+    validate_workflow_file,
 )
 
 
@@ -48,6 +49,7 @@ def main() -> None:
     python runner.py .
     python runner.py . -w "Build and Test"
     python runner.py . --workflow "Portfolio CMS"
+    python runner.py . -f /path/to/custom-workflow.yml
 
 {ICONS['info']} Note: Must be run inside a tmux session!
     tmux new -s workflow
@@ -55,7 +57,8 @@ def main() -> None:
 
 {ICONS['file']} Workflow files:
     - Located in: <project>/.claude/
-    - Must have: type: claude-workflow
+    - Required: type: claude-workflow
+    - Required: version: 2
     - Extensions: .yml or .yaml
         """,
     )
@@ -70,7 +73,14 @@ def main() -> None:
         "--workflow",
         dest="workflow_name",
         default=None,
-        help="Name of the workflow to run (interactive picker if not specified)",
+        help="Name of the workflow to run (from 'name' field in workflow file)",
+    )
+    parser.add_argument(
+        "-f",
+        "--file",
+        dest="workflow_file",
+        default=None,
+        help="Direct path to a workflow file (must have valid type and version)",
     )
 
     args = parser.parse_args()
@@ -107,12 +117,47 @@ def main() -> None:
         console.print()
         sys.exit(1)
 
-    # Discover available workflows
-    workflows = discover_workflows(project_path)
+    # Check for mutually exclusive flags
+    if args.workflow_name and args.workflow_file:
+        console.print()
+        console.print(
+            f"[bold red]{ICONS['cross']} Cannot use both -w/--workflow and "
+            f"-f/--file flags together[/bold red]"
+        )
+        console.print()
+        sys.exit(1)
+
     workflow_file = None
 
-    if args.workflow_name:
-        # User specified a workflow name
+    if args.workflow_file:
+        # User specified a direct file path
+        workflow_file = Path(args.workflow_file).resolve()
+
+        # Validate the workflow file
+        is_valid, error_msg = validate_workflow_file(workflow_file)
+        if not is_valid:
+            console.print()
+            error_panel = Panel(
+                Text.from_markup(
+                    f"[bold red]{ICONS['cross']} Invalid workflow file![/bold red]\n\n"
+                    f"[white]File:[/white] [cyan]{workflow_file}[/cyan]\n\n"
+                    f"[white]Error:[/white] {error_msg}\n\n"
+                    f"[white]Required fields:[/white]\n"
+                    f"  [cyan]type: claude-workflow[/cyan]\n"
+                    f"  [cyan]version: 2[/cyan]"
+                ),
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+                box=box.ROUNDED,
+                expand=False,
+            )
+            console.print(error_panel)
+            console.print()
+            sys.exit(1)
+
+    elif args.workflow_name:
+        # User specified a workflow name - discover and find by name
+        workflows = discover_workflows(project_path)
         found = find_workflow_by_name(workflows, args.workflow_name)
 
         if found is None:
@@ -129,8 +174,9 @@ def main() -> None:
                     f"[bold red]{ICONS['cross']} No workflows found![/bold red]\n\n"
                     f"[white]Create workflow files in:[/white]\n"
                     f"  [cyan]{project_path / '.claude'}[/cyan]\n\n"
-                    f"[white]Workflow files must have:[/white]\n"
-                    f"  [cyan]type: claude-workflow[/cyan]"
+                    f"[white]Required fields:[/white]\n"
+                    f"  [cyan]type: claude-workflow[/cyan]\n"
+                    f"  [cyan]version: 2[/cyan]"
                 )
 
             error_panel = Panel(
@@ -146,38 +192,40 @@ def main() -> None:
 
         workflow_file = found.file_path
 
-    elif workflows:
-        # No workflow specified, show interactive picker
-        selected = select_workflow_interactive(workflows)
-        if selected is None:
-            console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
-            sys.exit(0)
-        workflow_file = selected.file_path
-
     else:
-        # No valid workflows found
-        console.print()
-        error_panel = Panel(
-            Text.from_markup(
-                f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
-                f"[white]Create a workflow file at:[/white]\n"
-                f"  [cyan]{project_path / '.claude' / 'workflow.yml'}[/cyan]\n\n"
-                f"[white]Required fields:[/white]\n"
-                f"  [cyan]type: claude-workflow[/cyan]\n"
-                f"  [cyan]version: 2[/cyan]\n"
-                f"  [cyan]name: My Workflow[/cyan]\n"
-                f"  [cyan]steps:[/cyan]\n"
-                f"  [cyan]  - name: First Step[/cyan]\n"
-                f"  [cyan]    prompt: ...[/cyan]"
-            ),
-            title="[bold red]Error[/bold red]",
-            border_style="red",
-            box=box.ROUNDED,
-            expand=False,
-        )
-        console.print(error_panel)
-        console.print()
-        sys.exit(1)
+        # No workflow specified - discover and show interactive picker
+        workflows = discover_workflows(project_path)
+
+        if workflows:
+            selected = select_workflow_interactive(workflows)
+            if selected is None:
+                console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
+                sys.exit(0)
+            workflow_file = selected.file_path
+        else:
+            # No valid workflows found
+            console.print()
+            error_panel = Panel(
+                Text.from_markup(
+                    f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
+                    f"[white]Create a workflow file at:[/white]\n"
+                    f"  [cyan]{project_path / '.claude' / 'workflow.yml'}[/cyan]\n\n"
+                    f"[white]Required fields:[/white]\n"
+                    f"  [cyan]type: claude-workflow[/cyan]\n"
+                    f"  [cyan]version: 2[/cyan]\n"
+                    f"  [cyan]name: My Workflow[/cyan]\n"
+                    f"  [cyan]steps:[/cyan]\n"
+                    f"  [cyan]  - name: First Step[/cyan]\n"
+                    f"  [cyan]    prompt: ...[/cyan]"
+                ),
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+                box=box.ROUNDED,
+                expand=False,
+            )
+            console.print(error_panel)
+            console.print()
+            sys.exit(1)
 
     # Load and run
     try:

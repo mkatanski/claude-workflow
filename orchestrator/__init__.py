@@ -9,6 +9,7 @@ from .config import (
     discover_workflows,
     find_workflow_by_name,
     load_config,
+    validate_workflow_file,
 )
 from .context import ExecutionContext
 from .display import ICONS, console
@@ -27,6 +28,7 @@ __all__ = [
     "discover_workflows",
     "find_workflow_by_name",
     "load_config",
+    "validate_workflow_file",
     # Context
     "ExecutionContext",
     # Display

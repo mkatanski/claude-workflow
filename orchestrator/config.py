@@ -281,6 +281,39 @@ def discover_workflows(project_path: Path) -> List[WorkflowInfo]:
     return workflows
 
 
+def validate_workflow_file(file_path: Path) -> tuple[bool, Optional[str]]:
+    """Validate that a file is a valid workflow with required type and version.
+
+    Args:
+        file_path: Path to the workflow file
+
+    Returns:
+        Tuple of (is_valid, error_message). If valid, error_message is None.
+    """
+    if not file_path.exists():
+        return False, f"File not found: {file_path}"
+
+    if not file_path.is_file():
+        return False, f"Not a file: {file_path}"
+
+    try:
+        with open(file_path, "r") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        return False, f"Invalid YAML: {e}"
+
+    if not isinstance(data, dict):
+        return False, "Workflow file must contain a YAML dictionary"
+
+    if data.get("type") != "claude-workflow":
+        return False, "Missing or invalid 'type' field (must be 'claude-workflow')"
+
+    if data.get("version") != 2:
+        return False, "Missing or invalid 'version' field (must be 2)"
+
+    return True, None
+
+
 def find_workflow_by_name(
     workflows: List[WorkflowInfo],
     name: str,
