@@ -37,6 +37,8 @@ This document provides a comprehensive specification for claude-workflow YAML fi
   - [linear_manage](#linear_manage-tool)
 - [Multiple Workflows](#multiple-workflows)
 - [Complete Examples](#complete-examples)
+- [CLI Options](#cli-options)
+- [Hook Requirements](#hook-requirements)
 
 ---
 
@@ -701,7 +703,10 @@ claude-workflow /path/to/project
 claude-workflow -f /path/to/project/.claude/deploy.yml
 
 # By name (if unique match)
-claude-workflow /path/to/project --name "Deploy"
+claude-workflow /path/to/project --workflow "Deploy"
+
+# With custom server port
+claude-workflow /path/to/project --port 8000
 ```
 
 ---
@@ -911,6 +916,128 @@ steps:
 
 ---
 
+## CLI Options
+
+The `claude-workflow` command supports the following options:
+
+```bash
+claude-workflow [project_path] [options]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `project_path` | - | `.` | Path to the project containing `.claude/` workflows |
+| `--workflow` | `-w` | none | Name of the workflow to run (from `name` field) |
+| `--file` | `-f` | none | Direct path to a workflow file |
+| `--port` | `-p` | `7432` | Port for the completion signal server |
+
+### Port Configuration
+
+The orchestrator runs a local HTTP server to receive completion signals from Claude Code via hooks. By default, it uses port `7432`.
+
+```bash
+# Use default port (7432)
+claude-workflow /path/to/project
+
+# Specify a custom port
+claude-workflow /path/to/project --port 8000
+claude-workflow /path/to/project -p 8000
+```
+
+**Port Auto-Discovery:** If the specified port is busy, the orchestrator automatically finds the next available port. When this happens, a message is displayed:
+
+```
+Port 7432 busy, using 7433
+```
+
+The `ORCHESTRATOR_PORT` environment variable is set automatically for hook communication, so workflows work correctly regardless of which port is used.
+
+---
+
+## Hook Requirements
+
+Workflows that use the `claude` tool (Claude Code CLI) require hooks to be configured in your Claude settings. Hooks enable reliable detection of when Claude Code completes its work.
+
+### Automatic Hook Installation
+
+When you run a workflow that uses the `claude` tool, the CLI checks for required hooks:
+
+1. **Missing Hooks:** If no hooks are found, you'll be prompted to install them:
+   ```
+   ⚠ Claude hooks not configured!
+
+   Hooks are required for reliable completion detection.
+
+   ? Where should hooks be installed?
+   ❯ Global (~/.claude/settings.json)
+     Project (.claude/settings.json)
+     Cancel
+   ```
+
+2. **Outdated Hooks:** If hooks exist but are outdated, you'll be prompted to update them:
+   ```
+   ⚠ Claude hooks are outdated!
+
+   Hooks in ~/.claude/settings.json need to be updated.
+   Your other custom hooks will be preserved.
+
+   ? Update hooks now? (Y/n)
+   ```
+
+3. **Current Hooks:** If hooks are up-to-date, the workflow runs immediately.
+
+### Hook Locations
+
+Hooks can be installed in two locations:
+
+| Location | Path | Scope |
+|----------|------|-------|
+| Global | `~/.claude/settings.json` | All projects |
+| Project | `<project>/.claude/settings.json` | Single project |
+
+Project-level hooks take priority over global hooks.
+
+### Manual Hook Configuration
+
+If automatic installation fails, you can manually add hooks to your `settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/complete\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/exited\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+After installing or updating hooks, restart Claude Code for changes to take effect.
+
+### Workflows Without Hooks
+
+Workflows that only use tools like `bash`, `set`, `claude_sdk`, `linear_tasks`, etc. do not require hooks. The hook check is skipped for these workflows.
+
+---
+
 ## Error Messages
 
 Common validation errors and their solutions:
@@ -923,3 +1050,6 @@ Common validation errors and their solutions:
 | `Goto target not found` | Ensure target step name exists |
 | `Source variable not found` | Ensure variable is set before foreach |
 | `Invalid condition syntax` | Check operator spelling and format |
+| `Cannot run without hooks configured` | Install hooks via the interactive prompt or manually |
+| `Cannot run with outdated hooks` | Update hooks via the interactive prompt or manually |
+| `Port X busy, using Y` | Informational - the next available port was used |

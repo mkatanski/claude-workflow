@@ -22,6 +22,7 @@ pip install claude-workflow
 - Python 3.11+
 - tmux (workflows run in a tmux pane)
 - Claude Code CLI installed and authenticated
+- Claude hooks (auto-installed on first run)
 
 ---
 
@@ -72,6 +73,7 @@ claude-workflow [project_path] [options]
 | `project_path` | Path to your project (default: current directory) |
 | `-w, --workflow NAME` | Run a specific workflow by name |
 | `-f, --file PATH` | Run a workflow from a specific file path |
+| `-p, --port PORT` | Port for completion signal server (default: 7432) |
 
 ### Examples
 
@@ -84,6 +86,9 @@ claude-workflow . -w "Build and Test"
 
 # Run workflow from custom file location
 claude-workflow . -f ~/workflows/deploy.yml
+
+# Use a specific port (useful for avoiding conflicts)
+claude-workflow . -p 8000
 ```
 
 ---
@@ -172,6 +177,91 @@ steps:
 - **Output capture** - Store step output in variables with `output_var`
 - **Error handling** - `on_error: stop | continue` per step
 - **Beautiful TUI** - Rich terminal output with progress tracking
+- **Multi-instance support** - Run multiple workflows concurrently with automatic port allocation
+
+---
+
+## How It Works
+
+### Completion Detection
+
+claude-workflow uses an HTTP server to detect when Claude Code finishes a task. When Claude completes a step or ends a session, it signals the orchestrator via HTTP requests.
+
+**Architecture:**
+1. The orchestrator starts a local HTTP server (default port: 7432)
+2. Claude Code hooks send HTTP requests when tasks complete
+3. The orchestrator receives signals and advances to the next step
+
+**Multi-instance Support:**
+
+Each workflow instance uses its own port via the `ORCHESTRATOR_PORT` environment variable:
+- If the default port (7432) is busy, the next available port is used automatically (7433, 7434, etc.)
+- Each Claude Code process receives its assigned port through environment variables
+- This allows running multiple workflows simultaneously in different tmux sessions
+
+---
+
+## Hooks
+
+Hooks are **required** for the orchestrator to function. They enable Claude Code to signal task completion back to the orchestrator.
+
+### Auto-Installation
+
+On first run, if hooks are not configured, you'll be prompted to install them:
+
+```
+⚠ Claude hooks not configured!
+
+Hooks are required for reliable completion detection.
+
+Where should hooks be installed?
+❯ Global (~/.claude/settings.json)
+  Project (.claude/settings.json)
+  Cancel
+```
+
+### Auto-Update
+
+If your hooks are outdated (e.g., after a claude-workflow update), you'll be prompted to update them. Your other custom hooks are preserved during updates.
+
+### Manual Installation
+
+If you prefer manual installation, add the following to your Claude settings.json:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/complete\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/exited\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Settings file locations:**
+- Global: `~/.claude/settings.json`
+- Project: `<project>/.claude/settings.json`
+
+**Note:** After installing or updating hooks, restart Claude Code for changes to take effect
 
 ---
 
