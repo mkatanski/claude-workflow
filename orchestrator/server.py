@@ -5,11 +5,20 @@ via curl from Claude hooks, replacing the filesystem-based marker file system.
 """
 
 import asyncio
+import re
 import socket
 import threading
 from typing import Optional
 
 from aiohttp import web
+
+# Tmux pane IDs follow the pattern %<number> (e.g., %0, %123)
+PANE_ID_PATTERN = re.compile(r"^%\d+$")
+
+
+def _is_valid_pane_id(pane_id: str) -> bool:
+    """Validate that a pane ID matches the expected tmux format."""
+    return bool(PANE_ID_PATTERN.match(pane_id))
 
 
 class OrchestratorServer:
@@ -55,10 +64,11 @@ class OrchestratorServer:
         """Handle POST /complete - signal task completion.
 
         Reads pane ID from POST body (application/x-www-form-urlencoded).
+        Validates pane ID format before processing.
         """
         data = await request.post()
         pane_id = data.get("pane", "")
-        if pane_id and pane_id in self._complete_events:
+        if pane_id and _is_valid_pane_id(pane_id) and pane_id in self._complete_events:
             self._complete_events[pane_id].set()
         return web.Response(text="ok")
 
@@ -66,10 +76,11 @@ class OrchestratorServer:
         """Handle POST /exited - signal session end.
 
         Reads pane ID from POST body (application/x-www-form-urlencoded).
+        Validates pane ID format before processing.
         """
         data = await request.post()
         pane_id = data.get("pane", "")
-        if pane_id and pane_id in self._exited_events:
+        if pane_id and _is_valid_pane_id(pane_id) and pane_id in self._exited_events:
             self._exited_events[pane_id].set()
         return web.Response(text="ok")
 

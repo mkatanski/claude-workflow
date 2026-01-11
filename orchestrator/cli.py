@@ -145,6 +145,19 @@ def main() -> None:
         # User specified a direct file path
         workflow_file = Path(args.workflow_file).resolve()
 
+        # Security warning: workflow file outside project directory
+        try:
+            workflow_file.relative_to(project_path)
+        except ValueError:
+            console.print()
+            console.print(
+                f"[yellow]{ICONS['warning']} Warning: Loading workflow from outside "
+                f"project directory[/yellow]"
+            )
+            console.print(f"  [dim]File: {workflow_file}[/dim]")
+            console.print(f"  [dim]Project: {project_path}[/dim]")
+            console.print()
+
         # Validate the workflow file
         is_valid, error_msg = validate_workflow_file(workflow_file)
         if not is_valid:

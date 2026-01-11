@@ -1,6 +1,7 @@
 """Tmux pane management for workflow orchestrator."""
 
 import hashlib
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -59,7 +60,8 @@ class TmuxManager:
         cwd = self.claude_config.cwd or str(self.project_path.resolve())
 
         # Start with ORCHESTRATOR_PORT env var for hooks
-        parts = [f"cd {cwd} && ORCHESTRATOR_PORT={self.server.port} claude"]
+        # Use shlex.quote() to prevent command injection via cwd
+        parts = [f"cd {shlex.quote(cwd)} && ORCHESTRATOR_PORT={self.server.port} claude"]
 
         # Add model if specified
         if self.claude_config.model:
@@ -118,7 +120,8 @@ class TmuxManager:
     def launch_bash_pane(self, command: str, cwd: Optional[str] = None) -> str:
         """Launch a bash command in a new tmux pane."""
         working_dir = cwd or self.claude_config.cwd or str(self.project_path.resolve())
-        full_cmd = f"cd {working_dir} && {command}"
+        # Use shlex.quote() to prevent command injection via working_dir
+        full_cmd = f"cd {shlex.quote(working_dir)} && {command}"
 
         with console.status(
             f"[cyan]{ICONS['terminal']} Running command...[/cyan]",
