@@ -931,6 +931,18 @@ claude-workflow [project_path] [options]
 | `--file` | `-f` | none | Direct path to a workflow file |
 | `--port` | `-p` | `7432` | Port for the completion signal server |
 
+### Security Note
+
+When using `--file` to load a workflow from outside the project directory, a warning will be displayed:
+
+```
+⚠ Warning: Loading workflow from outside project directory
+  File: /path/to/workflow.yml
+  Project: /path/to/project
+```
+
+This is a security reminder that workflows can execute commands and interact with Claude Code. Always review workflow files from untrusted sources before running them.
+
 ### Port Configuration
 
 The orchestrator runs a local HTTP server to receive completion signals from Claude Code via hooks. By default, it uses port `7432`.
