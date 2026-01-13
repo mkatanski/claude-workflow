@@ -1,0 +1,122 @@
+type: claude-workflow
+version: 2
+name: "Automated Prompt Runner"
+
+# Configuration for all Claude Code executions
+claude:
+  model: sonnet
+  auto_approve_plan: true  # Auto-approve ExitPlanMode prompts via tmux send-keys
+  append_system_prompt: |
+    Before starting any implementation:
+    1. Check available skills with /help and use appropriate ones for this task
+    2. Create a detailed implementation plan with clear steps
+    3. After planning, execute the plan step by step
+    4. Verify your changes work before completing
+
+steps:
+  # 1. Load prompts from JSON file (CHANGE PATH AS NEEDED)
+  - name: "Load prompts"
+    tool: bash
+    command: "cat .claude/prompts.json"
+    output_var: prompts_json
+
+  # 2. Initialize/create progress tracking file
+  - name: "Initialize progress file"
+    tool: bash
+    command: |
+      if [ ! -f .claude/progress.json ]; then
+        echo '{"completed": []}' > .claude/progress.json
+      fi
+      cat .claude/progress.json
+    output_var: progress_json
+
+  # 3. Process each prompt
+  - name: "Process prompts"
+    tool: foreach
+    source: prompts_json
+    item_var: current_prompt
+    index_var: prompt_index
+    on_item_error: continue
+    steps:
+      # 3a. Reset retry counter for each prompt
+      - name: "Reset retry counter"
+        tool: set
+        var: retry_count
+        value: "0"
+
+      # 3b. Run implementation with Claude
+      - name: "Run implementation"
+        tool: claude
+        prompt: |
+          Task: {current_prompt}
+
+          Implement this task following best practices.
+
+      # 3c. Run code review with Claude
+      - name: "Run code review"
+        tool: claude
+        prompt: |
+          Review the code changes made for this task:
+          {current_prompt}
+
+          Look for:
+          - Bugs and logic errors
+          - Code quality issues
+          - Security concerns
+          - Missing edge cases
+
+          If issues found, fix them.
+
+      # 3d. Run unit tests (retry loop start)
+      - name: "Run unit tests"
+        tool: bash
+        command: "npm test 2>&1; echo \"EXIT_CODE:$?\""
+        output_var: test_output
+
+      # 3e. Extract exit code
+      - name: "Extract exit code"
+        tool: bash
+        command: "echo '{test_output}' | grep -o 'EXIT_CODE:[0-9]*' | cut -d: -f2 | tr -d '\\n'"
+        output_var: test_exit_code
+        strip_output: true
+
+      # 3f. Fix failing tests (conditional)
+      - name: "Fix failing tests"
+        tool: claude
+        prompt: |
+          The unit tests are failing. Here is the test output:
+
+          {test_output}
+
+          Fix all failing tests. Make sure to:
+          1. Analyze the error messages carefully
+          2. Fix the root cause, not just symptoms
+          3. Run related tests to verify the fix
+        when: "{test_exit_code} != 0 and {retry_count} < 3"
+
+      # 3g. Increment retry counter
+      - name: "Increment retry"
+        tool: bash
+        command: "echo $(( {retry_count} + 1 ))"
+        output_var: retry_count
+        when: "{test_exit_code} != 0 and {retry_count} < 3"
+
+      # 3h. Goto retry loop (conditional)
+      - name: "Retry tests"
+        tool: goto
+        target: "Run unit tests"
+        when: "{test_exit_code} != 0 and {retry_count} < 3"
+
+      # 3i. Update progress file (on success)
+      - name: "Update progress"
+        tool: bash
+        command: |
+          jq '.completed += [{prompt_index}]' .claude/progress.json > /tmp/progress.tmp && \
+          mv /tmp/progress.tmp .claude/progress.json
+        when: "{test_exit_code} == 0"
+
+      # 3j. Log failure if max retries exceeded
+      - name: "Log max retries"
+        tool: bash
+        command: "echo 'WARNING: Max retries (3) exceeded for prompt {prompt_index}'"
+        when: "{test_exit_code} != 0 and {retry_count} >= 3"

@@ -27,6 +27,9 @@ class ClaudeConfig:
     model: Optional[str] = None
     dangerously_skip_permissions: bool = False
     allowed_tools: Optional[List[str]] = None
+    permission_mode: Optional[str] = None  # plan, acceptEdits, bypassPermissions, etc.
+    auto_approve_plan: bool = True  # Auto-approve ExitPlanMode prompts via tmux
+    append_system_prompt: Optional[str] = None  # Prepended to all claude prompts
 
 
 @dataclass
@@ -215,6 +218,9 @@ def load_config(
             "dangerously_skip_permissions", False
         ),
         allowed_tools=allowed_tools,
+        permission_mode=claude_data.get("permission_mode"),
+        auto_approve_plan=claude_data.get("auto_approve_plan", True),
+        append_system_prompt=claude_data.get("append_system_prompt"),
     )
 
     claude_sdk_data = data.get("claude_sdk", {})

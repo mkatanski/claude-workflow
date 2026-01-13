@@ -71,6 +71,10 @@ class TmuxManager:
         if self.claude_config.dangerously_skip_permissions:
             parts.append("--dangerously-skip-permissions")
 
+        # Add permission mode if specified
+        if self.claude_config.permission_mode:
+            parts.append(f"--permission-mode {self.claude_config.permission_mode}")
+
         # Add allowed tools if specified
         if self.claude_config.allowed_tools:
             tools = " ".join(self.claude_config.allowed_tools)
@@ -197,6 +201,25 @@ class TmuxManager:
 
         # Unregister pane from server
         self.server.unregister_pane(pane_to_close)
+
+    def send_keys(self, keys: str) -> None:
+        """Send keystrokes to the current tmux pane.
+
+        Used for auto-approving plan mode prompts.
+
+        Args:
+            keys: Keys to send (e.g., "y", "Enter")
+        """
+        if not self.current_pane:
+            return
+        try:
+            subprocess.run(
+                ["tmux", "send-keys", "-t", self.current_pane, keys],
+                capture_output=True,
+                timeout=5,
+            )
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            pass  # Ignore errors, non-critical operation
 
     def get_pane_content_hash(self) -> str:
         """Get hash of current pane content."""
