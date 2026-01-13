@@ -170,9 +170,8 @@ def run_with_mocks(
 ) -> None:
     """Run workflow with all display and subprocess mocks."""
     with patch("orchestrator.tools.bash.subprocess.run", mock_subprocess):
-        with patch("orchestrator.tools.claude.Live"):
-                        with patch("time.sleep"):
-                                                                    runner.run()
+        with patch("time.sleep"):
+            runner.run()
 
 
 # =============================================================================

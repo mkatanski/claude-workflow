@@ -1,11 +1,9 @@
 """Claude Code tool implementation."""
 
+import sys
 import time
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from rich.live import Live
-
-from ..display import AnimatedWaiter
 from ..display_adapter import get_display
 from .base import BaseTool, ToolResult
 
@@ -78,7 +76,6 @@ class ClaudeTool(BaseTool):
             Captured pane content after completion
         """
         start = time.time()
-        waiter = AnimatedWaiter(tool_name="claude")
         pane_id = tmux_manager.current_pane
         auto_approve = getattr(tmux_manager.claude_config, "auto_approve_plan", True)
         # Ensure auto_approve is a boolean (handle MagicMock in tests)
@@ -86,25 +83,32 @@ class ClaudeTool(BaseTool):
             auto_approve = True
         last_approval_check = time.time()
         approval_check_interval = 2.0  # Check every 2 seconds
+        last_update_time = time.time()
+        update_interval = 1.0  # Update display every 1 second
 
         if not pane_id:
             return ""
 
-        with Live(console=get_display().console, refresh_per_second=10) as live:
-            while True:
-                elapsed = time.time() - start
-                live.update(waiter.create_display(elapsed))
+        display = get_display()
 
-                # Wait for completion signal (short timeout for UI updates)
-                if tmux_manager.server.wait_for_complete(pane_id, timeout=0.5):
-                    break
+        while True:
+            elapsed = time.time() - start
 
-                # Check for plan approval prompt periodically
-                if auto_approve and (time.time() - last_approval_check) > approval_check_interval:
-                    if self._check_and_approve_plan(tmux_manager):
-                        # Give Claude time to process approval
-                        time.sleep(1.0)
-                    last_approval_check = time.time()
+            # Update elapsed time display periodically
+            if (time.time() - last_update_time) > update_interval:
+                display.update_step_status(elapsed)
+                last_update_time = time.time()
+
+            # Wait for completion signal (short timeout for UI updates)
+            if tmux_manager.server.wait_for_complete(pane_id, timeout=0.5):
+                break
+
+            # Check for plan approval prompt periodically
+            if auto_approve and (time.time() - last_approval_check) > approval_check_interval:
+                if self._check_and_approve_plan(tmux_manager):
+                    # Give Claude time to process approval
+                    time.sleep(1.0)
+                last_approval_check = time.time()
 
         # Capture final output
         return tmux_manager.capture_pane_content()

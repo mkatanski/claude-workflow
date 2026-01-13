@@ -12,7 +12,6 @@ CI pipelines like GitHub Actions. Features:
 from __future__ import annotations
 
 import re
-import sys
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -30,11 +29,26 @@ if TYPE_CHECKING:
 console = Console()
 
 
+def _clear_previous_line() -> None:
+    """Clear the previous line using Rich-compatible cursor control.
+
+    Uses ANSI escape codes but ensures proper flushing to coordinate
+    with Rich console's internal state.
+    """
+    # Move cursor up one line and clear the entire line
+    # We use console.file.write to ensure we're writing to the same output stream
+    # as Rich console, which helps with buffer coordination
+    console.file.write("\033[1A")  # Move up one line
+    console.file.write("\033[2K")  # Clear entire line
+    console.file.write("\033[1G")  # Move to column 1 (beginning of line)
+    console.file.flush()  # Ensure the escape codes are sent immediately
+
+
 @dataclass
 class StatusIcons:
     """Status icons with colors for CI-style display."""
 
-    RUNNING = "[cyan][bold]•[/bold][/cyan]"
+    RUNNING = "[cyan][bold]▶[/bold][/cyan]"
     SUCCESS = "[green][bold]✓[/bold][/green]"
     FAILED = "[red][bold]✗[/bold][/red]"
     SKIPPED = "[yellow]⏭[/yellow]"
@@ -50,6 +64,7 @@ class DisplayState:
     current_line_length: int = 0
     step_start_time: float = 0.0
     last_status_line: str = ""
+    can_update_inplace: bool = True  # Whether last line can be updated in-place
 
 
 # Global display state
@@ -237,20 +252,20 @@ def print_step_start(
 ) -> None:
     """Print step start with running status icon.
 
-    Format: [•] Step name (tool)                          running...
+    Format: [▶] Step name (tool)  0.0s
     """
     _state.step_start_time = time.time()
 
     indent = _get_indent()
-    tool_label = f"[dim]({tool})[/dim]" if tool else ""
-
-    line = f"{indent}[{StatusIcons.RUNNING}] {step_name} {tool_label}"
+    tool_label = f" [dim]({tool})[/dim]" if tool else ""
+    line = f"{indent}[{StatusIcons.RUNNING}] {step_name}{tool_label}"
 
     # Store for later update
     _state.last_status_line = line
+    _state.can_update_inplace = True  # This is the last line, can be updated
 
-    # Print with running indicator
-    console.print(f"{line}  [dim]running...[/dim]")
+    # Print step running line with initial time
+    console.print(f"{line}  [dim]0.0s[/dim]")
 
 
 def update_step_status(elapsed: float) -> None:
@@ -258,13 +273,11 @@ def update_step_status(elapsed: float) -> None:
 
     This clears the current line and reprints with updated time.
     """
-    if not _state.last_status_line:
+    if not _state.last_status_line or not _state.can_update_inplace:
         return
 
-    # Move cursor up one line and clear
-    sys.stdout.write("\033[1A\033[2K")
-
-    # Reprint with updated time
+    # Clear previous line and reprint with updated time
+    _clear_previous_line()
     duration_str = _format_duration(elapsed)
     console.print(f"{_state.last_status_line}  [dim]{duration_str}...[/dim]")
 
@@ -278,8 +291,9 @@ def print_step_complete(
 
     Format: [✓] Step name                                    1m 23s
     """
-    # Move cursor up one line and clear
-    sys.stdout.write("\033[1A\033[2K")
+    # Only do in-place update if no other output was printed since step start
+    if _state.can_update_inplace:
+        _clear_previous_line()
 
     indent = _get_indent()
     duration_str = _format_duration(duration)
@@ -289,10 +303,11 @@ def print_step_complete(
     if output_var:
         line += f" [dim]-> {output_var}[/dim]"
 
-    # Right-align duration
+    # Print completion line
     console.print(f"{line}  [dim]{duration_str}[/dim]")
 
     _state.last_status_line = ""
+    _state.can_update_inplace = False
 
 
 def print_step_failed(
@@ -305,8 +320,9 @@ def print_step_failed(
     Format: [✗] Step name                                    1m 23s
             Error: message
     """
-    # Move cursor up one line and clear
-    sys.stdout.write("\033[1A\033[2K")
+    # Only do in-place update if no other output was printed since step start
+    if _state.can_update_inplace:
+        _clear_previous_line()
 
     indent = _get_indent()
     duration_str = _format_duration(duration)
@@ -317,6 +333,7 @@ def print_step_failed(
         console.print(f"{indent}    [red]Error: {error}[/red]")
 
     _state.last_status_line = ""
+    _state.can_update_inplace = False
 
 
 def print_step_skipped(
@@ -352,6 +369,7 @@ def print_group_start(
     count_label = f" ({item_count} items)" if item_count else ""
 
     console.print(f"{indent}[{StatusIcons.GROUP}] {name}{count_label}")
+    _state.can_update_inplace = False  # New lines printed, can't update previous step
 
 
 def print_iteration_header(
@@ -370,8 +388,9 @@ def print_iteration_header(
         item_preview = item_preview[:47] + "..."
 
     console.print(
-        f"{indent}[{StatusIcons.GROUP}] [cyan]Iteration {index + 1}/{total}:[/cyan] {item_preview}"
+        f"{indent}[{StatusIcons.GROUP}] [cyan]Iteration {index + 1}/{total}:[/cyan] [dim]{item_preview}[/dim]"
     )
+    _state.can_update_inplace = False  # New lines printed
 
 
 def print_iteration_complete(
@@ -452,13 +471,14 @@ def print_auto_approve_plan() -> None:
     """Print plan auto-approval message."""
     indent = _get_indent()
     console.print(f"{indent}[yellow]⚡ Auto-approving plan...[/yellow]")
+    _state.can_update_inplace = False  # New output printed, can't update previous step
 
 
 def print_bash_running(command: str) -> None:
-    """Print bash command running message (truncated)."""
-    indent = _get_indent()
-    cmd_preview = command[:40] + "..." if len(command) > 40 else command
-    console.print(f"{indent}[dim]$ {cmd_preview}[/dim]")
+    """Print bash command running message - NO-OP in v2 for clean output."""
+    # In v2 mode, we don't show verbose bash commands
+    # The step line already shows the step is running
+    pass
 
 
 # =============================================================================
@@ -476,19 +496,20 @@ class StatusLine:
         self._last_printed = False
 
     def update(self, extra_status: Optional[str] = None) -> None:
-        """Update the status line with current elapsed time."""
+        """Update the status line with current elapsed time.
+
+        Shows only the step name and elapsed time - no extra status text.
+        """
         elapsed = time.time() - self.start_time
         duration_str = _format_duration(elapsed)
 
         # Clear previous line if we printed one
         if self._last_printed:
-            sys.stdout.write("\033[1A\033[2K")
+            _clear_previous_line()
 
         indent = _get_indent()
-        status = extra_status or "running"
-
         console.print(
-            f"{indent}[{StatusIcons.RUNNING}] {self.step_name}  [dim]{duration_str} ({status})[/dim]"
+            f"{indent}[{StatusIcons.RUNNING}] {self.step_name}  [dim]{duration_str}[/dim]"
         )
         self._last_printed = True
 
@@ -498,7 +519,7 @@ class StatusLine:
 
         # Clear the running line
         if self._last_printed:
-            sys.stdout.write("\033[1A\033[2K")
+            _clear_previous_line()
 
         if success:
             print_step_complete(self.step_name, elapsed, output_var)

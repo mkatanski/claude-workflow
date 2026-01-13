@@ -220,25 +220,13 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
+        # Use a generator function to provide enough time values
+        time_values = iter([0, 0, 0] + [3.0] * 50)  # Start values + plenty for loops
+
         with patch("orchestrator.tools.claude.get_display"):
-            with patch("orchestrator.tools.claude.Live"):
-                with patch("orchestrator.tools.claude.AnimatedWaiter"):
-                    with patch("time.sleep"):
-                        with patch("time.time") as mock_time:
-                            # Simulate time progression to trigger approval checks
-                            mock_time.side_effect = [
-                                0,    # start
-                                0,    # pane_id check
-                                0,    # last_approval_check init
-                                0.5,  # first loop - elapsed
-                                3.0,  # first loop - approval check time (> 2s interval)
-                                3.0,  # after approval
-                                3.5,  # second loop - elapsed
-                                6.0,  # second loop - approval check time
-                                6.0,  # after second check
-                                6.5,  # third loop - elapsed
-                            ]
-                            claude_tool._wait_for_completion(mock_tmux)
+            with patch("time.sleep"):
+                with patch("time.time", side_effect=lambda: next(time_values)):
+                    claude_tool._wait_for_completion(mock_tmux)
 
         # Verify approval was sent at least once
         mock_tmux.send_keys.assert_called_with("Enter")
@@ -247,7 +235,6 @@ class TestContinuousApprovalListening:
 
     def test_multiple_approvals_during_execution(self, claude_tool: ClaudeTool) -> None:
         """Verify multiple approval prompts can be handled in one execution."""
-        approval_count = 0
         approval_prompt = """
         Would you like to proceed?
         ❯ 1. Yes, and bypass permissions
@@ -272,29 +259,18 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
+        # Use a time generator that increases progressively to trigger multiple approvals
+        # Each call returns an increasing time value
+        time_counter = [0]
+
+        def mock_time() -> float:
+            time_counter[0] += 1.0  # Increase by 1 second each call
+            return time_counter[0]
+
         with patch("orchestrator.tools.claude.get_display"):
-            with patch("orchestrator.tools.claude.Live"):
-                with patch("orchestrator.tools.claude.AnimatedWaiter"):
-                    with patch("time.sleep"):
-                        with patch("time.time") as mock_time:
-                            # Time values that trigger multiple approval checks
-                            mock_time.side_effect = [
-                                0,     # start
-                                0,     # last_approval_check init
-                                0.5,   # loop 1 - elapsed
-                                3.0,   # loop 1 - check time (triggers approval)
-                                3.0,   # after approval 1
-                                3.5,   # loop 2 - elapsed
-                                4.0,   # loop 2 - check time (not enough time passed)
-                                4.5,   # loop 3 - elapsed
-                                6.0,   # loop 3 - check time (triggers approval)
-                                6.0,   # after approval 2
-                                6.5,   # loop 4 - elapsed
-                                9.0,   # loop 4 - check time (triggers approval)
-                                9.0,   # after approval 3
-                                9.5,   # loop 5 - elapsed
-                            ]
-                            claude_tool._wait_for_completion(mock_tmux)
+            with patch("time.sleep"):
+                with patch("time.time", side_effect=mock_time):
+                    claude_tool._wait_for_completion(mock_tmux)
 
         # Verify Enter was sent multiple times (multiple approvals)
         assert mock_tmux.send_keys.call_count >= 2
@@ -320,18 +296,13 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
+        # Use a generator function to provide enough time values
+        time_values = iter([0, 0, 0] + [3.0] * 100)  # Start values + plenty for loops
+
         with patch("orchestrator.tools.claude.get_display"):
-            with patch("orchestrator.tools.claude.Live"):
-                with patch("orchestrator.tools.claude.AnimatedWaiter"):
-                    with patch("time.sleep"):
-                        with patch("time.time") as mock_time:
-                            mock_time.side_effect = [
-                                0, 0, 0.5, 3.0, 3.0,  # First approval
-                                3.5, 6.0, 6.0,         # Second approval
-                                6.5, 9.0, 9.0,         # Third check
-                                9.5,                    # Fourth - exits
-                            ]
-                            claude_tool._wait_for_completion(mock_tmux)
+            with patch("time.sleep"):
+                with patch("time.time", side_effect=lambda: next(time_values)):
+                    claude_tool._wait_for_completion(mock_tmux)
 
         # Loop ran until completion signal, not until approval
         assert wait_calls == 4

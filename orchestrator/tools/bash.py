@@ -6,9 +6,7 @@ import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rich.live import Live
-from rich.text import Text
 
-from ..display import ICONS, AnimatedWaiter
 from ..display_adapter import get_display
 from .base import BaseTool, ToolResult
 
@@ -191,7 +189,8 @@ class BashTool(BaseTool):
         the Claude hook system.
         """
         start = time.time()
-        waiter = AnimatedWaiter(tool_name="bash")
+        display = get_display()
+        waiter = display.get_animated_waiter(tool_name="bash")
 
         # Hash-based idle detection state
         last_hash = ""
@@ -200,7 +199,7 @@ class BashTool(BaseTool):
         hash_check_interval = 2.0  # Check more frequently for bash
         idle_timeout = 10.0  # Shorter timeout for bash commands
 
-        with Live(console=get_display().console, refresh_per_second=10) as live:
+        with Live(console=display.console, refresh_per_second=10) as live:
             while True:
                 elapsed = time.time() - start
                 live.update(waiter.create_display(elapsed))

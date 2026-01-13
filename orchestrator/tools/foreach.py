@@ -4,10 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from rich.text import Text
-
 from ..conditions import ConditionError, ConditionEvaluator
-from ..display import ICONS
 from ..display_adapter import get_display
 from .base import BaseTool, LoopSignal, ToolResult
 
@@ -88,6 +85,7 @@ class ForEachTool(BaseTool):
             return ToolResult(success=True, output="Empty array, no iterations performed")
 
         # Print loop header
+        display = get_display()
         self._print_loop_header(step["name"], len(items))
 
         # Store original values to restore after loop
@@ -98,54 +96,57 @@ class ForEachTool(BaseTool):
         errors: List[str] = []
 
         try:
-            for idx, item in enumerate(items):
-                # Set iteration variables
-                # Store item as JSON string if it's a dict/list, otherwise as string
-                if isinstance(item, (dict, list)):
-                    context.set(item_var, json.dumps(item))
-                else:
-                    context.set(item_var, str(item))
+            # Use indent context for all iteration content
+            with display.indent():
+                for idx, item in enumerate(items):
+                    # Set iteration variables
+                    # Store item as JSON string if it's a dict/list, otherwise as string
+                    if isinstance(item, (dict, list)):
+                        context.set(item_var, json.dumps(item))
+                    else:
+                        context.set(item_var, str(item))
 
-                if index_var:
-                    context.set(index_var, str(idx))
+                    if index_var:
+                        context.set(index_var, str(idx))
 
-                self._print_iteration_header(idx, len(items), item)
+                    self._print_iteration_header(idx, len(items), item)
 
-                try:
-                    # Execute nested steps
-                    result = self._execute_nested_steps(
-                        nested_steps, context, tmux_manager, idx, len(items)
-                    )
+                    try:
+                        # Execute nested steps with additional indent
+                        with display.indent():
+                            result = self._execute_nested_steps(
+                                nested_steps, context, tmux_manager, idx, len(items)
+                            )
 
-                    if result.loop_signal == LoopSignal.BREAK:
-                        self._print_loop_break(idx)
-                        break
-                    elif result.loop_signal == LoopSignal.CONTINUE:
-                        self._print_loop_continue(idx)
-                        continue
+                        if result.loop_signal == LoopSignal.BREAK:
+                            self._print_loop_break(idx)
+                            break
+                        elif result.loop_signal == LoopSignal.CONTINUE:
+                            self._print_loop_continue(idx)
+                            continue
 
-                    if not result.success:
-                        raise RuntimeError(result.error or "Nested step failed")
+                        if not result.success:
+                            raise RuntimeError(result.error or "Nested step failed")
 
-                    completed_count += 1
+                        completed_count += 1
 
-                except RuntimeError as e:
-                    error_msg = f"Item {idx}: {e!s}"
-                    errors.append(error_msg)
+                    except RuntimeError as e:
+                        error_msg = f"Item {idx}: {e!s}"
+                        errors.append(error_msg)
 
-                    if on_item_error == "stop":
-                        # Stop loop AND workflow
-                        return ToolResult(
-                            success=False, error=f"ForEach failed at item {idx}: {e}"
-                        )
-                    elif on_item_error == "stop_loop":
-                        # Stop loop, but continue workflow
-                        self._print_item_error(idx, str(e), "stopping loop")
-                        break
-                    else:  # continue
-                        # Log error and continue to next item
-                        self._print_item_error(idx, str(e), "continuing")
-                        continue
+                        if on_item_error == "stop":
+                            # Stop loop AND workflow
+                            return ToolResult(
+                                success=False, error=f"ForEach failed at item {idx}: {e}"
+                            )
+                        elif on_item_error == "stop_loop":
+                            # Stop loop, but continue workflow
+                            self._print_item_error(idx, str(e), "stopping loop")
+                            break
+                        else:  # continue
+                            # Log error and continue to next item
+                            self._print_item_error(idx, str(e), "continuing")
+                            continue
 
         finally:
             # Restore original values
@@ -221,6 +222,7 @@ class ForEachTool(BaseTool):
                     continue
 
             # Print step info
+            step_start_time = time.time()
             self._print_nested_step(
                 step, step_idx, total_steps, iteration_idx, total_iterations
             )
@@ -229,6 +231,14 @@ class ForEachTool(BaseTool):
             tool = ToolRegistry.get(step["tool"])
             tool.validate_step(step)
             result = tool.execute(step, context, tmux_manager)
+
+            # Print step completion
+            step_duration = time.time() - step_start_time
+            step_name = step.get("name", "Unnamed")
+            output_var = step.get("output_var")
+            self._print_nested_step_result(
+                step_name, result.success, step_duration, output_var
+            )
 
             # Store output if requested
             if step.get("output_var") and result.output:
@@ -281,52 +291,54 @@ class ForEachTool(BaseTool):
         iteration_idx: int,
         total_iterations: int,
     ) -> None:
-        """Print nested step info."""
+        """Print nested step info using display adapter."""
         step_name = step.get("name", "Unnamed")
         tool_name = step.get("tool", "claude")
-        console = get_display().console
-        console.print(
-            f"     {ICONS['play']} Step {step_idx + 1}/{total_steps}: "
-            f"{step_name} [dim]({tool_name})[/dim]"
-        )
+        display = get_display()
+
+        # Use adapter method (handles v1/v2 internally)
+        display.print_nested_step_start(step_name, step_idx + 1, total_steps, tool_name)
+
+    def _print_nested_step_result(
+        self,
+        step_name: str,
+        success: bool,
+        duration: float,
+        output_var: Optional[str] = None,
+    ) -> None:
+        """Print nested step completion result."""
+        display = get_display()
+
+        # Use adapter methods (handles v1/v2 internally)
+        if success:
+            display.print_nested_step_complete(step_name, duration, output_var)
+        else:
+            display.print_nested_step_failed(step_name, duration)
 
     def _print_nested_step_skipped(
         self, step: Dict[str, Any], step_idx: int, total_steps: int, reason: str
     ) -> None:
-        """Print nested step skipped message."""
-        from ..display_v2 import humanize_skip_reason
-
+        """Print nested step skipped message using display adapter."""
         step_name = step.get("name", "Unnamed")
         display = get_display()
 
-        if display._is_v2:
-            # Use humanized reason in v2
-            human_reason = humanize_skip_reason(reason)
-            display.console.print(
-                f"     [yellow]⏭[/yellow] {step_name} [dim]— {human_reason}[/dim]"
-            )
-        else:
-            display.console.print(
-                f"     {ICONS['skip']} [yellow]Skipped {step_idx + 1}/{total_steps}: "
-                f"{step_name}[/yellow]"
-            )
-            display.console.print(f"        [dim]Reason: {reason}[/dim]")
+        # Use adapter method (handles v1/v2 internally)
+        display.print_nested_step_skipped(step_name, reason)
 
     def _print_loop_break(self, idx: int) -> None:
         """Print break message."""
-        console = get_display().console
-        console.print(f"     {ICONS['stop']} [yellow]Break at iteration {idx + 1}[/yellow]")
+        display = get_display()
+        # Use adapter method (handles v1/v2 internally)
+        display.print_loop_message("break", idx)
 
     def _print_loop_continue(self, idx: int) -> None:
         """Print continue message."""
-        console = get_display().console
-        console.print(
-            f"     {ICONS['skip']} [yellow]Continue at iteration {idx + 1}[/yellow]"
-        )
+        display = get_display()
+        # Use adapter method (handles v1/v2 internally)
+        display.print_loop_message("continue", idx)
 
     def _print_item_error(self, idx: int, error: str, action: str) -> None:
         """Print item error message."""
-        console = get_display().console
-        console.print(
-            f"     {ICONS['warning']} [red]Error at item {idx}: {error}[/red] ({action})"
-        )
+        display = get_display()
+        # Use adapter method (handles v1/v2 internally)
+        display.print_loop_message("error", idx, error, action)

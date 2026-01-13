@@ -3,9 +3,7 @@
 import json
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from rich.text import Text
-
-from ..display import ICONS, console
+from ..display_adapter import get_display
 from ..linear import IssueData, LinearClientWrapper
 from .base import BaseTool, ToolResult
 
@@ -70,10 +68,8 @@ class LinearManageTool(BaseTool):
         except ValueError as e:
             return ToolResult(success=False, error=str(e))
 
-        status_text = Text()
-        status_text.append(f"{ICONS['terminal']} ", style="bold cyan")
-        status_text.append(f"Linear: {action}", style="white")
-        console.print(status_text)
+        display = get_display()
+        display.console.print(f"[bold cyan]⌨[/bold cyan] [white]Linear: {action}[/white]")
 
         if action == "create":
             return self._action_create(step, context, client)

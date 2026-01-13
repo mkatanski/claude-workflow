@@ -153,6 +153,115 @@ class DisplayAdapter:
         else:
             self._display.print_step_skipped(step, context, step_num, total_steps, reason)
 
+    def update_step_status(self, elapsed: float) -> None:
+        """Update the current step's elapsed time in-place (v2 only)."""
+        if self._is_v2:
+            self._display.update_step_status(elapsed)
+        # V1 doesn't support in-place updates - no-op
+
+    # =========================================================================
+    # Nested Step Display (for foreach and similar tools)
+    # =========================================================================
+
+    def print_nested_step_start(
+        self,
+        step_name: str,
+        step_num: int,
+        total_steps: int,
+        tool: str = "claude",
+    ) -> None:
+        """Print nested step start indicator (string-based for tools)."""
+        if self._is_v2:
+            self._display.print_step_start(step_name, step_num, total_steps, tool)
+        else:
+            from .display import ICONS
+            self.console.print(
+                f"     {ICONS['play']} Step {step_num}/{total_steps}: "
+                f"{step_name} [dim]({tool})[/dim]"
+            )
+
+    def print_nested_step_complete(
+        self,
+        step_name: str,
+        duration: float,
+        output_var: Optional[str] = None,
+    ) -> None:
+        """Print nested step completion (string-based for tools)."""
+        if self._is_v2:
+            self._display.print_step_complete(step_name, duration, output_var)
+        else:
+            self._display.print_step_result(True, duration, output_var)
+
+    def print_nested_step_failed(
+        self,
+        step_name: str,
+        duration: float,
+        error: Optional[str] = None,
+    ) -> None:
+        """Print nested step failure (string-based for tools)."""
+        if self._is_v2:
+            self._display.print_step_failed(step_name, duration, error)
+        else:
+            self._display.print_step_result(False, duration)
+
+    def print_nested_step_skipped(
+        self,
+        step_name: str,
+        reason: str,
+    ) -> None:
+        """Print nested step skipped message with humanized reason."""
+        if self._is_v2:
+            human_reason = self.humanize_reason(reason)
+            indent = self.get_current_indent()
+            from .display_v2 import StatusIcons
+            self.console.print(
+                f"{indent}[{StatusIcons.SKIPPED}] {step_name} [dim]— {human_reason}[/dim]"
+            )
+        else:
+            from .display import ICONS
+            self.console.print(
+                f"     {ICONS['skip']} [yellow]Skipped: {step_name}[/yellow]"
+            )
+            self.console.print(f"        [dim]Reason: {reason}[/dim]")
+
+    def print_loop_message(
+        self,
+        msg_type: str,
+        index: int,
+        error: Optional[str] = None,
+        action: Optional[str] = None,
+    ) -> None:
+        """Print loop control flow messages (break, continue, error)."""
+        indent = self.get_current_indent()
+        if msg_type == "break":
+            self.console.print(f"{indent}[yellow]⏹ Break at iteration {index + 1}[/yellow]")
+        elif msg_type == "continue":
+            self.console.print(f"{indent}[yellow]⏭ Continue at iteration {index + 1}[/yellow]")
+        elif msg_type == "error":
+            action_text = f" [dim]({action})[/dim]" if action else ""
+            self.console.print(
+                f"{indent}[red]✗ Error at item {index}: {error}[/red]{action_text}"
+            )
+
+    def humanize_reason(self, reason: str) -> str:
+        """Convert condition evaluation reason to human-readable text."""
+        if self._is_v2:
+            from .display_v2 import humanize_skip_reason
+            return humanize_skip_reason(reason)
+        else:
+            # V1 doesn't humanize - return shortened reason
+            if len(reason) > 30:
+                return reason[:27] + "..."
+            return reason
+
+    def get_current_indent(self) -> str:
+        """Get current indentation string."""
+        if self._is_v2:
+            from .display_v2 import _get_indent
+            return _get_indent()
+        else:
+            return "     "  # V1 uses fixed 5-space indent
+
     # =========================================================================
     # Workflow Lifecycle
     # =========================================================================
