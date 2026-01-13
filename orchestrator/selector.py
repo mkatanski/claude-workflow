@@ -55,6 +55,12 @@ def select_workflow_interactive(
         qmark=ICONS["diamond"],
     ).ask()
 
+    # questionary may return a string (like "Cancel") instead of None
+    # when the user cancels or selects an option with value=None.
+    # Only return WorkflowInfo objects; treat any other value as cancellation.
+    if not isinstance(selected, WorkflowInfo):
+        return None
+
     return selected
 
 

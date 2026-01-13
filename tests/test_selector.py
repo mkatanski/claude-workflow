@@ -609,6 +609,55 @@ class TestEdgeCases:
 
     @patch("orchestrator.selector.questionary.select")
     @patch("orchestrator.selector.console")
+    def test_select_workflow_interactive_returns_none_when_string_returned(
+        self,
+        mock_console: MagicMock,
+        mock_select: MagicMock,
+    ) -> None:
+        """Test that string return values (like 'Cancel') are treated as cancellation.
+
+        questionary.Choice may return the title string instead of the value
+        when value=None is passed. This test ensures we handle that case.
+        """
+        mock_question = MagicMock()
+        # Simulate questionary returning the title string instead of None
+        mock_question.ask.return_value = "Cancel"
+        mock_select.return_value = mock_question
+
+        workflows = [
+            WorkflowInfo(name="Test", file_path=Path("/project/.claude/test.yml")),
+        ]
+
+        result = select_workflow_interactive(workflows)
+
+        assert result is None
+
+    @patch("orchestrator.selector.questionary.select")
+    @patch("orchestrator.selector.console")
+    def test_select_workflow_interactive_returns_none_for_any_non_workflow_value(
+        self,
+        mock_console: MagicMock,
+        mock_select: MagicMock,
+    ) -> None:
+        """Test that any non-WorkflowInfo return value is treated as cancellation.
+
+        This handles edge cases where questionary might return unexpected values.
+        """
+        mock_question = MagicMock()
+        # Simulate questionary returning some unexpected value
+        mock_question.ask.return_value = "unexpected_string"
+        mock_select.return_value = mock_question
+
+        workflows = [
+            WorkflowInfo(name="Test", file_path=Path("/project/.claude/test.yml")),
+        ]
+
+        result = select_workflow_interactive(workflows)
+
+        assert result is None
+
+    @patch("orchestrator.selector.questionary.select")
+    @patch("orchestrator.selector.console")
     def test_select_workflow_interactive_choice_values_are_workflow_objects(
         self,
         mock_console: MagicMock,
