@@ -15,14 +15,11 @@ if TYPE_CHECKING:
 
 
 # Patterns that indicate Claude is waiting for plan approval
+# These are lowercased for comparison
 PLAN_APPROVAL_PATTERNS: List[str] = [
-    "approve",           # Common approval keyword
-    "exit plan mode",    # ExitPlanMode indicator
-    "proceed with",      # Proceed prompt
-    "[y/n]",             # Yes/no prompt
-    "ready to execute",  # Plan ready indicator
-    "plan mode",         # Plan mode reference
-    "approve the plan",  # Direct approval request
+    "would you like to proceed",  # Main question text
+    "❯",                          # Selection arrow indicator
+    "1. yes",                     # First option (yes)
 ]
 
 
@@ -126,8 +123,7 @@ class ClaudeTool(BaseTool):
 
         if self._is_plan_approval_prompt(content):
             console.print("[yellow]  ⚡ Auto-approving plan...[/yellow]")
-            tmux_manager.send_keys("y")
-            time.sleep(0.1)
+            # Just press Enter - the default option "Yes" is already selected
             tmux_manager.send_keys("Enter")
             return True
 
