@@ -170,21 +170,8 @@ def run_with_mocks(
 ) -> None:
     """Run workflow with all display and subprocess mocks."""
     with patch("orchestrator.tools.bash.subprocess.run", mock_subprocess):
-        with patch("orchestrator.tools.bash.console"):
-            with patch("orchestrator.tools.foreach.console"):
-                with patch("orchestrator.tools.claude.console"):
-                    with patch("orchestrator.tools.claude.Live"):
-                        with patch("orchestrator.tools.linear_tasks.console"):
-                            with patch("orchestrator.workflow.console"):
-                                with patch("orchestrator.workflow.create_header_panel"):
-                                    with patch("orchestrator.workflow.create_config_table"):
-                                        with patch("orchestrator.workflow.create_step_panel"):
-                                            with patch("orchestrator.workflow.print_step_result"):
-                                                with patch("orchestrator.workflow.print_step_skipped"):
-                                                    with patch("orchestrator.workflow.print_cleanup_message"):
-                                                        with patch("orchestrator.workflow.print_summary"):
-                                                            with patch("orchestrator.workflow.print_workflow_start"):
-                                                                with patch("time.sleep"):
+        with patch("orchestrator.tools.claude.Live"):
+                        with patch("time.sleep"):
                                                                     runner.run()
 
 
@@ -355,17 +342,7 @@ class TestGotoLoopWorkflow:
             )
 
         with patch("orchestrator.tools.bash.subprocess.run", mock_subprocess_fn):
-            with patch("orchestrator.tools.bash.console"):
-                with patch("orchestrator.workflow.console"):
-                    with patch("orchestrator.workflow.create_header_panel"):
-                        with patch("orchestrator.workflow.create_config_table"):
-                            with patch("orchestrator.workflow.create_step_panel"):
-                                with patch("orchestrator.workflow.print_step_result"):
-                                    with patch("orchestrator.workflow.print_step_skipped"):
-                                        with patch("orchestrator.workflow.print_cleanup_message"):
-                                            with patch("orchestrator.workflow.print_summary"):
-                                                with patch("orchestrator.workflow.print_workflow_start"):
-                                                    with patch("time.sleep"):
+            with patch("time.sleep"):
                                                         runner.run()
 
         # Should have iterated 3 times (counter 1->2->3->4, then exits)
@@ -398,17 +375,7 @@ class TestGotoLoopWorkflow:
             )
 
         with patch("orchestrator.tools.bash.subprocess.run", mock_subprocess_fn):
-            with patch("orchestrator.tools.bash.console"):
-                with patch("orchestrator.workflow.console"):
-                    with patch("orchestrator.workflow.create_header_panel"):
-                        with patch("orchestrator.workflow.create_config_table"):
-                            with patch("orchestrator.workflow.create_step_panel"):
-                                with patch("orchestrator.workflow.print_step_result"):
-                                    with patch("orchestrator.workflow.print_step_skipped"):
-                                        with patch("orchestrator.workflow.print_cleanup_message"):
-                                            with patch("orchestrator.workflow.print_summary"):
-                                                with patch("orchestrator.workflow.print_workflow_start"):
-                                                    with patch("time.sleep"):
+            with patch("time.sleep"):
                                                         runner.run()
 
         # Final step should execute

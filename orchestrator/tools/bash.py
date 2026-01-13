@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 from rich.live import Live
 from rich.text import Text
 
-from ..display import ICONS, AnimatedWaiter, console
+from ..display import ICONS, AnimatedWaiter
+from ..display_adapter import get_display
 from .base import BaseTool, ToolResult
 
 if TYPE_CHECKING:
@@ -97,11 +98,8 @@ class BashTool(BaseTool):
             strip_output: Whether to strip whitespace from output
             env: Environment variables (None = inherit system env)
         """
-        status_text = Text()
-        status_text.append(f"{ICONS['terminal']} ", style="bold cyan")
-        status_text.append("Running in background: ", style="white")
-        status_text.append(str(command[:50]) + ("..." if len(command) > 50 else ""), style="dim")
-        console.print(status_text)
+        display = get_display()
+        display.print_bash_running(command)
 
         try:
             process = subprocess.run(
@@ -202,7 +200,7 @@ class BashTool(BaseTool):
         hash_check_interval = 2.0  # Check more frequently for bash
         idle_timeout = 10.0  # Shorter timeout for bash commands
 
-        with Live(console=console, refresh_per_second=10) as live:
+        with Live(console=get_display().console, refresh_per_second=10) as live:
             while True:
                 elapsed = time.time() - start
                 live.update(waiter.create_display(elapsed))

@@ -28,7 +28,8 @@ from orchestrator.config import (
     load_config,
     validate_workflow_file,
 )
-from orchestrator.display import ICONS, console
+from orchestrator.display import ICONS
+from orchestrator.display_adapter import DisplayAdapter, get_display
 from orchestrator.hooks import (
     HookStatus,
     check_hooks_status,
@@ -94,15 +95,25 @@ def main() -> None:
         default=7432,
         help="Port for completion signal server (default: 7432)",
     )
+    parser.add_argument(
+        "--classic",
+        action="store_true",
+        default=False,
+        help="Use classic panel-based display instead of CI-style (default: CI-style)",
+    )
 
     args = parser.parse_args()
+
+    # Configure display mode (must be done before any display calls)
+    DisplayAdapter.use_v2 = not args.classic
+    DisplayAdapter.reset()  # Reset singleton to pick up new setting
 
     # Convert to Path and resolve
     project_path = Path(args.project_path).resolve()
 
     # Check if inside tmux
     if not os.environ.get("TMUX"):
-        console.print()
+        get_display().console.print()
         error_panel = Panel(
             Text.from_markup(
                 f"[bold red]{ICONS['cross']} Must run inside a tmux session![/bold red]\n\n"
@@ -116,27 +127,27 @@ def main() -> None:
             box=box.ROUNDED,
             expand=False,
         )
-        console.print(error_panel)
-        console.print()
+        get_display().console.print(error_panel)
+        get_display().console.print()
         sys.exit(1)
 
     # Check project path exists
     if not project_path.exists():
-        console.print()
-        console.print(
+        get_display().console.print()
+        get_display().console.print(
             f"[bold red]{ICONS['cross']} Project path not found: {project_path}[/bold red]"
         )
-        console.print()
+        get_display().console.print()
         sys.exit(1)
 
     # Check for mutually exclusive flags
     if args.workflow_name and args.workflow_file:
-        console.print()
-        console.print(
+        get_display().console.print()
+        get_display().console.print(
             f"[bold red]{ICONS['cross']} Cannot use both -w/--workflow and "
             f"-f/--file flags together[/bold red]"
         )
-        console.print()
+        get_display().console.print()
         sys.exit(1)
 
     workflow_file = None
@@ -149,19 +160,19 @@ def main() -> None:
         try:
             workflow_file.relative_to(project_path)
         except ValueError:
-            console.print()
-            console.print(
+            get_display().console.print()
+            get_display().console.print(
                 f"[yellow]{ICONS['warning']} Warning: Loading workflow from outside "
                 f"project directory[/yellow]"
             )
-            console.print(f"  [dim]File: {workflow_file}[/dim]")
-            console.print(f"  [dim]Project: {project_path}[/dim]")
-            console.print()
+            get_display().console.print(f"  [dim]File: {workflow_file}[/dim]")
+            get_display().console.print(f"  [dim]Project: {project_path}[/dim]")
+            get_display().console.print()
 
         # Validate the workflow file
         is_valid, error_msg = validate_workflow_file(workflow_file)
         if not is_valid:
-            console.print()
+            get_display().console.print()
             error_panel = Panel(
                 Text.from_markup(
                     f"[bold red]{ICONS['cross']} Invalid workflow file![/bold red]\n\n"
@@ -176,8 +187,8 @@ def main() -> None:
                 box=box.ROUNDED,
                 expand=False,
             )
-            console.print(error_panel)
-            console.print()
+            get_display().console.print(error_panel)
+            get_display().console.print()
             sys.exit(1)
 
     elif args.workflow_name:
@@ -186,7 +197,7 @@ def main() -> None:
         found = find_workflow_by_name(workflows, args.workflow_name)
 
         if found is None:
-            console.print()
+            get_display().console.print()
             if workflows:
                 error_msg = (
                     f"[bold red]{ICONS['cross']} Workflow '{args.workflow_name}' "
@@ -211,8 +222,8 @@ def main() -> None:
                 box=box.ROUNDED,
                 expand=False,
             )
-            console.print(error_panel)
-            console.print()
+            get_display().console.print(error_panel)
+            get_display().console.print()
             sys.exit(1)
 
         workflow_file = found.file_path
@@ -224,12 +235,12 @@ def main() -> None:
         if workflows:
             selected = select_workflow_interactive(workflows)
             if selected is None:
-                console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
+                get_display().console.print(f"[yellow]{ICONS['stop']} Cancelled[/yellow]")
                 sys.exit(0)
             workflow_file = selected.file_path
         else:
             # No valid workflows found
-            console.print()
+            get_display().console.print()
             error_panel = Panel(
                 Text.from_markup(
                     f"[bold red]{ICONS['cross']} No workflow files found![/bold red]\n\n"
@@ -248,20 +259,20 @@ def main() -> None:
                 box=box.ROUNDED,
                 expand=False,
             )
-            console.print(error_panel)
-            console.print()
+            get_display().console.print(error_panel)
+            get_display().console.print()
             sys.exit(1)
 
     # Load config
     try:
         config = load_config(project_path, workflow_file)
     except yaml.YAMLError as e:
-        console.print()
-        console.print(
+        get_display().console.print()
+        get_display().console.print(
             f"[bold red]{ICONS['cross']} Invalid YAML in workflow file:[/bold red]"
         )
-        console.print(f"  {e}")
-        console.print()
+        get_display().console.print(f"  {e}")
+        get_display().console.print()
         sys.exit(1)
 
     # Check hooks only if workflow uses claude tool
@@ -273,46 +284,46 @@ def main() -> None:
             settings_path = prompt_hook_installation(project_path)
             if settings_path:
                 if install_hooks(settings_path):
-                    console.print()
-                    console.print(
+                    get_display().console.print()
+                    get_display().console.print(
                         f"[green]{ICONS['check']} Hooks installed to {settings_path}[/green]"
                     )
-                    console.print(
+                    get_display().console.print(
                         "[yellow]Please restart Claude Code for hooks to take effect.[/yellow]"
                     )
-                    console.print()
+                    get_display().console.print()
                 else:
                     print_manual_hook_instructions()
                     sys.exit(1)
             else:
-                console.print()
-                console.print(
+                get_display().console.print()
+                get_display().console.print(
                     f"[red]{ICONS['cross']} Cannot run without hooks configured.[/red]"
                 )
-                console.print()
+                get_display().console.print()
                 sys.exit(1)
 
         elif hook_result.status == HookStatus.OUTDATED:
             # Hooks exist but are outdated - ask user to update
             if prompt_hook_update(hook_result.settings_path):
                 if install_hooks(hook_result.settings_path, update=True):
-                    console.print()
-                    console.print(
+                    get_display().console.print()
+                    get_display().console.print(
                         f"[green]{ICONS['check']} Hooks updated in {hook_result.settings_path}[/green]"
                     )
-                    console.print(
+                    get_display().console.print(
                         "[yellow]Please restart Claude Code for hooks to take effect.[/yellow]"
                     )
-                    console.print()
+                    get_display().console.print()
                 else:
                     print_manual_hook_instructions()
                     sys.exit(1)
             else:
-                console.print()
-                console.print(
+                get_display().console.print()
+                get_display().console.print(
                     f"[red]{ICONS['cross']} Cannot run with outdated hooks.[/red]"
                 )
-                console.print()
+                get_display().console.print()
                 sys.exit(1)
 
         # HookStatus.CURRENT - hooks are up-to-date, continue normally
@@ -322,27 +333,27 @@ def main() -> None:
     try:
         server.start()
     except RuntimeError as e:
-        console.print()
-        console.print(f"[bold red]{ICONS['cross']} Server failed to start: {e}[/bold red]")
-        console.print()
+        get_display().console.print()
+        get_display().console.print(f"[bold red]{ICONS['cross']} Server failed to start: {e}[/bold red]")
+        get_display().console.print()
         sys.exit(1)
 
     # Show actual port (may differ from requested if auto-found)
     if server.port != args.port:
-        console.print(f"[dim]Port {args.port} busy, using {server.port}[/dim]")
+        get_display().console.print(f"[dim]Port {args.port} busy, using {server.port}[/dim]")
 
     # Run workflow
     try:
         runner = WorkflowRunner(config, project_path, server)
         runner.run()
     except KeyboardInterrupt:
-        console.print()
-        console.print(f"\n[yellow]{ICONS['stop']} Aborted[/yellow]")
+        get_display().console.print()
+        get_display().console.print(f"\n[yellow]{ICONS['stop']} Aborted[/yellow]")
         sys.exit(130)
     except Exception as e:
-        console.print()
-        console.print(f"[bold red]{ICONS['cross']} Error: {e}[/bold red]")
-        console.print()
+        get_display().console.print()
+        get_display().console.print(f"[bold red]{ICONS['cross']} Error: {e}[/bold red]")
+        get_display().console.print()
         sys.exit(1)
     finally:
         server.stop()

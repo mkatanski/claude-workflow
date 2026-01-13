@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from rich.text import Text
 
 from ..conditions import ConditionError, ConditionEvaluator
-from ..display import ICONS, console
+from ..display import ICONS
+from ..display_adapter import get_display
 from .base import BaseTool, LoopSignal, ToolResult
 
 if TYPE_CHECKING:
@@ -213,7 +214,7 @@ class ForEachTool(BaseTool):
                         step_idx += 1
                         continue
                 except ConditionError as e:
-                    console.print(
+                    get_display().console.print(
                         f"[yellow]Warning: Condition error: {e}. Skipping step.[/yellow]"
                     )
                     step_idx += 1
@@ -262,22 +263,15 @@ class ForEachTool(BaseTool):
 
     def _print_loop_header(self, name: str, count: int) -> None:
         """Print foreach loop header."""
-        console.print()
-        header = Text()
-        header.append(f"  {ICONS['loop']} ", style="bold cyan")
-        header.append("ForEach Loop: ", style="bold cyan")
-        header.append(str(name), style="white")
-        console.print(header)
-        console.print(f"     [dim]Iterating over {count} items[/dim]")
+        display = get_display()
+        display.print_group_start(name, count)
 
     def _print_iteration_header(self, idx: int, total: int, item: Any) -> None:
         """Print iteration header."""
         item_str = str(item)
         item_preview = item_str[:50] + ("..." if len(item_str) > 50 else "")
-        console.print()
-        console.print(
-            f"  {ICONS['arrow']} [cyan]Iteration {idx + 1}/{total}[/cyan]: {item_preview}"
-        )
+        display = get_display()
+        display.print_iteration_header(idx, total, item_preview)
 
     def _print_nested_step(
         self,
@@ -290,6 +284,7 @@ class ForEachTool(BaseTool):
         """Print nested step info."""
         step_name = step.get("name", "Unnamed")
         tool_name = step.get("tool", "claude")
+        console = get_display().console
         console.print(
             f"     {ICONS['play']} Step {step_idx + 1}/{total_steps}: "
             f"{step_name} [dim]({tool_name})[/dim]"
@@ -299,25 +294,39 @@ class ForEachTool(BaseTool):
         self, step: Dict[str, Any], step_idx: int, total_steps: int, reason: str
     ) -> None:
         """Print nested step skipped message."""
+        from ..display_v2 import humanize_skip_reason
+
         step_name = step.get("name", "Unnamed")
-        console.print(
-            f"     {ICONS['skip']} [yellow]Skipped {step_idx + 1}/{total_steps}: "
-            f"{step_name}[/yellow]"
-        )
-        console.print(f"        [dim]Reason: {reason}[/dim]")
+        display = get_display()
+
+        if display._is_v2:
+            # Use humanized reason in v2
+            human_reason = humanize_skip_reason(reason)
+            display.console.print(
+                f"     [yellow]⏭[/yellow] {step_name} [dim]— {human_reason}[/dim]"
+            )
+        else:
+            display.console.print(
+                f"     {ICONS['skip']} [yellow]Skipped {step_idx + 1}/{total_steps}: "
+                f"{step_name}[/yellow]"
+            )
+            display.console.print(f"        [dim]Reason: {reason}[/dim]")
 
     def _print_loop_break(self, idx: int) -> None:
         """Print break message."""
+        console = get_display().console
         console.print(f"     {ICONS['stop']} [yellow]Break at iteration {idx + 1}[/yellow]")
 
     def _print_loop_continue(self, idx: int) -> None:
         """Print continue message."""
+        console = get_display().console
         console.print(
             f"     {ICONS['skip']} [yellow]Continue at iteration {idx + 1}[/yellow]"
         )
 
     def _print_item_error(self, idx: int, error: str, action: str) -> None:
         """Print item error message."""
+        console = get_display().console
         console.print(
             f"     {ICONS['warning']} [red]Error at item {idx}: {error}[/red] ({action})"
         )

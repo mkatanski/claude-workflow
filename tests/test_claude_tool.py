@@ -103,7 +103,7 @@ class TestCheckAndApprovePlan:
           2. No
         """
 
-        with patch("orchestrator.tools.claude.console"):
+        with patch("orchestrator.tools.claude.get_display"):
             result = claude_tool._check_and_approve_plan(mock_tmux)
 
         assert result is True
@@ -141,12 +141,12 @@ class TestCheckAndApprovePlan:
         ❯ 1. Yes, and bypass permissions
         """
 
-        with patch("orchestrator.tools.claude.console") as mock_console:
+        with patch("orchestrator.tools.claude.get_display") as mock_get_display:
+            mock_display = MagicMock()
+            mock_get_display.return_value = mock_display
             claude_tool._check_and_approve_plan(mock_tmux)
 
-        mock_console.print.assert_called_once()
-        call_args = mock_console.print.call_args[0][0]
-        assert "Auto-approving" in call_args
+        mock_display.print_auto_approve_plan.assert_called_once()
 
 
 class TestAutoApproveConfig:
@@ -220,7 +220,7 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
-        with patch("orchestrator.tools.claude.console"):
+        with patch("orchestrator.tools.claude.get_display"):
             with patch("orchestrator.tools.claude.Live"):
                 with patch("orchestrator.tools.claude.AnimatedWaiter"):
                     with patch("time.sleep"):
@@ -272,7 +272,7 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
-        with patch("orchestrator.tools.claude.console"):
+        with patch("orchestrator.tools.claude.get_display"):
             with patch("orchestrator.tools.claude.Live"):
                 with patch("orchestrator.tools.claude.AnimatedWaiter"):
                     with patch("time.sleep"):
@@ -320,7 +320,7 @@ class TestContinuousApprovalListening:
 
         mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
 
-        with patch("orchestrator.tools.claude.console"):
+        with patch("orchestrator.tools.claude.get_display"):
             with patch("orchestrator.tools.claude.Live"):
                 with patch("orchestrator.tools.claude.AnimatedWaiter"):
                     with patch("time.sleep"):

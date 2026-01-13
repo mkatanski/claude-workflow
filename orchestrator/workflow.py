@@ -7,18 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .conditions import ConditionError, ConditionEvaluator
 from .config import Step, WorkflowConfig
 from .context import ExecutionContext
-from .display import (
-    console,
-    create_config_table,
-    create_header_panel,
-    create_step_panel,
-    print_cleanup_message,
-    print_step_result,
-    print_step_skipped,
-    print_summary,
-    print_workflow_interrupted,
-    print_workflow_start,
-)
+from .display_adapter import DisplayAdapter, get_display
 from .tmux import TmuxManager
 from .tools import ToolRegistry
 
@@ -56,16 +45,14 @@ class WorkflowRunner:
         # Progress tracking
         self.completed_steps = 0
 
+        # Display adapter
+        self._display = get_display()
+
     def print_header(self) -> None:
         """Print workflow header with configuration summary."""
-        console.print()
-        console.print(create_header_panel(self.config.name))
-        console.print()
-        # Hooks are now required, so always show as configured
-        console.print(
-            create_config_table(self.config, self.project_path, hook_configured=True)
+        self._display.print_header(
+            self.config, self.project_path, self.server.port, hook_configured=True
         )
-        console.print()
 
     def run_step(
         self, step: Step, step_num: int, total_steps: int
@@ -82,18 +69,21 @@ class WorkflowRunner:
                 result = evaluator.evaluate(step.when)
 
                 if not result.satisfied:
-                    print_step_skipped(
+                    self._display.print_step_skipped(
                         step, self.context, step_num, total_steps, result.reason
                     )
                     return None  # Skip this step
             except ConditionError as e:
-                console.print(f"[yellow]Warning: Condition error: {e}. Skipping step.[/yellow]")
+                self._display.console.print(
+                    f"[yellow]Warning: Condition error: {e}. Skipping step.[/yellow]"
+                )
                 return None
 
         step_start_time = time.time()
+        step_name = self.context.interpolate(step.name)
 
-        console.print()
-        console.print(create_step_panel(step, self.context, step_num, total_steps))
+        # Print step start
+        self._display.print_step_start(step, self.context, step_num, total_steps)
 
         # Get the tool for this step
         tool = ToolRegistry.get(step.tool)
@@ -113,7 +103,13 @@ class WorkflowRunner:
             self.context.set(step.output_var, result.output)
 
         # Print result
-        print_step_result(result.success, step_duration, step.output_var)
+        self._display.print_step_result(
+            result.success,
+            step_duration,
+            step.output_var,
+            step_name=step_name,
+            error=result.error,
+        )
 
         if result.success:
             self.completed_steps += 1
@@ -219,16 +215,16 @@ class WorkflowRunner:
     def run(self) -> None:
         """Run the complete workflow."""
         self.print_header()
-        print_workflow_start()
+        self._display.print_workflow_start()
 
         self.workflow_start_time = time.time()
 
         try:
             self._run_steps()
         except StepError as e:
-            console.print(f"\n[bold red]Error: {e}[/bold red]")
+            self._display.console.print(f"\n[bold red]Error: {e}[/bold red]")
         except KeyboardInterrupt:
-            print_workflow_interrupted()
+            self._display.print_workflow_interrupted()
         finally:
             self._cleanup()
             self._print_summary()
@@ -236,13 +232,13 @@ class WorkflowRunner:
     def _cleanup(self) -> None:
         """Clean up resources on exit."""
         if self.tmux_manager.current_pane:
-            print_cleanup_message()
+            self._display.print_cleanup_message()
             self.tmux_manager.close_pane()
 
     def _print_summary(self) -> None:
         """Print workflow completion summary."""
         total_elapsed = time.time() - (self.workflow_start_time or time.time())
-        print_summary(
+        self._display.print_summary(
             self.completed_steps,
             total_elapsed,
             self.step_times,

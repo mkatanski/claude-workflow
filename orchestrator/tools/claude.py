@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 from rich.live import Live
 
-from ..display import AnimatedWaiter, console
+from ..display import AnimatedWaiter
+from ..display_adapter import get_display
 from .base import BaseTool, ToolResult
 
 if TYPE_CHECKING:
@@ -89,7 +90,7 @@ class ClaudeTool(BaseTool):
         if not pane_id:
             return ""
 
-        with Live(console=console, refresh_per_second=10) as live:
+        with Live(console=get_display().console, refresh_per_second=10) as live:
             while True:
                 elapsed = time.time() - start
                 live.update(waiter.create_display(elapsed))
@@ -122,7 +123,7 @@ class ClaudeTool(BaseTool):
             return False
 
         if self._is_plan_approval_prompt(content):
-            console.print("[yellow]  ⚡ Auto-approving plan...[/yellow]")
+            get_display().print_auto_approve_plan()
             # Just press Enter - the default option "Yes" is already selected
             tmux_manager.send_keys("Enter")
             return True
