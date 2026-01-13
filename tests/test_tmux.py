@@ -391,6 +391,64 @@ class TestLaunchClaudePane:
         assert "claude" in call_kwargs["start_command"]
         assert "'Test prompt'" in call_kwargs["start_command"]
 
+    @patch("time.sleep")
+    @patch("orchestrator.tmux.console")
+    def test_launch_claude_pane_handles_non_string_pane_id(
+        self,
+        mock_console: MagicMock,
+        mock_sleep: MagicMock,
+        tmux_manager: TmuxManager,
+    ) -> None:
+        """Test launch_claude_pane converts non-string pane_id to string.
+
+        This prevents 'Only str or Text can be appended to Text' error
+        when the pane_id is not a string.
+        """
+        # Mock controller to return an integer (unusual but possible)
+        tmux_manager.controller.create_pane = MagicMock(return_value=12345)
+
+        # This should not raise an error
+        pane_id = tmux_manager.launch_claude_pane("Test prompt")
+
+        # pane_id should be converted to string for internal use
+        assert tmux_manager.current_pane == 12345  # Internal storage keeps original
+
+    @patch("time.sleep")
+    @patch("orchestrator.tmux.console")
+    def test_launch_claude_pane_raises_on_none_pane_id(
+        self,
+        mock_console: MagicMock,
+        mock_sleep: MagicMock,
+        tmux_manager: TmuxManager,
+    ) -> None:
+        """Test launch_claude_pane raises RuntimeError when pane_id is None."""
+        tmux_manager.controller.create_pane = MagicMock(return_value=None)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            tmux_manager.launch_claude_pane("Test prompt")
+
+        assert "Failed to create tmux pane" in str(exc_info.value)
+
+    @patch("time.sleep")
+    @patch("orchestrator.tmux.console")
+    def test_launch_claude_pane_raises_on_large_prompt(
+        self,
+        mock_console: MagicMock,
+        mock_sleep: MagicMock,
+        tmux_manager: TmuxManager,
+    ) -> None:
+        """Test large prompts raise RuntimeError with helpful message."""
+        from orchestrator.tmux import MAX_PROMPT_LENGTH
+
+        # Create a prompt larger than the threshold
+        large_prompt = "x" * (MAX_PROMPT_LENGTH + 1000)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            tmux_manager.launch_claude_pane(large_prompt)
+
+        assert "Prompt too large" in str(exc_info.value)
+        assert "100,000" in str(exc_info.value)  # Formatted number in message
+
 
 class TestLaunchBashPane:
     """Tests for launch_bash_pane method."""

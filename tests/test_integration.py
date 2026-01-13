@@ -1132,12 +1132,12 @@ class TestPromptRunnerWorkflow:
             s for s in foreach_step.steps if s.name == "Extract exit code"
         )
         assert extract_step.tool == "bash"
-        # Should use env to pass test_output safely
+        # Should use env to pass test_result safely
         assert extract_step.env is not None
-        assert "TEST_OUTPUT" in extract_step.env
-        assert extract_step.env["TEST_OUTPUT"] == "{test_output}"
+        assert "TEST_RESULT" in extract_step.env
+        assert extract_step.env["TEST_RESULT"] == "{test_result}"
         # Command should reference env var, not interpolated value
-        assert "$TEST_OUTPUT" in extract_step.command
+        assert "$TEST_RESULT" in extract_step.command
 
     def test_foreach_has_default_exit_code(self) -> None:
         """Verify exit code defaults to failure before extraction."""

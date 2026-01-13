@@ -7,6 +7,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+# Maximum prompt length before raising an error
+# macOS shell has ~262K limit, we use a conservative threshold
+MAX_PROMPT_LENGTH = 100_000
+
 from claude_code_tools.tmux_cli_controller import TmuxCLIController
 
 from .config import ClaudeConfig, TmuxConfig
@@ -92,8 +96,29 @@ class TmuxManager:
 
         The ORCHESTRATOR_PORT environment variable is set so that hooks
         can send completion signals to the correct server instance.
+
+        Raises:
+            RuntimeError: If prompt is too large for shell command line limits
+                or if pane creation fails.
         """
-        cmd = self._build_claude_command(prompt)
+        # Check if prompt is too large for shell command line
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            console.print(
+                f"[bold red]{ICONS['cross']} Prompt too large ({len(prompt):,} chars)[/bold red]"
+            )
+            console.print(
+                f"[yellow]  ⚠ Maximum allowed: {MAX_PROMPT_LENGTH:,} chars[/yellow]"
+            )
+            console.print(
+                "[dim]  Tip: Save large data to a file and tell Claude to read it[/dim]"
+            )
+            raise RuntimeError(
+                f"Prompt too large ({len(prompt):,} chars). "
+                f"Maximum: {MAX_PROMPT_LENGTH:,} chars. "
+                "Save large data to a file and reference it in the prompt instead."
+            )
+
+        cmd = self._build_claude_command(prompt=prompt)
 
         with console.status(
             f"[cyan]{ICONS['lightning']} Launching Claude Code...[/cyan]",
@@ -108,12 +133,23 @@ class TmuxManager:
             # Brief pause for pane to initialize
             time.sleep(1)
 
+        # Check if pane creation failed
+        if pane_id is None:
+            console.print(
+                f"[bold red]{ICONS['cross']} Failed to create Claude pane[/bold red]"
+            )
+            console.print("[dim]  Check if tmux is available and running[/dim]")
+            raise RuntimeError(
+                "Failed to create tmux pane. "
+                "Check if tmux is available and running."
+            )
+
         from rich.text import Text
 
         status_text = Text()
         status_text.append(f"{ICONS['check']} ", style="bold green")
         status_text.append("Claude started: ", style="white")
-        status_text.append(pane_id, style="bold cyan")
+        status_text.append(str(pane_id), style="bold cyan")
         console.print(status_text)
 
         # Register pane with server for completion tracking
@@ -144,7 +180,7 @@ class TmuxManager:
         status_text = Text()
         status_text.append(f"{ICONS['check']} ", style="bold green")
         status_text.append("Command started: ", style="white")
-        status_text.append(pane_id, style="bold cyan")
+        status_text.append(str(pane_id), style="bold cyan")
         console.print(status_text)
 
         self.current_pane = pane_id

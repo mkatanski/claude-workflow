@@ -173,3 +173,165 @@ class TestAutoApproveConfig:
 
         auto_approve = getattr(mock_tmux.claude_config, "auto_approve_plan", True)
         assert auto_approve is False
+
+
+class TestContinuousApprovalListening:
+    """Tests for continuous auto-approval listening behavior.
+
+    Verifies that auto-approval continues checking for approval prompts
+    throughout the entire Claude execution, not just once.
+    """
+
+    @pytest.fixture
+    def claude_tool(self) -> ClaudeTool:
+        """Create ClaudeTool instance."""
+        return ClaudeTool()
+
+    def test_continues_listening_after_approval(self, claude_tool: ClaudeTool) -> None:
+        """Verify loop continues after approval (doesn't break on approval)."""
+        call_count = 0
+        approval_prompt = """
+        Would you like to proceed?
+        ❯ 1. Yes, and bypass permissions
+        """
+        normal_output = "Reading files and analyzing code..."
+
+        def mock_capture() -> str:
+            nonlocal call_count
+            call_count += 1
+            # First call returns approval prompt, subsequent calls return normal output
+            if call_count == 1:
+                return approval_prompt
+            return normal_output
+
+        mock_tmux = MagicMock()
+        mock_tmux.capture_pane_content.side_effect = mock_capture
+        mock_tmux.current_pane = "test_pane"
+        mock_tmux.claude_config.auto_approve_plan = True
+
+        # Set up server to complete after a few checks
+        completion_calls = 0
+
+        def mock_wait_for_complete(pane_id: str, timeout: float) -> bool:
+            nonlocal completion_calls
+            completion_calls += 1
+            # Complete after 3 wait calls
+            return completion_calls >= 3
+
+        mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
+
+        with patch("orchestrator.tools.claude.console"):
+            with patch("orchestrator.tools.claude.Live"):
+                with patch("orchestrator.tools.claude.AnimatedWaiter"):
+                    with patch("time.sleep"):
+                        with patch("time.time") as mock_time:
+                            # Simulate time progression to trigger approval checks
+                            mock_time.side_effect = [
+                                0,    # start
+                                0,    # pane_id check
+                                0,    # last_approval_check init
+                                0.5,  # first loop - elapsed
+                                3.0,  # first loop - approval check time (> 2s interval)
+                                3.0,  # after approval
+                                3.5,  # second loop - elapsed
+                                6.0,  # second loop - approval check time
+                                6.0,  # after second check
+                                6.5,  # third loop - elapsed
+                            ]
+                            claude_tool._wait_for_completion(mock_tmux)
+
+        # Verify approval was sent at least once
+        mock_tmux.send_keys.assert_called_with("Enter")
+        # Verify loop continued (multiple wait_for_complete calls)
+        assert completion_calls == 3
+
+    def test_multiple_approvals_during_execution(self, claude_tool: ClaudeTool) -> None:
+        """Verify multiple approval prompts can be handled in one execution."""
+        approval_count = 0
+        approval_prompt = """
+        Would you like to proceed?
+        ❯ 1. Yes, and bypass permissions
+        """
+
+        def mock_capture() -> str:
+            # Always return approval prompt for this test
+            return approval_prompt
+
+        mock_tmux = MagicMock()
+        mock_tmux.capture_pane_content.side_effect = mock_capture
+        mock_tmux.current_pane = "test_pane"
+        mock_tmux.claude_config.auto_approve_plan = True
+
+        # Complete after 5 wait calls
+        completion_calls = 0
+
+        def mock_wait_for_complete(pane_id: str, timeout: float) -> bool:
+            nonlocal completion_calls
+            completion_calls += 1
+            return completion_calls >= 5
+
+        mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
+
+        with patch("orchestrator.tools.claude.console"):
+            with patch("orchestrator.tools.claude.Live"):
+                with patch("orchestrator.tools.claude.AnimatedWaiter"):
+                    with patch("time.sleep"):
+                        with patch("time.time") as mock_time:
+                            # Time values that trigger multiple approval checks
+                            mock_time.side_effect = [
+                                0,     # start
+                                0,     # last_approval_check init
+                                0.5,   # loop 1 - elapsed
+                                3.0,   # loop 1 - check time (triggers approval)
+                                3.0,   # after approval 1
+                                3.5,   # loop 2 - elapsed
+                                4.0,   # loop 2 - check time (not enough time passed)
+                                4.5,   # loop 3 - elapsed
+                                6.0,   # loop 3 - check time (triggers approval)
+                                6.0,   # after approval 2
+                                6.5,   # loop 4 - elapsed
+                                9.0,   # loop 4 - check time (triggers approval)
+                                9.0,   # after approval 3
+                                9.5,   # loop 5 - elapsed
+                            ]
+                            claude_tool._wait_for_completion(mock_tmux)
+
+        # Verify Enter was sent multiple times (multiple approvals)
+        assert mock_tmux.send_keys.call_count >= 2
+
+    def test_only_exits_on_completion_signal(self, claude_tool: ClaudeTool) -> None:
+        """Verify loop only exits when server signals completion, not on approval."""
+        mock_tmux = MagicMock()
+        mock_tmux.capture_pane_content.return_value = """
+        Would you like to proceed?
+        ❯ 1. Yes, and bypass permissions
+        """
+        mock_tmux.current_pane = "test_pane"
+        mock_tmux.claude_config.auto_approve_plan = True
+
+        # Track how many times wait_for_complete is called
+        wait_calls = 0
+
+        def mock_wait_for_complete(pane_id: str, timeout: float) -> bool:
+            nonlocal wait_calls
+            wait_calls += 1
+            # Don't complete until 4th call
+            return wait_calls >= 4
+
+        mock_tmux.server.wait_for_complete.side_effect = mock_wait_for_complete
+
+        with patch("orchestrator.tools.claude.console"):
+            with patch("orchestrator.tools.claude.Live"):
+                with patch("orchestrator.tools.claude.AnimatedWaiter"):
+                    with patch("time.sleep"):
+                        with patch("time.time") as mock_time:
+                            mock_time.side_effect = [
+                                0, 0, 0.5, 3.0, 3.0,  # First approval
+                                3.5, 6.0, 6.0,         # Second approval
+                                6.5, 9.0, 9.0,         # Third check
+                                9.5,                    # Fourth - exits
+                            ]
+                            claude_tool._wait_for_completion(mock_tmux)
+
+        # Loop ran until completion signal, not until approval
+        assert wait_calls == 4

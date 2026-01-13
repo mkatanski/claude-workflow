@@ -94,36 +94,42 @@ steps:
         var: test_exit_code
         value: "1"
 
-      # 3e. Run unit tests (retry loop start)
+      # 3e. Run unit tests and save output to temp file (retry loop start)
+      # Output is saved to .claude/temp/test-output.txt to avoid shell escaping
+      # issues and prompt size limits when passing to Claude
+      # Uses PIPESTATUS[0] to capture test exit code (not tee's exit code)
       - name: "Run unit tests"
         tool: bash
-        command: "npm test 2>&1; echo \"EXIT_CODE:$?\""
-        output_var: test_output
+        command: |
+          mkdir -p .claude/temp
+          npm test 2>&1 | tee .claude/temp/test-output.txt
+          echo "EXIT_CODE:${PIPESTATUS[0]}"
+        output_var: test_result
 
-      # 3f. Extract exit code
-      # Use env to pass test_output safely - avoids shell escaping issues
-      # when test output contains parentheses, quotes, etc.
-      # Falls back to "1" if extraction fails
+      # 3f. Extract exit code from test result
       - name: "Extract exit code"
         tool: bash
-        command: 'echo "$TEST_OUTPUT" | grep -o "EXIT_CODE:[0-9]*" | cut -d: -f2 | tr -d "\n" || echo "1"'
+        command: 'echo "$TEST_RESULT" | grep -o "EXIT_CODE:[0-9]*" | cut -d: -f2 | tr -d "\n" || echo "1"'
         env:
-          TEST_OUTPUT: "{test_output}"
+          TEST_RESULT: "{test_result}"
         output_var: test_exit_code
         strip_output: true
 
-      # 3f. Fix failing tests (conditional)
+      # 3g. Fix failing tests (conditional)
+      # Claude reads test output from file to avoid prompt size limits
       - name: "Fix failing tests"
         tool: claude
         prompt: |
-          The unit tests are failing. Here is the test output:
+          The unit tests are failing. The test output has been saved to:
+          .claude/temp/test-output.txt
 
-          {test_output}
+          Please read this file to see the test failures, then fix all failing tests.
 
-          Fix all failing tests. Make sure to:
-          1. Analyze the error messages carefully
-          2. Fix the root cause, not just symptoms
-          3. Run related tests to verify the fix
+          Make sure to:
+          1. Read the test output file first
+          2. Analyze the error messages carefully
+          3. Fix the root cause, not just symptoms
+          4. Run related tests to verify the fix
         when: "{test_exit_code} != 0 and {retry_count} < 3"
 
       # 3g. Increment retry counter

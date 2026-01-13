@@ -125,7 +125,7 @@ def create_header_panel(workflow_name: str) -> Panel:
     title_text.append("Claude Code Orchestrator", style="bold white")
     title_text.append(f" {ICONS['robot']}\n", style="bold cyan")
     title_text.append(f"{ICONS['diamond']} ", style="magenta")
-    title_text.append(workflow_name, style="bold magenta")
+    title_text.append(str(workflow_name), style="bold magenta")
     title_text.append(f" {ICONS['diamond']}", style="magenta")
 
     return Panel(
@@ -200,11 +200,11 @@ def create_step_panel(
 
     if step.tool == "claude" and step.prompt:
         prompt = context.interpolate(step.prompt)
-        content.append(prompt, style="white")
+        content.append(str(prompt), style="white")
     elif step.tool == "bash" and step.command:
         command = context.interpolate(step.command)
         content.append("$ ", style="green bold")
-        content.append(command, style="white")
+        content.append(str(command), style="white")
 
     tool_label = f"[dim]({step.tool})[/dim]"
 
@@ -339,9 +339,9 @@ def print_step_skipped(
     skip_text = Text()
     skip_text.append(f"\n{ICONS['skip']} ", style="bold yellow")
     skip_text.append(f"Step {step_num}/{total_steps} skipped: ", style="yellow")
-    skip_text.append(step_name, style="bold yellow")
+    skip_text.append(str(step_name), style="bold yellow")
     skip_text.append(f"\n   Condition not met: ", style="dim")
-    skip_text.append(reason, style="dim italic")
+    skip_text.append(str(reason), style="dim italic")
     console.print(skip_text)
 
 

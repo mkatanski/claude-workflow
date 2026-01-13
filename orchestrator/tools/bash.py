@@ -100,7 +100,7 @@ class BashTool(BaseTool):
         status_text = Text()
         status_text.append(f"{ICONS['terminal']} ", style="bold cyan")
         status_text.append("Running in background: ", style="white")
-        status_text.append(command[:50] + ("..." if len(command) > 50 else ""), style="dim")
+        status_text.append(str(command[:50]) + ("..." if len(command) > 50 else ""), style="dim")
         console.print(status_text)
 
         try:

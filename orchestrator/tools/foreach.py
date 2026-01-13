@@ -266,7 +266,7 @@ class ForEachTool(BaseTool):
         header = Text()
         header.append(f"  {ICONS['loop']} ", style="bold cyan")
         header.append("ForEach Loop: ", style="bold cyan")
-        header.append(name, style="white")
+        header.append(str(name), style="white")
         console.print(header)
         console.print(f"     [dim]Iterating over {count} items[/dim]")
 

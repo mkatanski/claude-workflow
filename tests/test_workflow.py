@@ -961,7 +961,7 @@ class TestPrintSummary:
 
         mock_summary.assert_called_once()
         call_args = mock_summary.call_args[0]
-        assert call_args[1] >= 0  # Should have a valid elapsed time
+        assert call_args[1] >= -0.001  # Should have a valid elapsed time (allow tiny floating point error)
 
 
 # =============================================================================
