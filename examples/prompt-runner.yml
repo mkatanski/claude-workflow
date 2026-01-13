@@ -38,13 +38,34 @@ steps:
     index_var: prompt_index
     on_item_error: continue
     steps:
-      # 3a. Reset retry counter for each prompt
+      # 3a. Check if this prompt was already completed
+      - name: "Check if completed"
+        tool: bash
+        command: |
+          if echo "$PROGRESS" | jq -e --argjson idx "$IDX" '.completed | index($idx)' > /dev/null 2>&1; then
+            echo "true"
+          else
+            echo "false"
+          fi
+        env:
+          PROGRESS: "{progress_json}"
+          IDX: "{prompt_index}"
+        output_var: is_completed
+        strip_output: true
+
+      # 3b. Skip if already completed
+      - name: "Skip completed"
+        tool: goto
+        target: "End iteration"
+        when: "{is_completed} == true"
+
+      # 3c. Reset retry counter for each prompt
       - name: "Reset retry counter"
         tool: set
         var: retry_count
         value: "0"
 
-      # 3b. Run implementation with Claude
+      # 3d. Run implementation with Claude
       - name: "Run implementation"
         tool: claude
         prompt: |
@@ -67,16 +88,27 @@ steps:
 
           If issues found, fix them.
 
-      # 3d. Run unit tests (retry loop start)
+      # 3d. Default exit code to 1 (failure) before running tests
+      - name: "Default exit code"
+        tool: set
+        var: test_exit_code
+        value: "1"
+
+      # 3e. Run unit tests (retry loop start)
       - name: "Run unit tests"
         tool: bash
         command: "npm test 2>&1; echo \"EXIT_CODE:$?\""
         output_var: test_output
 
-      # 3e. Extract exit code
+      # 3f. Extract exit code
+      # Use env to pass test_output safely - avoids shell escaping issues
+      # when test output contains parentheses, quotes, etc.
+      # Falls back to "1" if extraction fails
       - name: "Extract exit code"
         tool: bash
-        command: "echo '{test_output}' | grep -o 'EXIT_CODE:[0-9]*' | cut -d: -f2 | tr -d '\\n'"
+        command: 'echo "$TEST_OUTPUT" | grep -o "EXIT_CODE:[0-9]*" | cut -d: -f2 | tr -d "\n" || echo "1"'
+        env:
+          TEST_OUTPUT: "{test_output}"
         output_var: test_exit_code
         strip_output: true
 
@@ -120,3 +152,8 @@ steps:
         tool: bash
         command: "echo 'WARNING: Max retries (3) exceeded for prompt {prompt_index}'"
         when: "{test_exit_code} != 0 and {retry_count} >= 3"
+
+      # 3k. End of iteration (target for skip)
+      - name: "End iteration"
+        tool: bash
+        command: 'echo "Finished processing prompt {prompt_index}"'

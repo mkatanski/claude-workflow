@@ -1,8 +1,9 @@
 """Bash tool implementation."""
 
+import os
 import subprocess
 import time
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from rich.live import Live
 from rich.text import Text
@@ -37,6 +38,9 @@ class BashTool(BaseTool):
 
         If visible=True, runs in tmux pane.
         If visible=False (default), runs in background subprocess.
+
+        Supports 'env' option to pass variables as environment variables,
+        which safely handles shell-breaking characters in variable values.
         """
         command = context.interpolate(step["command"])
         # Always default to project_path for cwd
@@ -44,15 +48,55 @@ class BashTool(BaseTool):
         visible = step.get("visible", False)
         strip_output = step.get("strip_output", True)
 
+        # Build environment variables if specified
+        env = self._build_env(step.get("env"), context)
+
         if visible:
-            return self._execute_visible(command, cwd, tmux_manager, strip_output)
+            return self._execute_visible(command, cwd, tmux_manager, strip_output, env)
         else:
-            return self._execute_subprocess(command, cwd, strip_output)
+            return self._execute_subprocess(command, cwd, strip_output, env)
+
+    def _build_env(
+        self,
+        env_config: Optional[Dict[str, str]],
+        context: "ExecutionContext",
+    ) -> Optional[Dict[str, str]]:
+        """Build environment variables dict from step config.
+
+        Args:
+            env_config: Dict of env var names to values (may contain {var} placeholders)
+            context: Execution context for interpolation
+
+        Returns:
+            Combined environment (system + custom) or None if no custom env specified
+        """
+        if env_config is None:
+            return None
+
+        # Start with copy of current environment
+        env = os.environ.copy()
+
+        # Add/override with custom variables (interpolated)
+        for key, value in env_config.items():
+            env[key] = context.interpolate(str(value))
+
+        return env
 
     def _execute_subprocess(
-        self, command: str, cwd: str | None, strip_output: bool
+        self,
+        command: str,
+        cwd: str | None,
+        strip_output: bool,
+        env: Optional[Dict[str, str]] = None,
     ) -> ToolResult:
-        """Execute command in background subprocess."""
+        """Execute command in background subprocess.
+
+        Args:
+            command: Shell command to execute
+            cwd: Working directory for command
+            strip_output: Whether to strip whitespace from output
+            env: Environment variables (None = inherit system env)
+        """
         status_text = Text()
         status_text.append(f"{ICONS['terminal']} ", style="bold cyan")
         status_text.append("Running in background: ", style="white")
@@ -67,6 +111,7 @@ class BashTool(BaseTool):
                 capture_output=True,
                 text=True,
                 timeout=600,  # 10 minute timeout
+                env=env,
             )
 
             output = process.stdout or ""
@@ -100,8 +145,30 @@ class BashTool(BaseTool):
         cwd: str | None,
         tmux_manager: "TmuxManager",
         strip_output: bool,
+        env: Optional[Dict[str, str]] = None,
     ) -> ToolResult:
-        """Execute command in visible tmux pane."""
+        """Execute command in visible tmux pane.
+
+        Args:
+            command: Shell command to execute
+            cwd: Working directory for command
+            tmux_manager: Tmux pane manager
+            strip_output: Whether to strip whitespace from output
+            env: Environment variables (currently not supported in visible mode)
+        """
+        # For visible mode with custom env vars, wrap the command with exports
+        if env:
+            # Build export statements for custom env vars
+            exports = []
+            for key, value in env.items():
+                # Skip system env vars that are already set
+                if key not in os.environ or os.environ[key] != value:
+                    # Escape single quotes in value for shell safety
+                    escaped_value = value.replace("'", "'\\''")
+                    exports.append(f"export {key}='{escaped_value}'")
+            if exports:
+                command = " && ".join(exports) + " && " + command
+
         # Launch bash pane
         tmux_manager.launch_bash_pane(command, cwd)
 

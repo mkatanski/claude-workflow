@@ -67,6 +67,7 @@ class Step:
     value: Optional[str] = None   # For set: variable value
     # Fields for bash tool
     strip_output: bool = True     # Strip whitespace from output
+    env: Optional[Dict[str, str]] = None  # Environment variables for bash
     # Fields for linear tools
     action: Optional[str] = None  # Linear action type
     team: Optional[str] = None  # Team key or name
@@ -135,6 +136,7 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         var=step_data.get("var"),
         value=step_data.get("value"),
         strip_output=step_data.get("strip_output", True),
+        env=step_data.get("env"),
         # Linear tool fields
         action=step_data.get("action"),
         team=step_data.get("team"),

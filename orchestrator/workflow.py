@@ -146,6 +146,7 @@ class WorkflowRunner:
             "var": step.var,
             "value": step.value,
             "strip_output": step.strip_output,
+            "env": step.env,
             # Linear tool fields
             "action": step.action,
             "team": step.team,
