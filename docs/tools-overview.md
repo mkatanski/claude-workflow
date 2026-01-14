@@ -142,14 +142,25 @@ ToolResult(success=True, loop_signal=LoopSignal.BREAK)
 |------|---------|
 | `goto` | Jump to a named step in the workflow |
 | `foreach` | Iterate over arrays and execute nested steps for each item |
-| `break` | Exit the current foreach loop early |
-| `continue` | Skip to the next iteration of the current foreach loop |
+| `range` | Execute nested steps for a range of numbers (counting loop) |
+| `while` | Execute nested steps while a condition is true |
+| `retry` | Retry steps until success or max attempts reached |
+| `break` | Exit the current loop early |
+| `continue` | Skip to the next iteration of the current loop |
 
 ### Variable Tools
 
 | Tool | Purpose |
 |------|---------|
 | `set` | Assign a value to a variable in the execution context |
+| `context` | Batch variable operations (set multiple, copy, clear, export) |
+
+### Data Tools
+
+| Tool | Purpose |
+|------|---------|
+| `data` | Write content to managed temp files for Claude to read |
+| `json` | Native JSON manipulation (query, set, update, delete) without bash + jq |
 
 ### Integration Tools
 
@@ -272,6 +283,109 @@ Use `set` for explicit variable assignment:
   value: "https://api.example.com"
 ```
 
+### Need to set multiple variables at once?
+
+Use `context` for batch variable operations:
+
+```yaml
+- name: initialize_config
+  tool: context
+  action: set
+  values:
+    api_url: "https://api.example.com"
+    max_retries: "3"
+    debug_mode: "true"
+```
+
+The `context` tool also supports copying values between variables, clearing variables, and exporting context to JSON for debugging.
+
+### Need to repeat steps a specific number of times?
+
+Use `range` for counting loops:
+
+```yaml
+- name: process_batches
+  tool: range
+  from: 1
+  to: 5
+  var: batch_num
+  steps:
+    - name: process_batch
+      tool: bash
+      command: "process-batch.sh {batch_num}"
+```
+
+### Need to loop until a condition becomes false?
+
+Use `while` for condition-based loops:
+
+```yaml
+- name: process_pending
+  tool: while
+  condition: "{has_more} == true"
+  max_iterations: 100
+  steps:
+    - name: fetch_next
+      tool: bash
+      command: "get-next-item.sh"
+      output_var: has_more
+```
+
+### Need to retry a step until it succeeds?
+
+Use `retry` for automatic retries with optional success conditions:
+
+```yaml
+- name: run_tests_with_retry
+  tool: retry
+  max_attempts: 3
+  until: "{test_exit_code} == 0"
+  delay: 2
+  steps:
+    - name: run_tests
+      tool: bash
+      command: "npm test"
+      output_var: test_exit_code
+```
+
+### Need to manipulate JSON data?
+
+Use `json` for native JSON operations without shell commands:
+
+```yaml
+- name: get_user_name
+  tool: json
+  action: query
+  file: "config.json"
+  query: ".users[0].name"
+  output_var: first_user
+
+- name: update_version
+  tool: json
+  action: set
+  file: "package.json"
+  path: ".version"
+  value: "2.0.0"
+```
+
+The `json` tool supports query, set, update (append, prepend, increment, merge), and delete operations.
+
+### Need to write data to a temp file for Claude?
+
+Use `data` to write content to managed temp files:
+
+```yaml
+- name: prepare_context
+  tool: data
+  content: |
+    Here are the files to process:
+    {file_list}
+  format: markdown
+  output_var: context_file
+```
+
+Files are automatically cleaned up when the workflow ends.
+
 ### Need to work with Linear issues?
 
 Use `linear_tasks` for querying and `linear_manage` for mutations:
@@ -297,6 +411,8 @@ For detailed configuration options and examples for each tool, see:
 - [bash Tool Reference](./tools/bash.md)
 - [claude Tool Reference](./tools/claude.md)
 - [claude_sdk Tool Reference](./tools/claude-sdk.md)
-- [Control Flow Tools](./tools/control-flow.md)
+- [Control Flow Tools](./tools/control-flow.md) - goto, foreach, range, while, retry, break, continue
+- [Variable Tools](./tools/variables.md) - set, context
+- [Data Tools](./tools/data.md) - data, json
 - [Linear Integration Tools](./tools/linear.md)
 - [Creating Custom Tools](./creating-tools.md)

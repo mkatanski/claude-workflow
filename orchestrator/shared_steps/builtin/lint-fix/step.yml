@@ -1,0 +1,140 @@
+type: claude-step
+version: 1
+name: "Lint and Fix"
+description: "Run linter with auto-fix for common languages/frameworks"
+
+inputs:
+  - name: language
+    description: "Programming language or framework"
+    required: false
+    default: "auto"
+    schema:
+      type: string
+      enum: ["auto", "javascript", "typescript", "python", "rust", "go"]
+  - name: fix
+    description: "Automatically fix issues when possible"
+    required: false
+    default: true
+    schema:
+      type: boolean
+  - name: path
+    description: "Path to lint (defaults to current directory)"
+    required: false
+    default: "."
+
+outputs:
+  - name: success
+    description: "Whether linting passed"
+    from: lint_success
+  - name: fixed_count
+    description: "Number of files that were auto-fixed"
+    from: files_fixed
+  - name: output
+    description: "Linter output"
+    from: lint_output
+
+steps:
+  - name: Detect language
+    tool: bash
+    command: |
+      if [ "{inputs.language}" != "auto" ]; then
+        echo "{inputs.language}"
+      elif [ -f "package.json" ]; then
+        if grep -q "typescript" package.json 2>/dev/null; then
+          echo "typescript"
+        else
+          echo "javascript"
+        fi
+      elif [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ]; then
+        echo "python"
+      elif [ -f "Cargo.toml" ]; then
+        echo "rust"
+      elif [ -f "go.mod" ]; then
+        echo "go"
+      else
+        echo "unknown"
+      fi
+    output_var: detected_lang
+
+  - name: Run ESLint for JavaScript
+    tool: bash
+    command: "npx eslint {inputs.path} --fix 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == javascript and {inputs.fix} == true"
+
+  - name: Run ESLint for JavaScript (no fix)
+    tool: bash
+    command: "npx eslint {inputs.path} 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == javascript and {inputs.fix} == false"
+
+  - name: Run ESLint for TypeScript
+    tool: bash
+    command: "npx eslint {inputs.path} --ext .ts,.tsx --fix 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == typescript and {inputs.fix} == true"
+
+  - name: Run ESLint for TypeScript (no fix)
+    tool: bash
+    command: "npx eslint {inputs.path} --ext .ts,.tsx 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == typescript and {inputs.fix} == false"
+
+  - name: Run Ruff for Python
+    tool: bash
+    command: "ruff check {inputs.path} --fix 2>&1 || python -m ruff check {inputs.path} --fix 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == python and {inputs.fix} == true"
+
+  - name: Run Ruff for Python (no fix)
+    tool: bash
+    command: "ruff check {inputs.path} 2>&1 || python -m ruff check {inputs.path} 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == python and {inputs.fix} == false"
+
+  - name: Run Clippy for Rust
+    tool: bash
+    command: "cargo clippy --fix --allow-dirty --allow-staged 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == rust and {inputs.fix} == true"
+
+  - name: Run Clippy for Rust (no fix)
+    tool: bash
+    command: "cargo clippy 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == rust and {inputs.fix} == false"
+
+  - name: Run golangci-lint for Go
+    tool: bash
+    command: "golangci-lint run --fix {inputs.path}/... 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == go and {inputs.fix} == true"
+
+  - name: Run golangci-lint for Go (no fix)
+    tool: bash
+    command: "golangci-lint run {inputs.path}/... 2>&1 || true"
+    output_var: lint_output
+    when: "{detected_lang} == go and {inputs.fix} == false"
+
+  - name: Handle unknown language
+    tool: set
+    var: lint_output
+    value: "Could not detect language. Please specify the 'language' input."
+    when: "{detected_lang} == unknown"
+
+  - name: Check lint success
+    tool: bash
+    command: |
+      if echo "{lint_output}" | grep -qiE "error|failed|warning"; then
+        echo "false"
+      else
+        echo "true"
+      fi
+    output_var: lint_success
+
+  - name: Count fixed files
+    tool: bash
+    command: |
+      count=$(echo "{lint_output}" | grep -ciE "fixed|auto-fix|formatted" || echo "0")
+      echo "$count"
+    output_var: files_fixed

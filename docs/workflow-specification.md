@@ -31,10 +31,22 @@ This document provides a comprehensive specification for claude-workflow YAML fi
   - [set](#set-tool)
   - [goto](#goto-tool)
   - [foreach](#foreach-tool)
+  - [range](#range-tool)
+  - [while](#while-tool)
+  - [retry](#retry-tool)
   - [break](#break-tool)
   - [continue](#continue-tool)
+  - [context](#context-tool)
+  - [data](#data-tool)
+  - [json](#json-tool)
   - [linear_tasks](#linear_tasks-tool)
   - [linear_manage](#linear_manage-tool)
+- [Shared Steps](#shared-steps)
+  - [Overview](#shared-steps-overview)
+  - [Creating Shared Steps](#creating-shared-steps)
+  - [Using Shared Steps](#using-shared-steps)
+  - [Resolution Strategies](#resolution-strategies)
+  - [Inputs and Outputs](#inputs-and-outputs)
 - [Multiple Workflows](#multiple-workflows)
 - [Complete Examples](#complete-examples)
 - [CLI Options](#cli-options)
@@ -162,7 +174,7 @@ Every step supports these fields:
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `name` | string | required | Unique identifier for the step |
-| `tool` | string | `"claude"` | Tool to execute: `claude`, `claude_sdk`, `bash`, `set`, `goto`, `foreach`, `break`, `continue`, `linear_tasks`, `linear_manage` |
+| `tool` | string | `"claude"` | Tool to execute: `claude`, `claude_sdk`, `bash`, `set`, `goto`, `foreach`, `range`, `while`, `retry`, `break`, `continue`, `context`, `data`, `json`, `linear_tasks`, `linear_manage` |
 | `output_var` | string | none | Variable name to store step output |
 | `on_error` | string | `"stop"` | Error handling: `stop` or `continue` |
 | `visible` | boolean | `false` | Show execution in tmux pane (for `bash` tool) |
@@ -463,24 +475,41 @@ Execute shell commands.
 
 ### set Tool
 
-Assign values to variables.
+Assign values to variables. Supports two modes: simple value assignment with interpolation, or expression evaluation with arithmetic and conditionals.
 
 ```yaml
+# Simple value assignment
 - name: "Set Counter"
   tool: set
   var: counter
   value: "0"
 
+# Value with interpolation
 - name: "Set From Variable"
   tool: set
   var: backup
   value: "{current_value}"
+
+# Expression evaluation
+- name: "Calculate Total"
+  tool: set
+  var: total
+  expr: "{count} * {price}"
+
+# Conditional expression
+- name: "Set Status"
+  tool: set
+  var: status
+  expr: "if({score} >= 80, 'pass', 'fail')"
 ```
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `var` | yes | Variable name to set |
-| `value` | yes | Value (supports interpolation) |
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `var` | yes | - | Variable name to set |
+| `value` | no* | - | Value (supports interpolation) |
+| `expr` | no* | - | Expression to evaluate (arithmetic, comparisons, conditionals) |
+
+*Either `value` or `expr` is required, but not both.
 
 ### goto Tool
 
@@ -539,9 +568,148 @@ Iterate over an array.
 - `stop_loop`: Stop loop, continue workflow
 - `continue`: Log error, continue to next item
 
+### range Tool
+
+Execute nested steps for a range of numbers. A simple counting loop that iterates from a start value to an end value (inclusive).
+
+```yaml
+# Basic counting loop
+- name: "Process 5 Batches"
+  tool: range
+  from: 1
+  to: 5
+  var: batch_num
+  steps:
+    - name: "Process Batch"
+      tool: bash
+      command: "process-batch.sh {batch_num}"
+
+# With custom step value
+- name: "Process Even Numbers"
+  tool: range
+  from: 2
+  to: 10
+  step: 2
+  var: num
+  steps:
+    - name: "Handle Number"
+      prompt: "Process even number {num}"
+
+# Counting down
+- name: "Countdown"
+  tool: range
+  from: 10
+  to: 1
+  step: -1
+  var: count
+  steps:
+    - name: "Show Count"
+      tool: bash
+      command: "echo 'Countdown: {count}'"
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `from` | yes | - | Start value (integer) |
+| `to` | yes | - | End value (integer, inclusive) |
+| `step` | no | `1` | Increment value (cannot be 0) |
+| `var` | yes | - | Variable name for current value |
+| `steps` | yes | - | Nested steps to execute per iteration |
+
+**Automatic variables:**
+- `{var}`: Current value in the range
+- `{_iteration}`: Zero-based iteration index
+
+### while Tool
+
+Execute nested steps while a condition is true. Requires `max_iterations` as a safety limit to prevent infinite loops.
+
+```yaml
+# Process while condition is true
+- name: "Process All Pending Items"
+  tool: while
+  condition: "{status} == has_next"
+  max_iterations: 50
+  steps:
+    - name: "Get Next Item"
+      tool: bash
+      command: "get-next-item.sh"
+      output_var: status
+    - name: "Process Item"
+      prompt: "Process the retrieved item"
+
+# With continue on max reached
+- name: "Poll Until Ready"
+  tool: while
+  condition: "{ready} != true"
+  max_iterations: 10
+  on_max_reached: continue
+  steps:
+    - name: "Check Status"
+      tool: bash
+      command: "check-status.sh"
+      output_var: ready
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `condition` | yes | - | Condition to evaluate before each iteration |
+| `max_iterations` | yes | - | Maximum iterations (safety limit) |
+| `on_max_reached` | no | `"error"` | Behavior when max reached: `error` or `continue` |
+| `steps` | yes | - | Nested steps to execute per iteration |
+
+**Automatic variables:**
+- `{_iteration}`: Zero-based iteration index
+
+### retry Tool
+
+Retry steps until success or max attempts reached. Useful for flaky operations or implementing fix-and-retry patterns.
+
+```yaml
+# Basic retry with condition
+- name: "Run Tests with Retry"
+  tool: retry
+  max_attempts: 3
+  until: "{test_exit_code} == 0"
+  delay: 2
+  steps:
+    - name: "Run Tests"
+      tool: bash
+      command: "npm test; echo $?"
+      output_var: test_exit_code
+    - name: "Fix if Failed"
+      tool: claude
+      prompt: "Fix the test failures..."
+      when: "{test_exit_code} != 0"
+
+# Retry without condition (success means no step errors)
+- name: "Deploy with Retry"
+  tool: retry
+  max_attempts: 5
+  delay: 10
+  on_failure: continue
+  steps:
+    - name: "Deploy"
+      tool: bash
+      command: "deploy.sh"
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `max_attempts` | yes | - | Maximum number of attempts |
+| `until` | no | - | Success condition (loop exits when true) |
+| `delay` | no | `0` | Seconds to wait between attempts |
+| `on_failure` | no | `"error"` | Behavior when all attempts fail: `error` or `continue` |
+| `steps` | yes | - | Nested steps to execute per attempt |
+
+**Automatic variables:**
+- `{_attempt}`: Current attempt number (1-indexed)
+- `{_retry_succeeded}`: `"true"` or `"false"` after completion
+- `{_retry_attempts}`: Number of attempts made
+
 ### break Tool
 
-Exit the current foreach loop.
+Exit the current loop (foreach, range, while, or retry).
 
 ```yaml
 - name: "Exit Loop"
@@ -551,13 +719,211 @@ Exit the current foreach loop.
 
 ### continue Tool
 
-Skip to the next iteration.
+Skip to the next iteration in a loop (foreach, range, while, or retry).
 
 ```yaml
 - name: "Skip This Item"
   tool: continue
   when: "{item} is empty"
 ```
+
+### context Tool
+
+Batch variable operations for managing multiple variables at once. Reduces boilerplate for common variable operations.
+
+```yaml
+# Set multiple variables at once
+- name: "Initialize Config"
+  tool: context
+  action: set
+  values:
+    env: "production"
+    debug: "false"
+    max_retries: "3"
+
+# Copy variables (useful for backups)
+- name: "Backup State"
+  tool: context
+  action: copy
+  mappings:
+    current_state: backup_state
+    current_config: backup_config
+
+# Clear variables from context
+- name: "Cleanup Temp Vars"
+  tool: context
+  action: clear
+  vars:
+    - temp_result
+    - temp_data
+    - scratch
+
+# Export context to JSON file (for debugging)
+- name: "Debug Dump"
+  tool: context
+  action: export
+  file: "/tmp/workflow-debug.json"
+  vars:  # Optional: filter to specific vars
+    - status
+    - results
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `action` | yes | - | Operation: `set`, `copy`, `clear`, or `export` |
+
+**Action-specific fields:**
+
+| Action | Field | Required | Description |
+|--------|-------|----------|-------------|
+| `set` | `values` | yes | Dictionary of variable names to values |
+| `copy` | `mappings` | yes | Dictionary mapping source vars to target vars |
+| `clear` | `vars` | yes | List of variable names to remove |
+| `export` | `file` | yes | Path to output JSON file |
+| `export` | `vars` | no | List of specific vars to export (default: all) |
+
+### data Tool
+
+Write data to managed temporary files for Claude to read. Files are automatically cleaned up when the workflow ends.
+
+```yaml
+# Write JSON data
+- name: "Prepare Config"
+  tool: data
+  content: '{"api_url": "{api_base}", "timeout": 30}'
+  format: json
+  output_var: config_file
+
+# Write markdown documentation
+- name: "Create Instructions"
+  tool: data
+  content: |
+    # Task Instructions
+
+    Process the following items:
+    - Item 1: {item_1}
+    - Item 2: {item_2}
+  format: markdown
+  filename: "instructions.md"
+  output_var: instructions_file
+
+# Write plain text
+- name: "Save Log"
+  tool: data
+  content: "{log_output}"
+  format: text
+  output_var: log_file
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `content` | yes | - | Content to write (supports interpolation) |
+| `format` | no | `"text"` | Output format: `json`, `text`, or `markdown` |
+| `filename` | no | auto-generated | Custom filename for the temp file |
+
+**Output:** Returns the absolute path to the created file.
+
+### json Tool
+
+Native JSON manipulation without shell commands or jq. Supports querying, setting, updating, and deleting JSON data from files or variables.
+
+```yaml
+# Query JSON data
+- name: "Get API URL"
+  tool: json
+  action: query
+  file: "config.json"
+  query: ".api.base_url"
+  output_var: api_url
+
+# Query from variable
+- name: "Get First Item"
+  tool: json
+  action: query
+  source: response_data
+  query: ".items[0].name"
+  output_var: first_item
+
+# Set value in JSON file
+- name: "Update Config"
+  tool: json
+  action: set
+  file: "config.json"
+  path: ".settings.debug"
+  value: true
+
+# Update with operations
+- name: "Add to Array"
+  tool: json
+  action: update
+  source: my_data
+  path: ".items"
+  operation: append
+  value: '{"name": "new item"}'
+
+# Increment a counter
+- name: "Increment Count"
+  tool: json
+  action: update
+  file: "stats.json"
+  path: ".request_count"
+  operation: increment
+  value: 1
+
+# Merge objects
+- name: "Merge Settings"
+  tool: json
+  action: update
+  file: "config.json"
+  path: ".settings"
+  operation: merge
+  value:
+    timeout: 60
+    retries: 3
+
+# Delete a key
+- name: "Remove Field"
+  tool: json
+  action: delete
+  file: "data.json"
+  path: ".temporary_field"
+
+# Create if missing
+- name: "Initialize Data"
+  tool: json
+  action: set
+  file: "new-data.json"
+  create_if_missing: true
+  path: ".initialized"
+  value: true
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `action` | yes | - | Operation: `query`, `set`, `update`, or `delete` |
+| `file` | no* | - | Path to JSON file |
+| `source` | no* | - | Variable name containing JSON data |
+| `create_if_missing` | no | `false` | Create file/variable if not found |
+
+*Either `file` or `source` is required, but not both.
+
+**Action-specific fields:**
+
+| Action | Field | Required | Description |
+|--------|-------|----------|-------------|
+| `query` | `query` | yes | Path expression (e.g., `.field.nested`, `.array[0]`) |
+| `set` | `path` | yes | Path to set the value at |
+| `set` | `value` | yes | Value to set (supports interpolation) |
+| `update` | `path` | yes | Path to update |
+| `update` | `operation` | yes | Operation: `append`, `prepend`, `increment`, or `merge` |
+| `update` | `value` | yes | Value for the operation |
+| `delete` | `path` | yes | Path to delete |
+
+**Path syntax:**
+- `.field` - Access object field
+- `.nested.field` - Access nested field
+- `.array[0]` - Access array index
+- `.` - Access root
 
 ### linear_tasks Tool
 
@@ -672,6 +1038,290 @@ Create and manage Linear issues.
 | `labels` | list/string | Label names |
 | `status` | string | Workflow state name |
 | `assignee` | string | User identifier |
+
+---
+
+## Shared Steps
+
+### Overview {#shared-steps-overview}
+
+Shared steps allow you to create reusable step sequences, similar to GitHub Actions composite actions. They enable:
+
+- **Reusability**: Define once, use in multiple workflows
+- **Encapsulation**: Hide implementation details behind a clean interface
+- **Inputs/Outputs**: Pass parameters and capture results
+- **Nesting**: Shared steps can use other shared steps
+
+### Creating Shared Steps
+
+Shared steps are defined in `step.yml` files with the following structure:
+
+```yaml
+type: claude-step
+version: 1
+
+name: "Git Checkout"
+description: "Clone a repository and checkout a specific branch"
+
+inputs:
+  - name: repository
+    description: "Repository URL to clone"
+    required: true
+  - name: branch
+    description: "Branch to checkout"
+    required: false
+    default: "main"
+  - name: depth
+    description: "Clone depth (0 for full history)"
+    required: false
+    default: 1
+    schema:
+      type: integer
+      minimum: 0
+
+outputs:
+  - name: commit_sha
+    description: "The SHA of the checked out commit"
+    from: git_sha
+
+steps:
+  - name: "Clone Repository"
+    tool: bash
+    command: "git clone --depth {inputs.depth} --branch {inputs.branch} {inputs.repository} repo"
+
+  - name: "Get Commit SHA"
+    tool: bash
+    command: "cd repo && git rev-parse HEAD"
+    output_var: git_sha
+```
+
+**Required fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `type` | string | Must be `"claude-step"` |
+| `version` | integer | Must be `1` |
+| `steps` | list | At least one step definition |
+
+**Optional fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Human-readable name |
+| `description` | string | What the shared step does |
+| `inputs` | list | Input parameter definitions |
+| `outputs` | list | Output definitions |
+
+### Using Shared Steps
+
+Reference shared steps using the `uses` field instead of `tool`:
+
+```yaml
+steps:
+  - name: "Checkout Code"
+    uses: builtin:git-checkout
+    with:
+      repository: "https://github.com/user/repo"
+      branch: "main"
+    outputs:
+      commit_sha: sha
+
+  - name: "Show Commit"
+    tool: bash
+    command: "echo 'Checked out commit: {sha}'"
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `uses` | yes | Shared step reference (e.g., `builtin:name`, `project:name`) |
+| `with` | no | Input values to pass to the shared step |
+| `outputs` | no | Mapping of step outputs to workflow variables |
+
+### Resolution Strategies
+
+Shared steps can be loaded from three sources:
+
+| Prefix | Location | Example |
+|--------|----------|---------|
+| `builtin:` | `orchestrator/shared_steps/builtin/{name}/step.yml` | `builtin:git-checkout` |
+| `project:` | `.claude/workflows/steps/{name}/step.yml` | `project:deploy-staging` |
+| `path:` | Relative to workflow file | `path:./custom-steps/my-step` |
+
+**Project structure example:**
+```
+project/
+  .claude/
+    workflows/
+      steps/
+        deploy-staging/
+          step.yml
+        run-tests/
+          step.yml
+    my-workflow.yml
+```
+
+### Inputs and Outputs
+
+**Input definitions:**
+
+```yaml
+inputs:
+  # Simple format (required, no default)
+  - repository
+
+  # Full format
+  - name: branch
+    description: "Branch to checkout"
+    required: false
+    default: "main"
+    schema:  # Optional JSON Schema validation
+      type: string
+      pattern: "^[a-zA-Z0-9_-]+$"
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | - | Parameter name |
+| `description` | no | `""` | Human-readable description |
+| `required` | no | `true` | Whether the input must be provided |
+| `default` | no | `null` | Default value if not provided |
+| `schema` | no | `null` | JSON Schema for validation |
+
+**Accessing inputs in steps:**
+
+Use `{inputs.name}` syntax to access input values:
+
+```yaml
+steps:
+  - name: "Clone"
+    tool: bash
+    command: "git clone {inputs.repository}"
+```
+
+**Output definitions:**
+
+```yaml
+outputs:
+  # Simple format (name equals from_var)
+  - commit_sha
+
+  # Full format
+  - name: commit_sha
+    description: "The SHA of the checked out commit"
+    from: internal_sha_variable
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | - | Output name exposed to parent workflow |
+| `description` | no | `""` | Human-readable description |
+| `from` | no | same as `name` | Internal variable to expose |
+
+**Capturing outputs in workflow:**
+
+```yaml
+- name: "Checkout"
+  uses: project:git-checkout
+  with:
+    repository: "{repo_url}"
+  outputs:
+    commit_sha: my_sha  # Map output 'commit_sha' to variable 'my_sha'
+
+- name: "Use SHA"
+  tool: bash
+  command: "echo {my_sha}"
+```
+
+### Nesting and Safety
+
+Shared steps can use other shared steps:
+
+```yaml
+# In .claude/workflows/steps/full-deploy/step.yml
+steps:
+  - name: "Checkout"
+    uses: project:git-checkout
+    with:
+      repository: "{inputs.repo}"
+
+  - name: "Build"
+    uses: project:build-app
+
+  - name: "Deploy"
+    uses: project:deploy-to-cloud
+```
+
+**Safety limits:**
+- Maximum nesting depth: 10 levels (configurable)
+- Circular dependencies are detected and rejected
+
+### Shared Step Examples
+
+**Example 1: Reusable test runner**
+
+```yaml
+# .claude/workflows/steps/run-tests/step.yml
+type: claude-step
+version: 1
+
+name: "Run Tests"
+description: "Run tests with coverage and optional fix"
+
+inputs:
+  - name: test_command
+    default: "npm test"
+  - name: fix_on_failure
+    default: false
+    schema:
+      type: boolean
+
+outputs:
+  - name: passed
+    from: test_passed
+  - name: coverage
+    from: coverage_percent
+
+steps:
+  - name: "Run Tests"
+    tool: bash
+    command: "{inputs.test_command}"
+    output_var: test_result
+    on_error: continue
+
+  - name: "Check Result"
+    tool: set
+    var: test_passed
+    expr: "if('{test_result}' contains 'PASS', 'true', 'false')"
+
+  - name: "Fix Failures"
+    tool: claude
+    prompt: "Fix the failing tests based on the output: {test_result}"
+    when: "{test_passed} == false and {inputs.fix_on_failure} == true"
+
+  - name: "Get Coverage"
+    tool: bash
+    command: "npm run coverage -- --json | jq '.total.statements.pct'"
+    output_var: coverage_percent
+```
+
+**Example 2: Using the test runner**
+
+```yaml
+steps:
+  - name: "Test with Auto-fix"
+    uses: project:run-tests
+    with:
+      test_command: "pytest -v"
+      fix_on_failure: true
+    outputs:
+      passed: tests_passed
+      coverage: test_coverage
+
+  - name: "Check Coverage"
+    tool: goto
+    target: "Coverage Too Low"
+    when: "{test_coverage} < 80"
+```
 
 ---
 
@@ -914,6 +1564,248 @@ steps:
     prompt: "Generate summary of request handling"
 ```
 
+### Retry with Auto-fix
+
+```yaml
+type: claude-workflow
+version: 2
+
+name: "Test and Fix Workflow"
+
+steps:
+  - name: "Run Tests with Auto-fix"
+    tool: retry
+    max_attempts: 5
+    until: "{exit_code} == 0"
+    delay: 1
+    steps:
+      - name: "Execute Tests"
+        tool: bash
+        command: "npm test > /tmp/test-output.txt 2>&1; echo $?"
+        output_var: exit_code
+
+      - name: "Read Test Output"
+        tool: bash
+        command: "cat /tmp/test-output.txt"
+        output_var: test_output
+        when: "{exit_code} != 0"
+
+      - name: "Fix Failures"
+        prompt: |
+          The tests failed. Here is the output:
+
+          {test_output}
+
+          Please analyze the failures and fix them.
+        when: "{exit_code} != 0"
+
+  - name: "Report Result"
+    tool: bash
+    command: "echo 'Tests passed after {_retry_attempts} attempt(s)'"
+    when: "{_retry_succeeded} == true"
+```
+
+### Range-based Batch Processing
+
+```yaml
+type: claude-workflow
+version: 2
+
+name: "Batch Processor"
+
+steps:
+  - name: "Initialize Context"
+    tool: context
+    action: set
+    values:
+      total_processed: "0"
+      errors: "0"
+      batch_size: "10"
+
+  - name: "Process Batches"
+    tool: range
+    from: 1
+    to: 5
+    var: batch_num
+    steps:
+      - name: "Prepare Batch Data"
+        tool: data
+        content: |
+          {
+            "batch": {batch_num},
+            "size": {batch_size},
+            "timestamp": "now"
+          }
+        format: json
+        output_var: batch_file
+
+      - name: "Process Batch"
+        prompt: |
+          Process batch {batch_num} using the data in {batch_file}.
+          Update the processing status as you go.
+
+      - name: "Update Counter"
+        tool: set
+        var: total_processed
+        expr: "{total_processed} + {batch_size}"
+
+  - name: "Summary"
+    prompt: "Summarize the batch processing. Processed {total_processed} items."
+```
+
+### JSON-based Configuration Management
+
+```yaml
+type: claude-workflow
+version: 2
+
+name: "Config-Driven Deployment"
+
+steps:
+  - name: "Load Config"
+    tool: json
+    action: query
+    file: "deploy-config.json"
+    query: "."
+    output_var: config
+
+  - name: "Get Environment"
+    tool: json
+    action: query
+    source: config
+    query: ".environment"
+    output_var: env
+
+  - name: "Update Build Number"
+    tool: json
+    action: update
+    file: "deploy-config.json"
+    path: ".build_number"
+    operation: increment
+    value: 1
+
+  - name: "Add Deployment Record"
+    tool: json
+    action: update
+    file: "deploy-config.json"
+    path: ".deployments"
+    operation: append
+    value:
+      timestamp: "{_timestamp}"
+      environment: "{env}"
+
+  - name: "Deploy to Environment"
+    prompt: "Deploy the application to {env} environment using the loaded configuration"
+
+  - name: "Cleanup Temp Vars"
+    tool: context
+    action: clear
+    vars:
+      - config
+      - env
+```
+
+### While Loop for Polling
+
+```yaml
+type: claude-workflow
+version: 2
+
+name: "Deployment Monitor"
+
+steps:
+  - name: "Start Deployment"
+    tool: bash
+    command: "deploy-async.sh"
+    output_var: deploy_id
+
+  - name: "Initialize Status"
+    tool: set
+    var: deploy_status
+    value: "pending"
+
+  - name: "Wait for Completion"
+    tool: while
+    condition: "{deploy_status} != complete and {deploy_status} != failed"
+    max_iterations: 60
+    on_max_reached: error
+    steps:
+      - name: "Check Status"
+        tool: bash
+        command: "check-deploy-status.sh {deploy_id}"
+        output_var: deploy_status
+
+      - name: "Log Progress"
+        tool: bash
+        command: "echo 'Deployment status: {deploy_status}'"
+
+      - name: "Wait Between Checks"
+        tool: bash
+        command: "sleep 10"
+
+  - name: "Handle Success"
+    prompt: "Deployment completed successfully. Verify the deployment."
+    when: "{deploy_status} == complete"
+
+  - name: "Handle Failure"
+    prompt: "Deployment failed. Investigate and report the issue."
+    when: "{deploy_status} == failed"
+```
+
+### Shared Steps in Action
+
+```yaml
+type: claude-workflow
+version: 2
+
+name: "Full CI/CD Pipeline"
+
+steps:
+  - name: "Checkout Code"
+    uses: project:git-checkout
+    with:
+      repository: "{repo_url}"
+      branch: "{branch}"
+    outputs:
+      commit_sha: sha
+
+  - name: "Run Tests"
+    uses: project:run-tests
+    with:
+      test_command: "npm test"
+      fix_on_failure: true
+    outputs:
+      passed: tests_passed
+      coverage: test_coverage
+
+  - name: "Check Tests"
+    tool: goto
+    target: "Test Failure"
+    when: "{tests_passed} == false"
+
+  - name: "Build Application"
+    uses: project:build-app
+    with:
+      environment: "production"
+    outputs:
+      artifact: build_path
+
+  - name: "Deploy"
+    uses: project:deploy-to-cloud
+    with:
+      artifact_path: "{build_path}"
+      environment: "production"
+
+  - name: "Success"
+    tool: bash
+    command: "echo 'Pipeline completed successfully for commit {sha}'"
+
+  - name: "Test Failure"
+    tool: bash
+    command: "echo 'Pipeline failed: tests did not pass'"
+    when: "false"  # Only reached via goto
+```
+
 ---
 
 ## CLI Options
@@ -1065,3 +1957,16 @@ Common validation errors and their solutions:
 | `Cannot run without hooks configured` | Install hooks via the interactive prompt or manually |
 | `Cannot run with outdated hooks` | Update hooks via the interactive prompt or manually |
 | `Port X busy, using Y` | Informational - the next available port was used |
+| `'step' cannot be zero` | Range step increment must be non-zero |
+| `'max_iterations' must be a positive integer` | While/retry requires positive max limit |
+| `While loop reached max_iterations` | Condition still true at limit; increase max or fix condition |
+| `Retry failed after N attempts` | All retry attempts exhausted |
+| `Set step requires either 'value' or 'expr'` | Must provide one assignment method |
+| `Invalid action` | Check action name for context/json tools |
+| `File not found` | JSON file path does not exist |
+| `Query failed` | JSON path expression is invalid |
+| `Shared step not found` | Check uses reference (builtin:, project:, path:) |
+| `Circular dependency detected` | Shared steps cannot reference themselves |
+| `Maximum nesting depth exceeded` | Reduce shared step nesting (default max: 10) |
+| `Required input not provided` | Provide required input in `with:` block |
+| `Input failed schema validation` | Input value doesn't match JSON Schema |

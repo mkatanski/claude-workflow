@@ -7,12 +7,18 @@ from .bash import BashTool
 from .break_tool import BreakTool
 from .claude import ClaudeTool
 from .claude_sdk import ClaudeSdkTool
+from .context_tool import ContextTool
 from .continue_tool import ContinueTool
+from .data_tool import DataTool
 from .foreach import ForEachTool
+from .json_tool import JsonTool
 from .goto import GotoTool
 from .linear_manage import LinearManageTool
 from .linear_tasks import LinearTasksTool
+from .range_tool import RangeTool
+from .retry_tool import RetryTool
 from .set import SetTool
+from .while_tool import WhileTool
 
 
 class ToolRegistry:
@@ -64,6 +70,12 @@ ToolRegistry.register(LinearManageTool())
 ToolRegistry.register(ForEachTool())
 ToolRegistry.register(BreakTool())
 ToolRegistry.register(ContinueTool())
+ToolRegistry.register(RangeTool())
+ToolRegistry.register(WhileTool())
+ToolRegistry.register(RetryTool())
+ToolRegistry.register(ContextTool())
+ToolRegistry.register(DataTool())
+ToolRegistry.register(JsonTool())
 
 
 __all__ = [
@@ -81,4 +93,10 @@ __all__ = [
     "ForEachTool",
     "BreakTool",
     "ContinueTool",
+    "RangeTool",
+    "WhileTool",
+    "RetryTool",
+    "ContextTool",
+    "DataTool",
+    "JsonTool",
 ]

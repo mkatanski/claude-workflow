@@ -2,6 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Dict
 
+from ..expressions import ExpressionError, ExpressionEvaluator
 from .base import BaseTool, ToolResult
 
 if TYPE_CHECKING:
@@ -10,7 +11,12 @@ if TYPE_CHECKING:
 
 
 class SetTool(BaseTool):
-    """Set a variable value in the execution context."""
+    """Set a variable value in the execution context.
+
+    Supports two modes:
+    - value: Simple value assignment with variable interpolation
+    - expr: Expression evaluation with arithmetic, comparisons, conditionals
+    """
 
     @property
     def name(self) -> str:
@@ -20,8 +26,15 @@ class SetTool(BaseTool):
         """Validate set step configuration."""
         if "var" not in step:
             raise ValueError("Set step requires 'var' field")
-        if "value" not in step:
-            raise ValueError("Set step requires 'value' field")
+
+        has_value = step.get("value") is not None
+        has_expr = step.get("expr") is not None
+
+        if not has_value and not has_expr:
+            raise ValueError("Set step requires either 'value' or 'expr' field")
+
+        if has_value and has_expr:
+            raise ValueError("Set step cannot have both 'value' and 'expr' fields")
 
     def execute(
         self,
@@ -31,12 +44,25 @@ class SetTool(BaseTool):
     ) -> ToolResult:
         """Execute variable assignment."""
         var_name = step["var"]
-        raw_value = step["value"]
-        interpolated_value = context.interpolate(str(raw_value))
 
-        context.set(var_name, interpolated_value)
+        if step.get("expr") is not None:
+            # Expression mode
+            try:
+                evaluator = ExpressionEvaluator(context)
+                result_value = evaluator.evaluate(str(step["expr"]))
+            except ExpressionError as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Expression error: {e}",
+                )
+        else:
+            # Simple value mode
+            raw_value = step["value"]
+            result_value = context.interpolate(str(raw_value))
+
+        context.set(var_name, result_value)
 
         return ToolResult(
             success=True,
-            output=f"Set {var_name}={interpolated_value}",
+            output=f"Set {var_name}={result_value}",
         )

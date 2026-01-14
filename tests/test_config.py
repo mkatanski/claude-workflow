@@ -16,6 +16,7 @@ import yaml
 from orchestrator.config import (
     ClaudeConfig,
     ClaudeSdkConfig,
+    OnErrorConfig,
     Step,
     TmuxConfig,
     WorkflowConfig,
@@ -593,6 +594,47 @@ name: Empty Workflow
         assert nested_loop.steps is not None
         assert len(nested_loop.steps) == 1
 
+    def test_load_config_with_on_error_config(self, tmp_project: Path) -> None:
+        """Test loading workflow with on_error configuration."""
+        workflow_content = """
+type: claude-workflow
+version: 2
+name: Error Capture Test
+on_error:
+  capture_context: true
+  save_to: ".debug/errors/"
+steps:
+  - name: step1
+    prompt: "Test"
+"""
+        workflow_file = tmp_project / ".claude" / "workflow.yml"
+        workflow_file.write_text(workflow_content)
+
+        config = load_config(tmp_project)
+
+        assert config.on_error.capture_context is True
+        assert config.on_error.save_to == ".debug/errors/"
+
+    def test_load_config_on_error_defaults_when_missing(
+        self, tmp_project: Path
+    ) -> None:
+        """Test that on_error defaults are applied when section is missing."""
+        workflow_content = """
+type: claude-workflow
+version: 2
+name: No OnError Config
+steps:
+  - name: step1
+    prompt: "Test"
+"""
+        workflow_file = tmp_project / ".claude" / "workflow.yml"
+        workflow_file.write_text(workflow_content)
+
+        config = load_config(tmp_project)
+
+        assert config.on_error.capture_context is False
+        assert config.on_error.save_to == ".claude/workflow_debug/"
+
     def test_load_config_invalid_yaml_raises_yaml_error(
         self, tmp_project: Path
     ) -> None:
@@ -1040,6 +1082,13 @@ class TestDataclassDefaults:
         assert config.system_prompt is None
         assert config.model is None
 
+    def test_on_error_config_defaults(self) -> None:
+        """Test OnErrorConfig default values."""
+        config = OnErrorConfig()
+
+        assert config.capture_context is False
+        assert config.save_to == ".claude/workflow_debug/"
+
     def test_step_defaults(self) -> None:
         """Test Step default values."""
         step = Step(name="test")
@@ -1095,6 +1144,7 @@ class TestDataclassDefaults:
         assert isinstance(config.tmux, TmuxConfig)
         assert isinstance(config.claude, ClaudeConfig)
         assert isinstance(config.claude_sdk, ClaudeSdkConfig)
+        assert isinstance(config.on_error, OnErrorConfig)
 
 
 # =============================================================================

@@ -1,8 +1,9 @@
 """ForEach tool implementation for iterating over arrays."""
 
 import json
+import re
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ..conditions import ConditionError, ConditionEvaluator
 from ..display_adapter import get_display
@@ -10,6 +11,7 @@ from .base import BaseTool, LoopSignal, ToolResult
 
 if TYPE_CHECKING:
     from ..context import ExecutionContext
+    from ..shared_steps.executor import SharedStepExecutor
     from ..tmux import TmuxManager
 
 
@@ -43,6 +45,24 @@ class ForEachTool(BaseTool):
                 "Must be 'stop', 'stop_loop', or 'continue'"
             )
 
+        # Validate filter expression if provided (basic syntax check)
+        if step.get("filter"):
+            filter_expr = step["filter"]
+            if not isinstance(filter_expr, str):
+                raise ValueError("'filter' must be a string expression")
+
+        # Validate order_by expression if provided
+        if step.get("order_by"):
+            order_by = step["order_by"]
+            if not isinstance(order_by, str):
+                raise ValueError("'order_by' must be a string expression")
+
+        # Validate break_when condition if provided
+        if step.get("break_when"):
+            break_when = step["break_when"]
+            if not isinstance(break_when, str):
+                raise ValueError("'break_when' must be a condition string")
+
     def execute(
         self,
         step: Dict[str, Any],
@@ -55,6 +75,10 @@ class ForEachTool(BaseTool):
         index_var = step.get("index_var")
         on_item_error = step.get("on_item_error", "stop")
         nested_steps: List[Dict[str, Any]] = step["steps"]
+        # Note: we use "foreach_filter" to avoid conflict with Linear tool's "filter"
+        filter_expr = step.get("foreach_filter") or step.get("filter")
+        order_by_expr = step.get("order_by")
+        break_when = step.get("break_when")
 
         # Get the source array from context
         # Support dot notation in source (e.g., "team.members")
@@ -81,12 +105,40 @@ class ForEachTool(BaseTool):
                 error=f"Source variable '{source_var}' is not a valid JSON array",
             )
 
+        # Apply filter if specified
+        if filter_expr and items:
+            try:
+                items = self._apply_filter(items, filter_expr, context)
+            except (ValueError, KeyError, TypeError) as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Filter expression failed: {e}",
+                )
+
+        # Apply order_by if specified
+        if order_by_expr and items:
+            try:
+                items = self._apply_order_by(items, order_by_expr, context)
+            except (ValueError, KeyError, TypeError) as e:
+                return ToolResult(
+                    success=False,
+                    error=f"Order by expression failed: {e}",
+                )
+
         if len(items) == 0:
             return ToolResult(success=True, output="Empty array, no iterations performed")
 
         # Print loop header
         display = get_display()
         self._print_loop_header(step["name"], len(items))
+
+        # Create shared step executor for nested steps that use 'uses' field
+        from ..shared_steps.executor import SharedStepExecutor
+
+        shared_step_executor = SharedStepExecutor(
+            project_path=context.project_path,
+        )
+        workflow_config = step.get("_workflow_claude_sdk")
 
         # Store original values to restore after loop
         original_item = context.get(item_var)
@@ -115,7 +167,13 @@ class ForEachTool(BaseTool):
                         # Execute nested steps with additional indent
                         with display.indent():
                             result = self._execute_nested_steps(
-                                nested_steps, context, tmux_manager, idx, len(items)
+                                nested_steps,
+                                context,
+                                tmux_manager,
+                                idx,
+                                len(items),
+                                shared_step_executor,
+                                workflow_config,
                             )
 
                         if result.loop_signal == LoopSignal.BREAK:
@@ -130,7 +188,21 @@ class ForEachTool(BaseTool):
 
                         completed_count += 1
 
-                    except RuntimeError as e:
+                        # Check break_when condition after successful iteration
+                        if break_when:
+                            try:
+                                evaluator = ConditionEvaluator(context)
+                                break_result = evaluator.evaluate(break_when)
+                                if break_result.satisfied:
+                                    self._print_break_when(idx, break_when)
+                                    break
+                            except ConditionError as e:
+                                get_display().console.print(
+                                    f"[yellow]Warning: break_when error: {e}. "
+                                    "Continuing loop.[/yellow]"
+                                )
+
+                    except Exception as e:
                         error_msg = f"Item {idx}: {e!s}"
                         errors.append(error_msg)
 
@@ -188,6 +260,8 @@ class ForEachTool(BaseTool):
         tmux_manager: "TmuxManager",
         iteration_idx: int,
         total_iterations: int,
+        shared_step_executor: "SharedStepExecutor",
+        workflow_config: Optional[Dict[str, Any]] = None,
     ) -> ToolResult:
         """Execute nested steps within a foreach iteration.
 
@@ -195,12 +269,24 @@ class ForEachTool(BaseTool):
         """
         from . import ToolRegistry
 
-        step_index_map = {s["name"]: idx for idx, s in enumerate(steps)}
+        # Build step index map, skipping invalid steps (validation happens in the loop)
+        step_index_map = {
+            s["name"]: idx
+            for idx, s in enumerate(steps)
+            if isinstance(s, dict) and "name" in s
+        }
         step_idx = 0
         total_steps = len(steps)
 
         while step_idx < total_steps:
             step = steps[step_idx]
+
+            # Defensive check: ensure step is a dict before accessing
+            if not isinstance(step, dict):
+                return ToolResult(
+                    success=False,
+                    error=f"Nested step at index {step_idx} is invalid (expected dict, got {type(step).__name__})",
+                )
 
             # Check condition if present
             if step.get("when"):
@@ -227,10 +313,25 @@ class ForEachTool(BaseTool):
                 step, step_idx, total_steps, iteration_idx, total_iterations
             )
 
-            # Get and execute tool
-            tool = ToolRegistry.get(step["tool"])
-            tool.validate_step(step)
-            result = tool.execute(step, context, tmux_manager)
+            # Check if this is a shared step (has 'uses' field)
+            uses = step.get("uses")
+            if uses:
+                # Execute shared step
+                result = shared_step_executor.execute(
+                    uses=uses,
+                    with_inputs=step.get("with", {}),
+                    output_mapping=step.get("outputs", {}),
+                    parent_context=context,
+                    tmux_manager=tmux_manager,
+                    workflow_config={"_workflow_claude_sdk": workflow_config}
+                    if workflow_config
+                    else None,
+                )
+            else:
+                # Get and execute regular tool
+                tool = ToolRegistry.get(step["tool"])
+                tool.validate_step(step)
+                result = tool.execute(step, context, tmux_manager)
 
             # Print step completion
             step_duration = time.time() - step_start_time
@@ -293,7 +394,12 @@ class ForEachTool(BaseTool):
     ) -> None:
         """Print nested step info using display adapter."""
         step_name = step.get("name", "Unnamed")
-        tool_name = step.get("tool", "claude")
+        # Check for shared step (uses) vs regular tool
+        uses = step.get("uses")
+        if uses:
+            tool_name = "shared"
+        else:
+            tool_name = step.get("tool", "claude")
         display = get_display()
 
         # Use adapter method (handles v1/v2 internally)
@@ -342,3 +448,212 @@ class ForEachTool(BaseTool):
         display = get_display()
         # Use adapter method (handles v1/v2 internally)
         display.print_loop_message("error", idx, error, action)
+
+    def _print_break_when(self, idx: int, condition: str) -> None:
+        """Print break_when triggered message."""
+        display = get_display()
+        display.console.print(
+            f"[cyan]  ↳ break_when triggered at iteration {idx}: {condition}[/cyan]"
+        )
+
+    def _apply_filter(
+        self,
+        items: List[Any],
+        filter_expr: str,
+        context: "ExecutionContext",
+    ) -> List[Any]:
+        """Apply filter expression to items.
+
+        Supports jq-like expressions:
+        - .field == "value" - equality check
+        - .field != "value" - inequality check
+        - .field > N, .field < N, etc - numeric comparisons
+        - .field contains "str" - string contains
+        - .field starts_with "str" - string starts with
+        - .field ends_with "str" - string ends with
+        """
+        # Interpolate any variables in the filter expression
+        filter_expr = context.interpolate(filter_expr)
+
+        filtered: List[Any] = []
+        for item in items:
+            if self._evaluate_item_filter(item, filter_expr):
+                filtered.append(item)
+        return filtered
+
+    def _evaluate_item_filter(self, item: Any, filter_expr: str) -> bool:
+        """Evaluate filter expression against a single item."""
+        # Parse the filter expression
+        # Supported patterns:
+        # .field == "value" or .field == value
+        # .field != "value"
+        # .field > N, .field >= N, .field < N, .field <= N
+        # .field contains "str"
+        # .field starts_with "str"
+        # .field ends_with "str"
+
+        filter_expr = filter_expr.strip()
+
+        # Pattern for comparison operators
+        comparison_pattern = re.compile(
+            r'^\.?([\w_][\w_\d.]*)\s*(==|!=|>=|<=|>|<|contains|starts_with|ends_with)\s*(.+)$',
+            re.IGNORECASE
+        )
+
+        match = comparison_pattern.match(filter_expr)
+        if not match:
+            raise ValueError(f"Invalid filter expression: {filter_expr}")
+
+        field_path = match.group(1)
+        operator = match.group(2).lower()
+        value_str = match.group(3).strip()
+
+        # Get the field value from item
+        item_value = self._get_field_value(item, field_path)
+
+        # Parse the comparison value
+        compare_value = self._parse_filter_value(value_str)
+
+        # Perform comparison
+        return self._compare_values(item_value, operator, compare_value)
+
+    def _get_field_value(self, item: Any, field_path: str) -> Any:
+        """Get a field value from an item using dot notation."""
+        if not isinstance(item, dict):
+            raise TypeError(f"Cannot access field '{field_path}' on non-object")
+
+        parts = field_path.split(".")
+        current = item
+
+        for part in parts:
+            if isinstance(current, dict):
+                if part not in current:
+                    return None
+                current = current[part]
+            elif isinstance(current, list):
+                try:
+                    idx = int(part)
+                    current = current[idx]
+                except (ValueError, IndexError):
+                    return None
+            else:
+                return None
+
+        return current
+
+    def _parse_filter_value(self, value_str: str) -> Any:
+        """Parse a filter value string into its Python type."""
+        value_str = value_str.strip()
+
+        # Remove quotes for strings
+        if (value_str.startswith('"') and value_str.endswith('"')) or \
+           (value_str.startswith("'") and value_str.endswith("'")):
+            return value_str[1:-1]
+
+        # Try boolean
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+
+        # Try null
+        if value_str.lower() in ("null", "none"):
+            return None
+
+        # Try numeric
+        try:
+            if "." in value_str:
+                return float(value_str)
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Return as string
+        return value_str
+
+    def _compare_values(self, item_value: Any, operator: str, compare_value: Any) -> bool:
+        """Compare values using the specified operator."""
+        if operator == "==":
+            return item_value == compare_value
+        elif operator == "!=":
+            return item_value != compare_value
+        elif operator == ">":
+            return self._safe_numeric_compare(item_value, compare_value, lambda a, b: a > b)
+        elif operator == ">=":
+            return self._safe_numeric_compare(item_value, compare_value, lambda a, b: a >= b)
+        elif operator == "<":
+            return self._safe_numeric_compare(item_value, compare_value, lambda a, b: a < b)
+        elif operator == "<=":
+            return self._safe_numeric_compare(item_value, compare_value, lambda a, b: a <= b)
+        elif operator == "contains":
+            if item_value is None:
+                return False
+            return str(compare_value).lower() in str(item_value).lower()
+        elif operator == "starts_with":
+            if item_value is None:
+                return False
+            return str(item_value).lower().startswith(str(compare_value).lower())
+        elif operator == "ends_with":
+            if item_value is None:
+                return False
+            return str(item_value).lower().endswith(str(compare_value).lower())
+        else:
+            raise ValueError(f"Unknown operator: {operator}")
+
+    def _safe_numeric_compare(
+        self,
+        a: Any,
+        b: Any,
+        op: Callable[[Union[int, float], Union[int, float]], bool],
+    ) -> bool:
+        """Safely compare two values numerically."""
+        try:
+            num_a = float(a) if a is not None else 0
+            num_b = float(b) if b is not None else 0
+            return op(num_a, num_b)
+        except (ValueError, TypeError):
+            # Fall back to string comparison
+            return op(str(a), str(b))
+
+    def _apply_order_by(
+        self,
+        items: List[Any],
+        order_by_expr: str,
+        context: "ExecutionContext",
+    ) -> List[Any]:
+        """Apply order_by expression to sort items.
+
+        Supports:
+        - .field - ascending sort by field
+        - .field desc - descending sort by field
+        - .field asc - explicit ascending sort
+        """
+        # Interpolate any variables
+        order_by_expr = context.interpolate(order_by_expr).strip()
+
+        # Parse the expression
+        descending = False
+        if order_by_expr.lower().endswith(" desc"):
+            descending = True
+            order_by_expr = order_by_expr[:-5].strip()
+        elif order_by_expr.lower().endswith(" asc"):
+            order_by_expr = order_by_expr[:-4].strip()
+
+        # Remove leading dot if present
+        if order_by_expr.startswith("."):
+            order_by_expr = order_by_expr[1:]
+
+        field_path = order_by_expr
+
+        def sort_key(item: Any) -> Any:
+            value = self._get_field_value(item, field_path)
+            # Handle None values - put them at the end
+            if value is None:
+                return (1, "")
+            # Try numeric comparison
+            try:
+                return (0, float(value))
+            except (ValueError, TypeError):
+                return (0, str(value).lower())
+
+        return sorted(items, key=sort_key, reverse=descending)

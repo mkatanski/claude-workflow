@@ -22,4 +22,7 @@ def mock_display_adapter():
                 with patch("orchestrator.tools.claude.get_display", return_value=mock_display):
                     with patch("orchestrator.tools.bash.get_display", return_value=mock_display):
                         with patch("orchestrator.tools.foreach.get_display", return_value=mock_display):
-                            yield mock_display
+                            with patch("orchestrator.tools.range_tool.get_display", return_value=mock_display):
+                                with patch("orchestrator.tools.while_tool.get_display", return_value=mock_display):
+                                    with patch("orchestrator.tools.retry_tool.get_display", return_value=mock_display):
+                                        yield mock_display

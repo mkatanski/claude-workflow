@@ -1,0 +1,76 @@
+type: claude-step
+version: 1
+name: "Git Status"
+description: "Get current git repository status including branch, changes, and commit info"
+
+inputs:
+  - name: include_untracked
+    description: "Include untracked files in the status"
+    required: false
+    default: true
+    schema:
+      type: boolean
+
+outputs:
+  - name: branch
+    description: "Current branch name"
+    from: current_branch
+  - name: has_changes
+    description: "Whether there are uncommitted changes"
+    from: has_changes
+  - name: staged_count
+    description: "Number of staged files"
+    from: staged_count
+  - name: modified_count
+    description: "Number of modified files"
+    from: modified_count
+  - name: untracked_count
+    description: "Number of untracked files"
+    from: untracked_count
+  - name: commit_sha
+    description: "Current commit SHA (short)"
+    from: commit_sha
+  - name: status_output
+    description: "Raw git status output"
+    from: status_output
+
+steps:
+  - name: Get current branch
+    tool: bash
+    command: "git branch --show-current"
+    output_var: current_branch
+
+  - name: Get commit SHA
+    tool: bash
+    command: "git rev-parse --short HEAD"
+    output_var: commit_sha
+
+  - name: Get git status
+    tool: bash
+    command: "git status --porcelain"
+    output_var: status_output
+
+  - name: Count staged files
+    tool: bash
+    command: "git diff --cached --name-only | wc -l | tr -d ' '"
+    output_var: staged_count
+
+  - name: Count modified files
+    tool: bash
+    command: "git diff --name-only | wc -l | tr -d ' '"
+    output_var: modified_count
+
+  - name: Count untracked files
+    tool: bash
+    command: "git ls-files --others --exclude-standard | wc -l | tr -d ' '"
+    output_var: untracked_count
+
+  - name: Check for changes
+    tool: bash
+    command: |
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "true"
+      else
+        echo "false"
+      fi
+    output_var: has_changes

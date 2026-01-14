@@ -1,6 +1,6 @@
 # ForEach Tool
 
-The `foreach` tool allows you to iterate over arrays and execute a sequence of nested steps for each item. It provides loop control flow with `break` and `continue` support, error handling strategies, and automatic variable management.
+The `foreach` tool allows you to iterate over arrays and execute a sequence of nested steps for each item. It provides loop control flow with `break` and `continue` support, error handling strategies, filtering, sorting, and automatic variable management.
 
 ## Configuration Options
 
@@ -11,6 +11,9 @@ The `foreach` tool allows you to iterate over arrays and execute a sequence of n
 | `index_var` | No | string | Variable name to store the current index (0-based). |
 | `steps` | Yes | array | List of steps to execute for each item. |
 | `on_item_error` | No | string | Error handling strategy: `stop` (default), `stop_loop`, or `continue`. |
+| `filter` | No | string | Filter expression to select items before iteration (jq-like syntax). Also accepts `foreach_filter` as alias. |
+| `order_by` | No | string | Sort expression to order items before iteration (e.g., `.name`, `.date desc`). |
+| `break_when` | No | string | Condition to evaluate after each iteration; breaks the loop when satisfied. |
 
 ### Error Handling Strategies
 
@@ -128,6 +131,220 @@ Use `continue` to skip the remaining steps for the current item and move to the 
 
     - name: "Process Valid Item"
       prompt: "Process the valid item: {item}"
+```
+
+## Filtering Items
+
+The `filter` option allows you to select specific items from the source array before iteration begins. It uses jq-like syntax for filtering object arrays.
+
+### Filter Syntax
+
+The filter expression follows the pattern: `.field operator value`
+
+**Supported operators:**
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `==` | Equality | `.status == "active"` |
+| `!=` | Inequality | `.type != "draft"` |
+| `>` | Greater than | `.priority > 5` |
+| `>=` | Greater than or equal | `.score >= 80` |
+| `<` | Less than | `.age < 18` |
+| `<=` | Less than or equal | `.count <= 100` |
+| `contains` | String contains (case-insensitive) | `.name contains "admin"` |
+| `starts_with` | String starts with (case-insensitive) | `.email starts_with "test"` |
+| `ends_with` | String ends with (case-insensitive) | `.file ends_with ".json"` |
+
+### Filter Examples
+
+```yaml
+- name: "Set Users"
+  tool: set
+  var: users
+  value: |
+    [
+      {"name": "Alice", "role": "admin", "active": true},
+      {"name": "Bob", "role": "user", "active": false},
+      {"name": "Charlie", "role": "admin", "active": true}
+    ]
+
+# Filter by equality
+- name: "Process Active Admins"
+  tool: foreach
+  source: users
+  filter: .role == "admin"
+  item_var: user
+  steps:
+    - name: "Handle Admin"
+      prompt: "Process admin user: {user}"
+
+# Filter with string matching
+- name: "Find Users by Name"
+  tool: foreach
+  source: users
+  filter: .name contains "li"
+  item_var: user
+  steps:
+    - name: "Found User"
+      prompt: "Found matching user: {user}"
+```
+
+### Filter with Variables
+
+Filter expressions support variable interpolation:
+
+```yaml
+- name: "Set Target Role"
+  tool: set
+  var: target_role
+  value: "admin"
+
+- name: "Process by Role"
+  tool: foreach
+  source: users
+  filter: .role == "{target_role}"
+  item_var: user
+  steps:
+    - name: "Handle User"
+      prompt: "Process {user}"
+```
+
+### Filter Field Access
+
+Filters support nested field access using dot notation:
+
+```yaml
+- name: "Set Data"
+  tool: set
+  var: items
+  value: |
+    [
+      {"user": {"profile": {"verified": true}}, "score": 95},
+      {"user": {"profile": {"verified": false}}, "score": 72}
+    ]
+
+- name: "Process Verified Users"
+  tool: foreach
+  source: items
+  filter: .user.profile.verified == true
+  item_var: item
+  steps:
+    - name: "Handle Verified"
+      prompt: "Process verified item: {item}"
+```
+
+## Sorting Items
+
+The `order_by` option allows you to sort items before iteration begins.
+
+### Order By Syntax
+
+- `.field` - Sort ascending by field
+- `.field asc` - Explicit ascending sort
+- `.field desc` - Sort descending by field
+
+### Order By Examples
+
+```yaml
+- name: "Set Tasks"
+  tool: set
+  var: tasks
+  value: |
+    [
+      {"name": "Task A", "priority": 3},
+      {"name": "Task B", "priority": 1},
+      {"name": "Task C", "priority": 2}
+    ]
+
+# Sort ascending (default)
+- name: "Process by Priority (Low to High)"
+  tool: foreach
+  source: tasks
+  order_by: .priority
+  item_var: task
+  steps:
+    - name: "Handle Task"
+      prompt: "Process task: {task}"
+
+# Sort descending
+- name: "Process by Priority (High to Low)"
+  tool: foreach
+  source: tasks
+  order_by: .priority desc
+  item_var: task
+  steps:
+    - name: "Handle Task"
+      prompt: "Process high-priority task first: {task}"
+```
+
+### Combining Filter and Order By
+
+You can use both `filter` and `order_by` together:
+
+```yaml
+- name: "Process Active Tasks by Priority"
+  tool: foreach
+  source: tasks
+  filter: .status == "active"
+  order_by: .priority desc
+  item_var: task
+  steps:
+    - name: "Handle Task"
+      prompt: "Process active task: {task}"
+```
+
+## Break When Condition
+
+The `break_when` option allows you to specify a condition that is evaluated after each successful iteration. When the condition is satisfied, the loop breaks.
+
+### Break When vs Break Tool
+
+- **`break` tool**: Used within nested steps for immediate, conditional loop exit
+- **`break_when`**: Evaluated automatically after each iteration completes
+
+### Break When Examples
+
+```yaml
+- name: "Set Counters"
+  tool: set
+  var: processed_count
+  value: "0"
+
+- name: "Process Until Limit"
+  tool: foreach
+  source: items
+  item_var: item
+  break_when: "{processed_count} >= 5"
+  steps:
+    - name: "Process Item"
+      prompt: "Process {item}"
+      output_var: result
+
+    - name: "Increment Counter"
+      tool: set
+      var: processed_count
+      value: "{processed_count} + 1"
+```
+
+### Break When with Output Variables
+
+```yaml
+- name: "Find and Process Until Success"
+  tool: foreach
+  source: candidates
+  item_var: candidate
+  break_when: "{found_match} == true"
+  steps:
+    - name: "Check Candidate"
+      tool: bash
+      command: "check.sh {candidate}"
+      output_var: check_result
+
+    - name: "Mark Found"
+      tool: set
+      var: found_match
+      value: "true"
+      when: "{check_result} == match"
 ```
 
 ## Nested Steps
@@ -270,6 +487,58 @@ steps:
 
       - name: "Process Remaining"
         prompt: "Process item #{idx}: {item}"
+```
+
+### Pattern 6: Filter, Sort, and Limit Processing
+
+Use `filter`, `order_by`, and `break_when` together for advanced iteration control:
+
+```yaml
+steps:
+  - name: "Get Issues"
+    tool: bash
+    command: "curl -s https://api.example.com/issues"
+    output_var: all_issues
+
+  - name: "Process High Priority Open Issues"
+    tool: foreach
+    source: all_issues
+    filter: .status == "open"
+    order_by: .priority desc
+    break_when: "{processed_count} >= 10"
+    item_var: issue
+    steps:
+      - name: "Fix Issue"
+        prompt: "Analyze and fix issue: {issue}"
+
+      - name: "Increment Counter"
+        tool: set
+        var: processed_count
+        value: "{processed_count} + 1"
+```
+
+This pattern:
+- Filters to only open issues
+- Sorts by priority (highest first)
+- Stops after processing 10 issues
+
+### Pattern 7: Dynamic Filtering with Variables
+
+```yaml
+steps:
+  - name: "Set Filter Criteria"
+    tool: bash
+    command: "echo 'active'"
+    output_var: status_filter
+
+  - name: "Process Filtered Users"
+    tool: foreach
+    source: users
+    filter: .status == "{status_filter}"
+    item_var: user
+    steps:
+      - name: "Handle User"
+        prompt: "Process user: {user}"
 ```
 
 ## Variable Cleanup

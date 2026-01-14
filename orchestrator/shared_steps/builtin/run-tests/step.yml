@@ -1,0 +1,149 @@
+type: claude-step
+version: 1
+name: "Run Tests"
+description: "Run test suite for common languages/frameworks"
+
+inputs:
+  - name: language
+    description: "Programming language or framework"
+    required: false
+    default: "auto"
+    schema:
+      type: string
+      enum: ["auto", "javascript", "typescript", "python", "rust", "go"]
+  - name: coverage
+    description: "Generate coverage report"
+    required: false
+    default: false
+    schema:
+      type: boolean
+  - name: test_path
+    description: "Specific test path or pattern to run"
+    required: false
+    default: ""
+
+outputs:
+  - name: success
+    description: "Whether all tests passed"
+    from: tests_passed
+  - name: output
+    description: "Test output"
+    from: test_output
+  - name: coverage_percent
+    description: "Coverage percentage (if coverage enabled)"
+    from: coverage_pct
+
+steps:
+  - name: Detect language
+    tool: bash
+    command: |
+      if [ "{inputs.language}" != "auto" ]; then
+        echo "{inputs.language}"
+      elif [ -f "package.json" ]; then
+        if grep -q "typescript" package.json 2>/dev/null; then
+          echo "typescript"
+        else
+          echo "javascript"
+        fi
+      elif [ -f "pyproject.toml" ] || [ -f "setup.py" ] || [ -f "requirements.txt" ]; then
+        echo "python"
+      elif [ -f "Cargo.toml" ]; then
+        echo "rust"
+      elif [ -f "go.mod" ]; then
+        echo "go"
+      else
+        echo "unknown"
+      fi
+    output_var: detected_lang
+
+  - name: Run npm test for JavaScript/TypeScript
+    tool: bash
+    command: "npm test {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "({detected_lang} == javascript or {detected_lang} == typescript) and {inputs.coverage} == false"
+
+  - name: Run npm test with coverage
+    tool: bash
+    command: "npm test -- --coverage {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "({detected_lang} == javascript or {detected_lang} == typescript) and {inputs.coverage} == true"
+
+  - name: Run pytest for Python
+    tool: bash
+    command: "pytest {inputs.test_path} -v 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == python and {inputs.coverage} == false"
+
+  - name: Run pytest with coverage
+    tool: bash
+    command: "pytest {inputs.test_path} -v --cov --cov-report=term 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == python and {inputs.coverage} == true"
+
+  - name: Run cargo test for Rust
+    tool: bash
+    command: "cargo test {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == rust and {inputs.coverage} == false"
+
+  - name: Run cargo test with coverage
+    tool: bash
+    command: "cargo tarpaulin --out Stdout {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == rust and {inputs.coverage} == true"
+
+  - name: Run go test
+    tool: bash
+    command: "go test ./... -v {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == go and {inputs.coverage} == false"
+
+  - name: Run go test with coverage
+    tool: bash
+    command: "go test ./... -v -cover {inputs.test_path} 2>&1"
+    output_var: test_output
+    on_error: continue
+    when: "{detected_lang} == go and {inputs.coverage} == true"
+
+  - name: Handle unknown language
+    tool: set
+    var: test_output
+    value: "Could not detect language. Please specify the 'language' input."
+    when: "{detected_lang} == unknown"
+
+  - name: Check test success
+    tool: bash
+    command: |
+      if echo "{test_output}" | grep -qiE "failed|error|FAILED"; then
+        echo "false"
+      elif echo "{test_output}" | grep -qiE "passed|ok|success"; then
+        echo "true"
+      else
+        echo "unknown"
+      fi
+    output_var: tests_passed
+
+  - name: Extract coverage percentage
+    tool: bash
+    command: |
+      coverage=$(echo "{test_output}" | grep -oE '[0-9]+(\.[0-9]+)?%' | tail -1 | tr -d '%' || echo "0")
+      if [ -z "$coverage" ]; then
+        echo "0"
+      else
+        echo "$coverage"
+      fi
+    output_var: coverage_pct
+    when: "{inputs.coverage} == true"
+
+  - name: Set default coverage
+    tool: set
+    var: coverage_pct
+    value: "0"
+    when: "{inputs.coverage} == false"

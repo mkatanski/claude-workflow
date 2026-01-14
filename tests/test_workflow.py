@@ -20,6 +20,7 @@ from orchestrator.conditions import ConditionError, ConditionResult
 from orchestrator.config import (
     ClaudeConfig,
     ClaudeSdkConfig,
+    OnErrorConfig,
     Step,
     TmuxConfig,
     WorkflowConfig,
@@ -1103,3 +1104,249 @@ class TestWorkflowIntegration:
         assert call_count == 3
         # Only two should have succeeded
         assert runner.completed_steps == 2
+
+
+# =============================================================================
+# Test Error Context Capture
+# =============================================================================
+
+
+class TestCaptureErrorContext:
+    """Tests for the _capture_error_context method."""
+
+    def test_capture_error_context_returns_none_when_disabled(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that _capture_error_context returns None when capture_context is False."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=False),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        result = runner._capture_error_context(step, "Command failed")
+
+        assert result is None
+
+    def test_capture_error_context_creates_debug_directory(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that _capture_error_context creates the debug directory."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        debug_dir = runner._capture_error_context(step, "Command failed")
+
+        assert debug_dir is not None
+        assert debug_dir.exists()
+        assert debug_dir.is_dir()
+
+    def test_capture_error_context_writes_context_json(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that _capture_error_context writes context.json with correct content."""
+        import json
+
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+            runner.context.set("test_var", "test_value")
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        debug_dir = runner._capture_error_context(step, "Command failed")
+
+        assert debug_dir is not None
+        context_file = debug_dir / "context.json"
+        assert context_file.exists()
+
+        with open(context_file, "r") as f:
+            data = json.load(f)
+
+        assert "timestamp" in data
+        assert data["session_id"] == runner.session_id
+        assert data["step"]["name"] == "Failed Step"
+        assert data["step"]["tool"] == "bash"
+        assert data["step"]["command"] == "exit 1"
+        assert data["error"] == "Command failed"
+        assert "test_var" in data["variables"]
+        assert data["variables"]["test_var"] == "test_value"
+
+    def test_capture_error_context_writes_pane_content(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that _capture_error_context writes pane content when provided."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        pane_content = "Error: command not found\nLine 2 of output"
+        debug_dir = runner._capture_error_context(
+            step, "Command failed", pane_content=pane_content
+        )
+
+        assert debug_dir is not None
+        pane_file = debug_dir / "pane_content.txt"
+        assert pane_file.exists()
+
+        with open(pane_file, "r") as f:
+            content = f.read()
+
+        assert content == pane_content
+
+    def test_capture_error_context_uses_custom_save_to(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that _capture_error_context uses custom save_to path."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=True, save_to=".debug/custom/"),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        debug_dir = runner._capture_error_context(step, "Command failed")
+
+        assert debug_dir is not None
+        # Check that the custom path is used
+        assert ".debug/custom" in str(debug_dir)
+
+    def test_capture_error_context_no_pane_content_file_when_none(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that pane_content.txt is not created when pane_content is None."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Test", tool="bash", command="echo")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+
+        step = Step(name="Failed Step", tool="bash", command="exit 1")
+        debug_dir = runner._capture_error_context(step, "Command failed")
+
+        assert debug_dir is not None
+        pane_file = debug_dir / "pane_content.txt"
+        assert not pane_file.exists()
+
+
+class TestErrorContextIntegration:
+    """Integration tests for error context capture during step execution."""
+
+    def test_step_failure_triggers_error_context_capture(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that step failure triggers error context capture when enabled."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Failing Step", tool="bash", command="exit 1", on_error="continue")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+            runner.tmux_manager = MagicMock()
+            runner.tmux_manager.current_pane = None
+
+        mock_tool = MagicMock()
+        mock_tool.validate_step = MagicMock()
+        mock_tool.execute = MagicMock(
+            return_value=ToolResult(success=False, error="Exit code 1")
+        )
+
+        with patch("orchestrator.workflow.ToolRegistry.get", return_value=mock_tool):
+            with patch("orchestrator.workflow.time.sleep"):
+                runner._run_steps()
+
+        # Check that debug directory was created
+        debug_base = project_path / ".claude" / "workflow_debug"
+        assert debug_base.exists()
+        # Should have a session directory
+        session_dirs = list(debug_base.iterdir())
+        assert len(session_dirs) == 1
+        # Should have context.json
+        context_file = session_dirs[0] / "context.json"
+        assert context_file.exists()
+
+    def test_step_failure_captures_pane_content_when_available(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+    ) -> None:
+        """Test that pane content is captured when a pane is active."""
+        config = WorkflowConfig(
+            name="Test",
+            steps=[Step(name="Failing Step", tool="bash", command="exit 1", on_error="continue")],
+            on_error=OnErrorConfig(capture_context=True),
+        )
+
+        with patch("orchestrator.workflow.TmuxManager"):
+            runner = WorkflowRunner(config, project_path, mock_server)
+            runner.tmux_manager = MagicMock()
+            runner.tmux_manager.current_pane = "%0"  # Simulate active pane
+            runner.tmux_manager.capture_pane_content = MagicMock(
+                return_value="Error output from pane"
+            )
+
+        mock_tool = MagicMock()
+        mock_tool.validate_step = MagicMock()
+        mock_tool.execute = MagicMock(
+            return_value=ToolResult(success=False, error="Exit code 1")
+        )
+
+        with patch("orchestrator.workflow.ToolRegistry.get", return_value=mock_tool):
+            with patch("orchestrator.workflow.time.sleep"):
+                runner._run_steps()
+
+        # Verify pane content was captured
+        runner.tmux_manager.capture_pane_content.assert_called_once()
+
+        # Check that pane_content.txt was created
+        debug_base = project_path / ".claude" / "workflow_debug"
+        session_dirs = list(debug_base.iterdir())
+        pane_file = session_dirs[0] / "pane_content.txt"
+        assert pane_file.exists()
+
+        with open(pane_file, "r") as f:
+            content = f.read()
+        assert content == "Error output from pane"

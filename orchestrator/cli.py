@@ -344,7 +344,8 @@ def main() -> None:
 
     # Run workflow
     try:
-        runner = WorkflowRunner(config, project_path, server)
+        workflow_dir = workflow_file.parent if workflow_file else None
+        runner = WorkflowRunner(config, project_path, server, workflow_dir=workflow_dir)
         runner.run()
     except KeyboardInterrupt:
         get_display().console.print()

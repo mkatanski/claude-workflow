@@ -41,6 +41,14 @@ class ClaudeSdkConfig:
 
 
 @dataclass
+class OnErrorConfig:
+    """Workflow-level error handling configuration."""
+
+    capture_context: bool = False  # Whether to capture debug info on failure
+    save_to: str = ".claude/workflow_debug/"  # Directory for debug files
+
+
+@dataclass
 class WorkflowInfo:
     """Metadata about a discovered workflow file."""
 
@@ -65,6 +73,7 @@ class Step:
     target: Optional[str] = None  # For goto: target step name
     var: Optional[str] = None     # For set: variable name
     value: Optional[str] = None   # For set: variable value
+    expr: Optional[str] = None    # For set: expression to evaluate
     # Fields for bash tool
     strip_output: bool = True     # Strip whitespace from output
     env: Optional[Dict[str, str]] = None  # Environment variables for bash
@@ -99,6 +108,40 @@ class Step:
     index_var: Optional[str] = None  # Current index variable name (optional)
     on_item_error: str = "stop"  # Error handling: stop | stop_loop | continue
     steps: Optional[List[Step]] = None  # Nested steps for foreach
+    # Foreach enhancements (filter, order_by, break_when)
+    foreach_filter: Optional[str] = None  # jq-style expression to filter items
+    order_by: Optional[str] = None  # jq-style expression to sort items
+    break_when: Optional[str] = None  # Condition to break loop early
+    # Fields for shared steps (uses tool)
+    uses: Optional[str] = None  # Shared step reference (e.g., "builtin:git-checkout")
+    with_inputs: Optional[Dict[str, Any]] = None  # Input values for shared step
+    outputs: Optional[Dict[str, str]] = None  # Output mapping {parent_var: output_name}
+    # Fields for while tool
+    condition: Optional[str] = None  # Condition to evaluate before each iteration
+    max_iterations: Optional[int] = None  # Safety limit for while loops
+    on_max_reached: str = "error"  # Action when max_iterations reached: error | continue
+    # Fields for retry tool
+    max_attempts: Optional[int] = None  # Max retry attempts
+    until: Optional[str] = None  # Early success condition
+    delay: float = 0  # Seconds between retry attempts
+    on_failure: str = "error"  # Action when all retries fail: error | continue
+    # Fields for range tool
+    range_from: Optional[int] = None  # Start value (inclusive)
+    range_to: Optional[int] = None  # End value (inclusive)
+    range_step: int = 1  # Step increment (can be negative)
+    # Fields for context tool
+    mappings: Optional[Dict[str, str]] = None  # For copy action: source -> target
+    vars: Optional[List[str]] = None  # For clear action: variables to clear
+    file: Optional[str] = None  # For export action: output file path
+    # Fields for data tool
+    content: Optional[str] = None  # Content to write
+    format: Optional[str] = None  # Format: json, text, markdown
+    filename: Optional[str] = None  # Optional filename
+    # Fields for json tool
+    query: Optional[str] = None  # JSON path query expression
+    path: Optional[str] = None  # JSON path for set/update/delete
+    operation: Optional[str] = None  # Update operation: append, prepend, increment, merge
+    create_if_missing: bool = False  # Create file/object if not exists
 
 
 @dataclass
@@ -110,6 +153,7 @@ class WorkflowConfig:
     tmux: TmuxConfig = field(default_factory=TmuxConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
     claude_sdk: ClaudeSdkConfig = field(default_factory=ClaudeSdkConfig)
+    on_error: OnErrorConfig = field(default_factory=OnErrorConfig)
 
 
 def _parse_step(step_data: Dict[str, Any]) -> Step:
@@ -135,6 +179,7 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         target=step_data.get("target"),
         var=step_data.get("var"),
         value=step_data.get("value"),
+        expr=step_data.get("expr"),
         strip_output=step_data.get("strip_output", True),
         env=step_data.get("env"),
         # Linear tool fields
@@ -168,6 +213,40 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         index_var=step_data.get("index_var"),
         on_item_error=step_data.get("on_item_error", "stop"),
         steps=nested_steps,
+        # foreach enhancements
+        foreach_filter=step_data.get("filter"),
+        order_by=step_data.get("order_by"),
+        break_when=step_data.get("break_when"),
+        # shared steps (uses) fields - note: 'with' in YAML maps to 'with_inputs'
+        uses=step_data.get("uses"),
+        with_inputs=step_data.get("with"),
+        outputs=step_data.get("outputs"),
+        # while tool fields
+        condition=step_data.get("condition"),
+        max_iterations=step_data.get("max_iterations"),
+        on_max_reached=step_data.get("on_max_reached", "error"),
+        # retry tool fields
+        max_attempts=step_data.get("max_attempts"),
+        until=step_data.get("until"),
+        delay=step_data.get("delay", 0),
+        on_failure=step_data.get("on_failure", "error"),
+        # range tool fields - note: 'from'/'to'/'step' in YAML map to range_*
+        range_from=step_data.get("from"),
+        range_to=step_data.get("to"),
+        range_step=step_data.get("step", 1),
+        # context tool fields
+        mappings=step_data.get("mappings"),
+        vars=step_data.get("vars"),
+        file=step_data.get("file"),
+        # data tool fields
+        content=step_data.get("content"),
+        format=step_data.get("format"),
+        filename=step_data.get("filename"),
+        # json tool fields
+        query=step_data.get("query"),
+        path=step_data.get("path"),
+        operation=step_data.get("operation"),
+        create_if_missing=step_data.get("create_if_missing", False),
     )
 
 
@@ -231,12 +310,19 @@ def load_config(
         model=claude_sdk_data.get("model"),
     )
 
+    on_error_data = data.get("on_error", {})
+    on_error_config = OnErrorConfig(
+        capture_context=on_error_data.get("capture_context", False),
+        save_to=on_error_data.get("save_to", ".claude/workflow_debug/"),
+    )
+
     return WorkflowConfig(
         name=data.get("name", "Workflow"),
         steps=steps,
         tmux=tmux_config,
         claude=claude_config,
         claude_sdk=claude_sdk_config,
+        on_error=on_error_config,
     )
 
 

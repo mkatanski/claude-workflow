@@ -128,16 +128,27 @@ tmux:
   idle_time: 5.0
 
 steps:
-  # Run bash commands
-  - name: Check status
-    tool: bash
-    command: "git status --porcelain"
-    output_var: git_status
+  # Use a shared step
+  - name: Check git status
+    uses: builtin:git-status
+    outputs:
+      branch: current_branch
 
-  # Conditional execution
-  - name: Commit changes
-    prompt: Commit all changes with a descriptive message
-    when: "{git_status} is not empty"
+  # Run bash commands
+  - name: Get files to process
+    tool: bash
+    command: "find src -name '*.ts' | head -10"
+    output_var: files_list
+
+  # Loop over a range of numbers
+  - name: Process batches
+    tool: range
+    from: 1
+    to: 3
+    var: batch_num
+    steps:
+      - name: Process batch
+        prompt: "Process batch {batch_num}"
 
   # Loop with foreach
   - name: Process files
@@ -147,11 +158,33 @@ steps:
     steps:
       - name: Process file
         prompt: "Process {current_file}"
+
+  # Retry with condition
+  - name: Run tests with retry
+    tool: retry
+    max_attempts: 3
+    until: "{test_result} == passed"
+    delay: 2
+    steps:
+      - name: Run tests
+        tool: bash
+        command: "npm test && echo passed || echo failed"
+        output_var: test_result
+
+  # Batch variable operations
+  - name: Set summary variables
+    tool: context
+    action: set
+    values:
+      branch: "{current_branch}"
+      status: "complete"
 ```
 
 ---
 
 ## Available Tools
+
+### Core Tools
 
 | Tool | Description |
 |------|-------------|
@@ -159,12 +192,71 @@ steps:
 | `claude_sdk` | Use Claude SDK for structured output |
 | `bash` | Execute shell commands |
 | `set` | Set a variable value |
+
+### Control Flow
+
+| Tool | Description |
+|------|-------------|
 | `goto` | Jump to another step (for loops/branching) |
 | `foreach` | Iterate over arrays |
-| `break` | Break out of a foreach loop |
-| `continue` | Skip to next foreach iteration |
+| `range` | Iterate over a range of numbers (counting loops) |
+| `while` | Loop while a condition is true |
+| `retry` | Retry steps until success or max attempts |
+| `break` | Break out of a loop |
+| `continue` | Skip to next loop iteration |
+
+### Data Manipulation
+
+| Tool | Description |
+|------|-------------|
+| `context` | Batch variable operations (set, copy, clear, export) |
+| `data` | Write data to temp files (JSON, text, markdown) |
+| `json` | Native JSON manipulation (query, set, update, delete) |
+
+### Integrations
+
+| Tool | Description |
+|------|-------------|
 | `linear_tasks` | Fetch tasks from Linear |
 | `linear_manage` | Create/update Linear issues |
+
+---
+
+## Shared Steps
+
+Shared steps are reusable workflow components with defined inputs and outputs, similar to GitHub Actions composite actions.
+
+### Using Shared Steps
+
+```yaml
+steps:
+  - name: Check git status
+    uses: builtin:git-status
+    outputs:
+      branch: current_branch
+      has_changes: repo_has_changes
+
+  - name: Commit changes
+    uses: builtin:git-commit
+    with:
+      message: "Auto-commit from workflow"
+    when: "{repo_has_changes} == true"
+```
+
+### Resolution Strategies
+
+| Prefix | Location |
+|--------|----------|
+| `builtin:` | Built-in steps shipped with claude-workflow |
+| `project:` | Steps in `.claude/workflows/steps/` |
+| `path:` | Relative path from the workflow file |
+
+### Built-in Shared Steps
+
+- `builtin:git-status` - Get repository status (branch, changes, staged files)
+- `builtin:git-commit` - Stage and commit changes
+- `builtin:lint-fix` - Run linter and fix issues
+- `builtin:run-tests` - Execute test suite
 
 ---
 
@@ -173,7 +265,9 @@ steps:
 - **Multi-workflow support** - Keep multiple workflows in `.claude/`, pick interactively or by name
 - **Variable interpolation** - Use `{var_name}` anywhere in prompts and commands
 - **Conditional steps** - Skip steps with `when:` conditions
-- **Control flow** - Loops with `foreach`, branching with `goto`
+- **Control flow** - Loops with `foreach`, `range`, `while`; branching with `goto`; error recovery with `retry`
+- **Shared steps** - Reusable step definitions with inputs/outputs (like GitHub Actions)
+- **Data tools** - Native JSON manipulation, batch context operations, temp file management
 - **Output capture** - Store step output in variables with `output_var`
 - **Error handling** - `on_error: stop | continue` per step
 - **Beautiful TUI** - Rich terminal output with progress tracking
