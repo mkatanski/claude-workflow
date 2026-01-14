@@ -4,12 +4,15 @@ Tests plan auto-approval functionality including:
 - Pattern detection for plan approval prompts
 - Auto-approval key sending
 - Configuration handling
+- Step-level model override
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from orchestrator.context import ExecutionContext
 from orchestrator.tools.claude import ClaudeTool, PLAN_APPROVAL_PATTERNS
 
 
@@ -306,3 +309,94 @@ class TestContinuousApprovalListening:
 
         # Loop ran until completion signal, not until approval
         assert wait_calls == 4
+
+
+class TestModelOverride:
+    """Tests for step-level model override functionality."""
+
+    @pytest.fixture
+    def claude_tool(self) -> ClaudeTool:
+        """Create ClaudeTool instance."""
+        return ClaudeTool()
+
+    @pytest.fixture
+    def mock_tmux(self) -> MagicMock:
+        """Create mock tmux manager."""
+        tmux = MagicMock()
+        tmux.claude_config.append_system_prompt = None
+        return tmux
+
+    @pytest.fixture
+    def mock_context(self) -> MagicMock:
+        """Create mock execution context."""
+        context = MagicMock(spec=ExecutionContext)
+        context.interpolate.side_effect = lambda x: x  # Return input unchanged
+        context.project_path = Path("/test/project")
+        return context
+
+    def test_execute_extracts_step_model(
+        self,
+        claude_tool: ClaudeTool,
+        mock_tmux: MagicMock,
+        mock_context: MagicMock,
+    ) -> None:
+        """Verify step model is extracted and passed to tmux_manager."""
+        step = {"prompt": "Do something", "model": "opus"}
+
+        # Mock the completion to return immediately
+        mock_tmux.server.wait_for_complete.return_value = True
+        mock_tmux.current_pane = "%1"
+        mock_tmux.capture_pane_content.return_value = "output"
+
+        with patch("orchestrator.tools.claude.get_display"):
+            claude_tool.execute(step, mock_context, mock_tmux)
+
+        mock_tmux.launch_claude_pane.assert_called_once_with(
+            "Do something", model_override="opus"
+        )
+
+    def test_execute_without_step_model(
+        self,
+        claude_tool: ClaudeTool,
+        mock_tmux: MagicMock,
+        mock_context: MagicMock,
+    ) -> None:
+        """Verify None is passed when step has no model field."""
+        step = {"prompt": "Do something"}
+
+        # Mock the completion to return immediately
+        mock_tmux.server.wait_for_complete.return_value = True
+        mock_tmux.current_pane = "%1"
+        mock_tmux.capture_pane_content.return_value = "output"
+
+        with patch("orchestrator.tools.claude.get_display"):
+            claude_tool.execute(step, mock_context, mock_tmux)
+
+        mock_tmux.launch_claude_pane.assert_called_once_with(
+            "Do something", model_override=None
+        )
+
+    def test_execute_with_model_and_append_system_prompt(
+        self,
+        claude_tool: ClaudeTool,
+        mock_tmux: MagicMock,
+        mock_context: MagicMock,
+    ) -> None:
+        """Verify model override works together with append_system_prompt."""
+        step = {"prompt": "Do something", "model": "haiku"}
+        mock_tmux.claude_config.append_system_prompt = "System context"
+
+        # Mock the completion to return immediately
+        mock_tmux.server.wait_for_complete.return_value = True
+        mock_tmux.current_pane = "%1"
+        mock_tmux.capture_pane_content.return_value = "output"
+
+        with patch("orchestrator.tools.claude.get_display"):
+            claude_tool.execute(step, mock_context, mock_tmux)
+
+        # Verify model override is passed
+        mock_tmux.launch_claude_pane.assert_called_once()
+        call_args = mock_tmux.launch_claude_pane.call_args
+        assert call_args[1]["model_override"] == "haiku"
+        # Verify prompt has system prompt prepended
+        assert "System context" in call_args[0][0]

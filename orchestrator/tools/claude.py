@@ -49,8 +49,11 @@ class ClaudeTool(BaseTool):
             extension = context.interpolate(append_prompt)
             prompt = f"{extension}\n\n{prompt}"
 
+        # Extract step-level model override (takes precedence over workflow config)
+        model_override = step.get("model")
+
         # Launch Claude pane (also registers with server)
-        tmux_manager.launch_claude_pane(prompt)
+        tmux_manager.launch_claude_pane(prompt, model_override=model_override)
 
         try:
             # Wait for completion via server signal

@@ -319,8 +319,8 @@ class ForEachTool(BaseTool):
                 # Execute shared step
                 result = shared_step_executor.execute(
                     uses=uses,
-                    with_inputs=step.get("with", {}),
-                    output_mapping=step.get("outputs", {}),
+                    with_inputs=step.get("with") or {},
+                    output_mapping=step.get("outputs") or {},
                     parent_context=context,
                     tmux_manager=tmux_manager,
                     workflow_config={"_workflow_claude_sdk": workflow_config}

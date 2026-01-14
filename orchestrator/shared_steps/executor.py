@@ -222,8 +222,8 @@ class SharedStepExecutor:
                 # Recursively execute nested shared step
                 nested_result = self.execute(
                     uses=uses,
-                    with_inputs=step_dict.get("with", {}),
-                    output_mapping=step_dict.get("outputs", {}),
+                    with_inputs=step_dict.get("with") or {},
+                    output_mapping=step_dict.get("outputs") or {},
                     parent_context=context,
                     tmux_manager=tmux_manager,
                     workflow_config=workflow_config,

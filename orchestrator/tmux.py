@@ -59,17 +59,28 @@ class TmuxManager:
             time.sleep(0.2)
         return False
 
-    def _build_claude_command(self, prompt: Optional[str] = None) -> str:
-        """Build the Claude Code command with all options."""
+    def _build_claude_command(
+        self,
+        prompt: Optional[str] = None,
+        model_override: Optional[str] = None,
+    ) -> str:
+        """Build the Claude Code command with all options.
+
+        Args:
+            prompt: The prompt to send to Claude Code
+            model_override: Step-level model override. Takes precedence over
+                           workflow-level model configuration.
+        """
         cwd = self.claude_config.cwd or str(self.project_path.resolve())
 
         # Start with ORCHESTRATOR_PORT env var for hooks
         # Use shlex.quote() to prevent command injection via cwd
         parts = [f"cd {shlex.quote(cwd)} && ORCHESTRATOR_PORT={self.server.port} claude"]
 
-        # Add model if specified
-        if self.claude_config.model:
-            parts.append(f"--model {self.claude_config.model}")
+        # Add model if specified (step override takes precedence)
+        model = model_override or self.claude_config.model
+        if model:
+            parts.append(f"--model {model}")
 
         # Add permission bypass if enabled
         if self.claude_config.dangerously_skip_permissions:
@@ -91,11 +102,20 @@ class TmuxManager:
 
         return " ".join(parts)
 
-    def launch_claude_pane(self, prompt: str) -> str:
+    def launch_claude_pane(
+        self,
+        prompt: str,
+        model_override: Optional[str] = None,
+    ) -> str:
         """Launch Claude Code in a new tmux pane with the given prompt.
 
         The ORCHESTRATOR_PORT environment variable is set so that hooks
         can send completion signals to the correct server instance.
+
+        Args:
+            prompt: The prompt to send to Claude Code
+            model_override: Step-level model override. Takes precedence over
+                           workflow-level model configuration.
 
         Raises:
             RuntimeError: If prompt is too large for shell command line limits
@@ -118,7 +138,7 @@ class TmuxManager:
                 "Save large data to a file and reference it in the prompt instead."
             )
 
-        cmd = self._build_claude_command(prompt=prompt)
+        cmd = self._build_claude_command(prompt=prompt, model_override=model_override)
 
         with console.status(
             f"[cyan]{ICONS['lightning']} Launching Claude Code...[/cyan]",

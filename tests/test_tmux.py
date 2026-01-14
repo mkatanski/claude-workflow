@@ -84,6 +84,58 @@ class TestBuildClaudeCommand:
 
         assert "--model claude-3-opus" in cmd
 
+    def test_build_claude_command_with_model_override(
+        self, mock_server: MagicMock
+    ) -> None:
+        """Test model_override takes precedence over workflow config model."""
+        claude_config = ClaudeConfig(model="workflow-model")
+        tmux_config = TmuxConfig()
+        manager = TmuxManager(
+            tmux_config=tmux_config,
+            claude_config=claude_config,
+            project_path=Path("/test/project"),
+            server=mock_server,
+        )
+
+        cmd = manager._build_claude_command(model_override="step-model")
+
+        assert "--model step-model" in cmd
+        assert "workflow-model" not in cmd
+
+    def test_build_claude_command_model_override_with_no_workflow_model(
+        self, mock_server: MagicMock
+    ) -> None:
+        """Test model_override works when no workflow-level model is set."""
+        claude_config = ClaudeConfig(model=None)
+        tmux_config = TmuxConfig()
+        manager = TmuxManager(
+            tmux_config=tmux_config,
+            claude_config=claude_config,
+            project_path=Path("/test/project"),
+            server=mock_server,
+        )
+
+        cmd = manager._build_claude_command(model_override="opus")
+
+        assert "--model opus" in cmd
+
+    def test_build_claude_command_workflow_model_used_when_no_override(
+        self, mock_server: MagicMock
+    ) -> None:
+        """Test workflow model is used as fallback when no step override."""
+        claude_config = ClaudeConfig(model="workflow-default")
+        tmux_config = TmuxConfig()
+        manager = TmuxManager(
+            tmux_config=tmux_config,
+            claude_config=claude_config,
+            project_path=Path("/test/project"),
+            server=mock_server,
+        )
+
+        cmd = manager._build_claude_command(model_override=None)
+
+        assert "--model workflow-default" in cmd
+
     def test_build_claude_command_with_skip_permissions(
         self, mock_server: MagicMock
     ) -> None:
@@ -390,6 +442,22 @@ class TestLaunchClaudePane:
         assert "start_command" in call_kwargs
         assert "claude" in call_kwargs["start_command"]
         assert "'Test prompt'" in call_kwargs["start_command"]
+
+    @patch("time.sleep")
+    @patch("orchestrator.tmux.console")
+    def test_launch_claude_pane_passes_model_override(
+        self,
+        mock_console: MagicMock,
+        mock_sleep: MagicMock,
+        tmux_manager: TmuxManager,
+    ) -> None:
+        """Test launch_claude_pane passes model_override to command builder."""
+        tmux_manager.controller.create_pane = MagicMock(return_value="%5")
+
+        tmux_manager.launch_claude_pane("Test prompt", model_override="haiku")
+
+        call_kwargs = tmux_manager.controller.create_pane.call_args[1]
+        assert "--model haiku" in call_kwargs["start_command"]
 
     @patch("time.sleep")
     @patch("orchestrator.tmux.console")

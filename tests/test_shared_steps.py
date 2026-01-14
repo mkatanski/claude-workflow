@@ -1027,3 +1027,69 @@ steps:
         # Output should be mapped to parent context
         transformed = context.get("transformed")
         assert transformed is not None
+
+    @patch("orchestrator.tools.ToolRegistry")
+    def test_foreach_shared_step_with_null_outputs(
+        self,
+        mock_registry: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Test that shared step handles null/empty outputs field gracefully.
+
+        When YAML has 'outputs:' with no value, it parses to None.
+        dict.get("outputs", {}) returns None (not {}), which previously caused
+        'NoneType' object has no attribute 'get' error.
+        """
+        from orchestrator.tools.foreach import ForEachTool
+
+        # Create shared step (no outputs needed for this test)
+        step_dir = tmp_path / ".claude" / "workflows" / "steps" / "null-output"
+        step_dir.mkdir(parents=True)
+
+        step_yml = step_dir / "step.yml"
+        step_yml.write_text("""
+type: claude-step
+version: 1
+name: "Null Output Test"
+inputs:
+  - name: value
+    required: true
+steps:
+  - name: Echo
+    tool: bash
+    command: "echo {inputs.value}"
+""")
+
+        # Mock bash tool execution
+        mock_tool = MagicMock()
+        mock_tool.validate_step = MagicMock()
+        mock_tool.execute = MagicMock(
+            return_value=ToolResult(success=True, output="test")
+        )
+        mock_registry.get.return_value = mock_tool
+
+        context = ExecutionContext(project_path=tmp_path)
+        context.set("items", '["item1"]')
+
+        # Step with outputs: null (simulates YAML 'outputs:' with no value)
+        foreach_step: Dict[str, Any] = {
+            "name": "Process",
+            "tool": "foreach",
+            "source": "items",
+            "item_var": "item",
+            "steps": [
+                {
+                    "name": "Test",
+                    "uses": "project:null-output",
+                    "with": {"value": "{item}"},
+                    "outputs": None,  # Simulates empty YAML 'outputs:'
+                },
+            ],
+        }
+
+        tool = ForEachTool()
+        mock_tmux = MagicMock()
+
+        # Should not raise "'NoneType' object has no attribute 'get'"
+        result = tool.execute(foreach_step, context, mock_tmux)
+        assert result.success is True
