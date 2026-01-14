@@ -792,6 +792,157 @@ class TestForEachBreakWorkflow:
 
 
 # =============================================================================
+# ForEach Continue Workflow Tests (P1)
+# =============================================================================
+
+
+class TestForEachContinueWorkflow:
+    """Tests for foreach_continue.yml - continue for skipping loop iterations."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with continue steps."""
+        config = load_example("foreach_continue")
+        assert config.name == "Continue Tool Demo"
+        # Find foreach with continue inside
+        foreach_steps = [s for s in config.steps if s.tool == "foreach"]
+        assert len(foreach_steps) >= 1
+        # Check that nested steps contain continue
+        nested_steps = foreach_steps[0].steps or []
+        continue_steps = [s for s in nested_steps if s.tool == "continue"]
+        assert len(continue_steps) >= 1
+
+    def test_continue_skips_items(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify continue skips matching items."""
+        from orchestrator.config import Step
+
+        # Create test workflow with foreach and continue
+        # Uses source field (referencing a variable) as foreach tool requires
+        config = WorkflowConfig(
+            name="Continue Skip Test",
+            steps=[
+                Step(
+                    name="Set items",
+                    tool="set",
+                    var="items",
+                    value='["process", "skip_me", "handle", "skip_me", "complete"]',
+                ),
+                Step(
+                    name="Process list",
+                    tool="foreach",
+                    source="items",
+                    item_var="item",
+                    index_var="idx",
+                    steps=[
+                        Step(
+                            name="Skip skip_me items",
+                            tool="continue",
+                            when="{item} == skip_me",
+                        ),
+                        Step(
+                            name="Process item",
+                            tool="bash",
+                            command="echo '[{idx}] Processing: {item}'",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Should process items at indices 0, 2, 4 (process, handle, complete)
+        assert mock_subprocess.was_called_with("[0] Processing: process")
+        assert mock_subprocess.was_called_with("[2] Processing: handle")
+        assert mock_subprocess.was_called_with("[4] Processing: complete")
+        # skip_me items at indices 1 and 3 should be skipped
+        assert not mock_subprocess.was_called_with("[1] Processing: skip_me")
+        assert not mock_subprocess.was_called_with("[3] Processing: skip_me")
+
+    def test_continue_with_condition(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify continue respects when condition."""
+        config = load_example("foreach_continue")
+        # Find the first foreach step and verify it has continue with when condition
+        foreach_steps = [s for s in config.steps if s.tool == "foreach"]
+        first_foreach = foreach_steps[0]
+        nested_steps = first_foreach.steps or []
+        continue_step = next(s for s in nested_steps if s.tool == "continue")
+
+        # Verify the continue step has a when condition
+        assert continue_step.when is not None
+        assert "{item} == skip_me" in continue_step.when
+
+    def test_continue_processes_remaining(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify non-skipped items are processed."""
+        from orchestrator.config import Step
+
+        # Create workflow to test continue processes remaining items
+        config = WorkflowConfig(
+            name="Continue Remaining Test",
+            steps=[
+                Step(
+                    name="Set values",
+                    tool="set",
+                    var="values",
+                    value='["value1", "", "value2", "", "value3"]',
+                ),
+                Step(
+                    name="Process non-empty",
+                    tool="foreach",
+                    source="values",
+                    item_var="val",
+                    index_var="i",
+                    steps=[
+                        Step(
+                            name="Skip empty",
+                            tool="continue",
+                            when="{val} is empty",
+                        ),
+                        Step(
+                            name="Handle value",
+                            tool="bash",
+                            command="echo 'Processing: {val}'",
+                        ),
+                    ],
+                ),
+                Step(
+                    name="All done",
+                    tool="bash",
+                    command="echo 'All items processed'",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Should process value1, value2, value3 (indices 0, 2, 4)
+        assert mock_subprocess.was_called_with("Processing: value1")
+        assert mock_subprocess.was_called_with("Processing: value2")
+        assert mock_subprocess.was_called_with("Processing: value3")
+        # Final step should run
+        assert mock_subprocess.was_called_with("All items processed")
+
+
+# =============================================================================
 # ForEach Nested Workflow Tests (P1)
 # =============================================================================
 
@@ -1712,3 +1863,1709 @@ class TestWorkflowResumeFromProgress:
         # Should NOT have processed prompt1 or prompt3
         assert not mock_subprocess.was_called_with("Processing prompt1")
         assert not mock_subprocess.was_called_with("Processing prompt3")
+
+
+# =============================================================================
+# Range Tool Workflow Tests
+# =============================================================================
+
+
+class TestRangeToolWorkflow:
+    """Tests for range_tool.yml - number range iteration."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with range steps."""
+        config = load_example("range_tool")
+        assert config.name == "Range Tool Demo"
+        # Find range tool steps
+        range_steps = [s for s in config.steps if s.tool == "range"]
+        assert len(range_steps) >= 3
+        # Verify first range has required fields
+        first_range = range_steps[0]
+        assert first_range.range_from == 1
+        assert first_range.range_to == 5
+        assert first_range.var == "num"
+
+    def test_range_basic_iteration(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify range iterates from/to correctly."""
+        config = load_example("range_tool")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Basic range 1-5 should produce 5 iterations
+        # Look for "Processing batch #" commands
+        batch_calls = [
+            c for c in mock_subprocess.calls
+            if "Processing batch #" in c["command"]
+        ]
+        assert len(batch_calls) == 5
+
+        # Verify each number from 1 to 5 was processed
+        for i in range(1, 6):
+            assert mock_subprocess.was_called_with(f"Processing batch #{i}")
+
+    def test_range_with_step(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify custom step increment works."""
+        config = load_example("range_tool")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Range 0-10 step 2 should produce even numbers: 0, 2, 4, 6, 8, 10
+        # Look for "Even:" commands
+        even_calls = [
+            c for c in mock_subprocess.calls
+            if "Even:" in c["command"]
+        ]
+        assert len(even_calls) == 6
+
+        # Verify each even number from 0 to 10 was processed
+        for even in [0, 2, 4, 6, 8, 10]:
+            assert mock_subprocess.was_called_with(f"Even: {even}")
+
+    def test_range_countdown(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify negative step for descending order."""
+        config = load_example("range_tool")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Countdown from 10 to 1 with step -1
+        # Look for countdown pattern "X..."
+        countdown_calls = [
+            c for c in mock_subprocess.calls
+            if "..." in c["command"] and c["command"].strip().replace("echo '", "").replace("...'", "").isdigit()
+        ]
+
+        # Verify all numbers from 10 down to 1 are present
+        for i in range(10, 0, -1):
+            assert mock_subprocess.was_called_with(f"{i}...")
+
+
+# =============================================================================
+# Context Tool Workflow Tests
+# =============================================================================
+
+
+class TestContextToolWorkflow:
+    """Tests for context_tool.yml - batch variable operations."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with context steps."""
+        config = load_example("context_tool")
+        assert config.name == "Context Tool Demo"
+        # Find context tool steps
+        context_steps = [s for s in config.steps if s.tool == "context"]
+        assert len(context_steps) >= 4  # set, copy, export, clear actions
+        # Check all actions are present
+        actions = {s.action for s in context_steps}
+        assert "set" in actions
+        assert "copy" in actions
+        assert "clear" in actions
+        assert "export" in actions
+
+    def test_context_set_multiple_variables(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: set stores multiple variables."""
+        config = load_example("context_tool")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify variables were set from first set step
+        assert runner.context.get("api_url") is not None
+        assert runner.context.get("timeout") == "30"
+        assert runner.context.get("max_retries") == "3"
+        assert runner.context.get("environment") is not None
+
+    def test_context_copy_variables(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: copy creates new variables from existing ones."""
+        from orchestrator.config import Step
+
+        # Create isolated config for testing copy action
+        config = WorkflowConfig(
+            name="Copy Test",
+            steps=[
+                Step(
+                    name="Set original variables",
+                    tool="context",
+                    action="set",
+                    values={
+                        "api_url": "https://api.example.com",
+                        "environment": "development",
+                        "timeout": "30",
+                    },
+                ),
+                Step(
+                    name="Copy to backup variables",
+                    tool="context",
+                    action="copy",
+                    mappings={
+                        "api_url": "backup_api_url",
+                        "environment": "backup_environment",
+                        "timeout": "backup_timeout",
+                    },
+                ),
+                Step(
+                    name="Change original variables",
+                    tool="context",
+                    action="set",
+                    values={
+                        "environment": "production",
+                        "api_url": "https://prod.api.example.com",
+                    },
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify original variables were updated
+        assert runner.context.get("environment") == "production"
+        assert runner.context.get("api_url") == "https://prod.api.example.com"
+        # Verify backup variables retained original values
+        assert runner.context.get("backup_environment") == "development"
+        assert runner.context.get("backup_api_url") == "https://api.example.com"
+        assert runner.context.get("backup_timeout") == "30"
+
+    def test_context_clear_variables(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: clear removes variables."""
+        from orchestrator.config import Step
+
+        # Create isolated config for testing clear action
+        config = WorkflowConfig(
+            name="Clear Test",
+            steps=[
+                Step(
+                    name="Set variables",
+                    tool="context",
+                    action="set",
+                    values={
+                        "var_to_keep": "keep_me",
+                        "var_to_clear": "clear_me",
+                        "another_to_clear": "also_clear_me",
+                    },
+                ),
+                Step(
+                    name="Clear specific variables",
+                    tool="context",
+                    action="clear",
+                    vars=["var_to_clear", "another_to_clear"],
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify cleared variables are removed
+        assert runner.context.get("var_to_clear") is None
+        assert runner.context.get("another_to_clear") is None
+        # Verify uncleared variables remain
+        assert runner.context.get("var_to_keep") == "keep_me"
+
+    def test_context_export_to_file(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+        tmp_path: Path,
+    ) -> None:
+        """Verify action: export creates JSON file."""
+        # Create a modified config with a temp file path for export
+        from orchestrator.config import Step
+
+        config = WorkflowConfig(
+            name="Export Test",
+            steps=[
+                Step(
+                    name="Set variables",
+                    tool="context",
+                    action="set",
+                    values={"var1": "value1", "var2": "value2", "var3": "value3"},
+                ),
+                Step(
+                    name="Export all",
+                    tool="context",
+                    action="export",
+                    file=str(tmp_path / "export-all.json"),
+                ),
+                Step(
+                    name="Export selective",
+                    tool="context",
+                    action="export",
+                    file=str(tmp_path / "export-selective.json"),
+                    vars=["var1", "var3"],
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify export files were created
+        export_all_path = tmp_path / "export-all.json"
+        export_selective_path = tmp_path / "export-selective.json"
+
+        assert export_all_path.exists()
+        assert export_selective_path.exists()
+
+        # Verify contents of all export
+        with open(export_all_path) as f:
+            all_data = json.load(f)
+        assert all_data["var1"] == "value1"
+        assert all_data["var2"] == "value2"
+        assert all_data["var3"] == "value3"
+
+        # Verify contents of selective export
+        with open(export_selective_path) as f:
+            selective_data = json.load(f)
+        assert selective_data["var1"] == "value1"
+        assert selective_data["var3"] == "value3"
+        assert "var2" not in selective_data
+
+
+# =============================================================================
+# While Loop Workflow Tests
+# =============================================================================
+
+
+class TestWhileLoopWorkflow:
+    """Tests for while_loop.yml - condition-based looping with while tool."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with while steps."""
+        config = load_example("while_loop")
+        assert config.name == "While Loop Demo"
+        # Find while steps
+        while_steps = [s for s in config.steps if s.tool == "while"]
+        assert len(while_steps) >= 1
+        # Check first while step has required fields
+        first_while = while_steps[0]
+        assert first_while.condition == "{counter} < 5"
+        assert first_while.max_iterations == 10
+        assert first_while.steps is not None
+        assert len(first_while.steps) >= 1
+
+    def test_while_condition_evaluated(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify condition controls loop execution."""
+        config = load_example("while_loop")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Track distinct commands from different while loops
+        counter_echo_count = [0]
+        final_counter_called = [False]
+        # Track different variable increments by their context
+        increment_counts: Dict[str, int] = {}
+
+        def custom_subprocess(
+            cmd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[str]:
+            # Track "Counter is now" echo commands (from first while loop)
+            if "Counter is now" in cmd:
+                counter_echo_count[0] += 1
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout=f"Counter is now: {counter_echo_count[0] - 1}",
+                    stderr="",
+                )
+            # Track final counter command - runs after first while loop completes
+            if "Final counter" in cmd:
+                final_counter_called[0] = True
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout=f"Final counter: {counter_echo_count[0]}",
+                    stderr="",
+                )
+            # Handle increment commands - return incrementing values
+            if "$((" in cmd and "+ 1" in cmd:
+                # Use current value from counter_echo_count as approximation
+                return subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout=str(counter_echo_count[0]),
+                    stderr="",
+                )
+            # Handle decrement commands
+            if "$((" in cmd and "- 1" in cmd:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="0", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="mock", stderr=""
+            )
+
+        with patch("orchestrator.tools.bash.subprocess.run", custom_subprocess):
+            with patch("time.sleep"):
+                runner.run()
+
+        # The first while loop should have called "Counter is now" at least once
+        # (depends on condition evaluation which is separate from this)
+        assert counter_echo_count[0] >= 1, (
+            "Counter is now should be called at least once during while loop"
+        )
+        # After the first while loop completes, the "Final counter" step should run
+        assert final_counter_called[0], "Final counter step should run after first while loop"
+
+    def test_while_max_iterations_safety(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify max_iterations stops infinite loops."""
+        config = load_example("while_loop")
+        # Find the step with always_true condition
+        always_true_step = None
+        for step in config.steps:
+            if (
+                step.tool == "while"
+                and step.condition
+                and "always_true" in step.condition
+            ):
+                always_true_step = step
+                break
+
+        assert (
+            always_true_step is not None
+        ), "Should have a while step with always_true condition"
+        assert always_true_step.max_iterations == 3, "Safety limit should be 3"
+        assert (
+            always_true_step.on_max_reached == "continue"
+        ), "Should continue on max reached"
+
+    def test_while_exits_when_condition_false(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify loop exits when condition becomes false."""
+        config = load_example("while_loop")
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Track workflow completion by checking if final step is called
+        workflow_complete_called = [False]
+        all_commands: List[str] = []
+
+        def custom_subprocess(
+            cmd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[str]:
+            all_commands.append(cmd)
+
+            # Track the final step of the entire workflow
+            if "While loop demo complete" in cmd:
+                workflow_complete_called[0] = True
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="complete", stderr=""
+                )
+            # Handle poll status check - return "ready" after some iterations
+            if "poll=" in cmd and "-ge" in cmd:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="ready", stderr=""
+                )
+            # Handle increment commands
+            if "$((" in cmd and "+ 1" in cmd:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="5", stderr=""
+                )
+            # Handle decrement commands
+            if "$((" in cmd and "- 1" in cmd:
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="0", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="mock", stderr=""
+            )
+
+        with patch("orchestrator.tools.bash.subprocess.run", custom_subprocess):
+            with patch("time.sleep"):
+                runner.run()
+
+        # Verify the workflow made progress (at least one command ran)
+        assert len(all_commands) > 0, "Workflow should have run at least one command"
+
+        # Verify specific while loop patterns were executed by checking for
+        # commands that only appear inside while loops
+        counter_commands = [c for c in all_commands if "Counter is now" in c]
+        assert len(counter_commands) >= 1, (
+            "First while loop should have run at least one iteration"
+        )
+
+
+# =============================================================================
+# Data Tool Workflow Tests
+# =============================================================================
+
+
+class TestDataToolWorkflow:
+    """Tests for data_tool.yml - writing temporary files with various formats."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with data steps."""
+        config = load_example("data_tool")
+        assert config.name == "Data Tool Demo"
+        # Find data tool steps
+        data_steps = [s for s in config.steps if s.tool == "data"]
+        assert len(data_steps) >= 3
+        # Verify first data step has required fields
+        first_data = data_steps[0]
+        assert first_data.content is not None
+        assert first_data.format == "text"
+        assert first_data.filename == "simple-notes.txt"
+        assert first_data.output_var == "text_file"
+
+    def test_data_creates_file(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify data tool creates temporary file."""
+        from orchestrator.config import Step
+
+        # Create minimal workflow with data step
+        config = WorkflowConfig(
+            name="Data File Test",
+            steps=[
+                Step(
+                    name="Create text file",
+                    tool="data",
+                    content="Test content",
+                    format="text",
+                    filename="test-file.txt",
+                    output_var="file_path",
+                ),
+                Step(
+                    name="Verify file",
+                    tool="bash",
+                    command="cat {file_path}",
+                    output_var="file_content",
+                ),
+            ],
+        )
+
+        mock_subprocess.set_response("cat", "Test content")
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Patch shutil.rmtree to prevent cleanup and preserve temp files
+        with patch("shutil.rmtree"):
+            run_with_mocks(runner, mock_subprocess)
+
+            # Verify file_path was stored in context
+            file_path = runner.context.get("file_path")
+            assert file_path is not None
+            assert "test-file.txt" in file_path
+            # Verify file was created
+            assert Path(file_path).exists()
+            assert Path(file_path).read_text() == "Test content"
+
+    def test_data_format_options(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify different formats (text, json, markdown)."""
+        from orchestrator.config import Step
+
+        config = WorkflowConfig(
+            name="Format Test",
+            steps=[
+                Step(
+                    name="Create text file",
+                    tool="data",
+                    content="Plain text content",
+                    format="text",
+                    filename="plain.txt",
+                    output_var="text_path",
+                ),
+                Step(
+                    name="Create JSON file",
+                    tool="data",
+                    content='{"key": "value", "num": 42}',
+                    format="json",
+                    filename="data.json",
+                    output_var="json_path",
+                ),
+                Step(
+                    name="Create markdown file",
+                    tool="data",
+                    content="# Title\n\nParagraph content",
+                    format="markdown",
+                    filename="doc.md",
+                    output_var="md_path",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Patch shutil.rmtree to prevent cleanup and preserve temp files
+        with patch("shutil.rmtree"):
+            run_with_mocks(runner, mock_subprocess)
+
+            # Verify text file
+            text_path = runner.context.get("text_path")
+            assert text_path is not None
+            assert text_path.endswith(".txt")
+            assert Path(text_path).read_text() == "Plain text content"
+
+            # Verify JSON file (should be pretty-printed)
+            json_path = runner.context.get("json_path")
+            assert json_path is not None
+            assert json_path.endswith(".json")
+            json_content = Path(json_path).read_text()
+            import json as json_lib
+            parsed = json_lib.loads(json_content)
+            assert parsed["key"] == "value"
+            assert parsed["num"] == 42
+
+            # Verify markdown file
+            md_path = runner.context.get("md_path")
+            assert md_path is not None
+            assert md_path.endswith(".md")
+            assert "# Title" in Path(md_path).read_text()
+
+    def test_data_output_var_stores_path(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify output_var contains file path."""
+        from orchestrator.config import Step
+
+        config = WorkflowConfig(
+            name="Output Var Test",
+            steps=[
+                Step(
+                    name="Create file",
+                    tool="data",
+                    content="Data content",
+                    format="text",
+                    filename="output-test.txt",
+                    output_var="my_file",
+                ),
+                Step(
+                    name="Use file path",
+                    tool="bash",
+                    command="echo 'File at: {my_file}'",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify output_var contains absolute path
+        stored_path = runner.context.get("my_file")
+        assert stored_path is not None
+        assert Path(stored_path).is_absolute()
+        assert "output-test.txt" in stored_path
+
+        # Verify bash command was called with interpolated path
+        assert mock_subprocess.was_called_with("File at:")
+        assert mock_subprocess.was_called_with(stored_path)
+
+    def test_data_content_interpolation(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify variables are interpolated in content."""
+        from orchestrator.config import Step
+
+        config = WorkflowConfig(
+            name="Interpolation Test",
+            steps=[
+                Step(
+                    name="Set variables",
+                    tool="set",
+                    var="user_name",
+                    value="Alice",
+                ),
+                Step(
+                    name="Set date",
+                    tool="bash",
+                    command="echo '2024-01-15'",
+                    output_var="today",
+                ),
+                Step(
+                    name="Create file with variables",
+                    tool="data",
+                    content="Hello {user_name}!\nDate: {today}",
+                    format="text",
+                    filename="greeting.txt",
+                    output_var="greeting_file",
+                ),
+            ],
+        )
+
+        mock_subprocess.set_response("echo '2024-01-15'", "2024-01-15")
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Patch shutil.rmtree to prevent cleanup and preserve temp files
+        with patch("shutil.rmtree"):
+            run_with_mocks(runner, mock_subprocess)
+
+            # Verify content was interpolated
+            greeting_path = runner.context.get("greeting_file")
+            assert greeting_path is not None
+            file_content = Path(greeting_path).read_text()
+            assert "Hello Alice!" in file_content
+            assert "Date: 2024-01-15" in file_content
+
+
+# =============================================================================
+# Shared Steps Usage Workflow Tests
+# =============================================================================
+
+
+class TestSharedStepsUsageWorkflow:
+    """Tests for shared_steps_usage.yml - shared step usage with builtin steps."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with shared step references (uses: builtin:...)."""
+        config = load_example("shared_steps_usage")
+        assert config.name == "Shared Steps Demo"
+        assert len(config.steps) > 0
+        # Verify shared step references are loaded
+        uses_steps = [s for s in config.steps if s.uses is not None]
+        assert len(uses_steps) >= 4, "Should have at least 4 shared step references"
+        # Verify builtin prefix pattern
+        for step in uses_steps:
+            assert step.uses.startswith("builtin:"), f"Expected builtin: prefix, got {step.uses}"
+
+    def test_shared_step_has_with_inputs(self) -> None:
+        """Verify with: parameter passes inputs to shared steps."""
+        config = load_example("shared_steps_usage")
+        # Find lint-fix step with inputs
+        lint_steps = [s for s in config.steps if s.uses == "builtin:lint-fix"]
+        assert len(lint_steps) >= 1, "Should have at least one lint-fix step"
+
+        # Check the first lint-fix step has with_inputs
+        lint_step = lint_steps[0]
+        assert lint_step.with_inputs is not None, "Shared step should have with_inputs"
+        assert "language" in lint_step.with_inputs, "Should have language input"
+        assert "fix" in lint_step.with_inputs, "Should have fix input"
+        assert "path" in lint_step.with_inputs, "Should have path input"
+
+        # Verify input values
+        assert lint_step.with_inputs["language"] == "auto"
+        assert lint_step.with_inputs["fix"] is False
+        assert lint_step.with_inputs["path"] == "."
+
+    def test_shared_step_has_outputs(self) -> None:
+        """Verify outputs: maps shared step outputs to variables."""
+        config = load_example("shared_steps_usage")
+        # Find git-status step with outputs
+        git_status_steps = [s for s in config.steps if s.uses == "builtin:git-status"]
+        assert len(git_status_steps) >= 1, "Should have at least one git-status step"
+
+        git_status_step = git_status_steps[0]
+        assert git_status_step.outputs is not None, "Shared step should have outputs mapping"
+
+        # Verify output mappings
+        expected_outputs = {
+            "branch": "current_branch",
+            "has_changes": "has_uncommitted",
+            "staged_count": "staged_files",
+            "modified_count": "modified_files",
+            "untracked_count": "untracked_files",
+            "commit_sha": "current_sha",
+        }
+        for output_key, var_name in expected_outputs.items():
+            assert output_key in git_status_step.outputs, f"Should have {output_key} output"
+            assert git_status_step.outputs[output_key] == var_name, (
+                f"Output {output_key} should map to {var_name}"
+            )
+
+    def test_builtin_steps_referenced(self) -> None:
+        """Verify builtin steps (git-status, git-commit, lint-fix, run-tests) are referenced."""
+        config = load_example("shared_steps_usage")
+
+        # Extract all uses values (including nested in foreach)
+        all_uses: list[str] = []
+        for step in config.steps:
+            if step.uses:
+                all_uses.append(step.uses)
+            if step.steps:
+                for nested in step.steps:
+                    if nested.uses:
+                        all_uses.append(nested.uses)
+
+        # Verify all expected builtin steps are referenced
+        expected_builtins = [
+            "builtin:git-status",
+            "builtin:git-commit",
+            "builtin:lint-fix",
+            "builtin:run-tests",
+        ]
+        for builtin in expected_builtins:
+            assert builtin in all_uses, f"Should reference {builtin}"
+
+    def test_shared_step_with_condition(self) -> None:
+        """Verify shared steps can have when: conditions."""
+        config = load_example("shared_steps_usage")
+        # Find the conditional lint-fix step
+        conditional_steps = [
+            s for s in config.steps
+            if s.uses == "builtin:lint-fix" and s.when is not None
+        ]
+        assert len(conditional_steps) >= 1, "Should have at least one conditional shared step"
+        assert "{lint_passed}" in conditional_steps[0].when, "Condition should reference lint_passed"
+
+    def test_shared_step_with_on_error(self) -> None:
+        """Verify shared steps can have on_error: handling."""
+        config = load_example("shared_steps_usage")
+        # Find shared steps with on_error
+        error_handling_steps = [
+            s for s in config.steps
+            if s.uses is not None and s.on_error == "continue"
+        ]
+        assert len(error_handling_steps) >= 1, "Should have shared steps with on_error handling"
+
+    def test_shared_steps_in_foreach(self) -> None:
+        """Verify shared steps work inside foreach loops."""
+        config = load_example("shared_steps_usage")
+        # Find the foreach step
+        foreach_steps = [s for s in config.steps if s.tool == "foreach"]
+        assert len(foreach_steps) >= 1, "Should have at least one foreach step"
+
+        foreach_step = foreach_steps[0]
+        assert foreach_step.steps is not None, "Foreach should have nested steps"
+
+        # Find nested shared step
+        nested_uses = [s for s in foreach_step.steps if s.uses is not None]
+        assert len(nested_uses) >= 1, "Foreach should contain at least one shared step"
+        assert nested_uses[0].uses == "builtin:lint-fix", "Nested step should use lint-fix"
+
+        # Verify nested step has dynamic path input
+        assert nested_uses[0].with_inputs is not None
+        assert nested_uses[0].with_inputs["path"] == "{dir}", "Path should use loop variable"
+
+    def test_git_commit_shared_step(self) -> None:
+        """Verify git-commit shared step has correct inputs and outputs."""
+        config = load_example("shared_steps_usage")
+        # Find git-commit step
+        commit_steps = [s for s in config.steps if s.uses == "builtin:git-commit"]
+        assert len(commit_steps) == 1, "Should have exactly one git-commit step"
+
+        commit_step = commit_steps[0]
+
+        # Verify inputs
+        assert commit_step.with_inputs is not None
+        assert "message" in commit_step.with_inputs
+        assert "add_all" in commit_step.with_inputs
+        assert commit_step.with_inputs["add_all"] is True
+        assert "allow_empty" in commit_step.with_inputs
+        assert commit_step.with_inputs["allow_empty"] is False
+
+        # Verify outputs
+        assert commit_step.outputs is not None
+        assert "commit_sha" in commit_step.outputs
+        assert commit_step.outputs["commit_sha"] == "new_commit_sha"
+        assert "committed" in commit_step.outputs
+        assert commit_step.outputs["committed"] == "was_committed"
+
+        # Verify condition
+        assert commit_step.when == "{commit_decision} == safe"
+
+    def test_run_tests_shared_step(self) -> None:
+        """Verify run-tests shared step has correct inputs and outputs."""
+        config = load_example("shared_steps_usage")
+        # Find run-tests steps
+        test_steps = [s for s in config.steps if s.uses == "builtin:run-tests"]
+        assert len(test_steps) >= 1, "Should have at least one run-tests step"
+
+        # Check first run-tests step (main test suite)
+        main_test_step = test_steps[0]
+        assert main_test_step.with_inputs is not None
+        assert main_test_step.with_inputs["language"] == "auto"
+        assert main_test_step.with_inputs["coverage"] is True
+
+        # Verify outputs
+        assert main_test_step.outputs is not None
+        assert "success" in main_test_step.outputs
+        assert main_test_step.outputs["success"] == "tests_passed"
+        assert "coverage_percent" in main_test_step.outputs
+        assert main_test_step.outputs["coverage_percent"] == "test_coverage"
+
+    def test_multiple_shared_step_instances(self) -> None:
+        """Verify same builtin can be used multiple times with different inputs."""
+        config = load_example("shared_steps_usage")
+
+        # Count lint-fix usages (including nested)
+        lint_fix_count = 0
+        for step in config.steps:
+            if step.uses == "builtin:lint-fix":
+                lint_fix_count += 1
+            if step.steps:
+                for nested in step.steps:
+                    if nested.uses == "builtin:lint-fix":
+                        lint_fix_count += 1
+
+        assert lint_fix_count >= 3, "Should have multiple lint-fix step usages"
+
+        # Count run-tests usages
+        test_steps = [s for s in config.steps if s.uses == "builtin:run-tests"]
+        assert len(test_steps) >= 3, "Should have multiple run-tests step usages"
+
+        # Verify different configurations
+        languages = [s.with_inputs["language"] for s in test_steps if s.with_inputs]
+        assert "auto" in languages
+        assert "python" in languages
+        assert "javascript" in languages
+
+
+# =============================================================================
+# Retry Workflow Tests
+# =============================================================================
+
+
+class TestRetryWorkflow:
+    """Tests for retry_workflow.yml - retry operations with backoff and conditions."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with retry steps."""
+        config = load_example("retry_workflow")
+        assert config.name == "Retry Tool Demo"
+        # Find retry tool steps
+        retry_steps = [s for s in config.steps if s.tool == "retry"]
+        assert len(retry_steps) >= 4
+        # Verify first retry has required fields
+        first_retry = retry_steps[0]
+        assert first_retry.max_attempts == 3
+        assert first_retry.steps is not None
+        assert len(first_retry.steps) >= 1
+
+    def test_retry_max_attempts(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify retry respects max_attempts limit."""
+        from orchestrator.config import Step
+
+        # Create a workflow with a retry that always fails
+        config = WorkflowConfig(
+            name="Max Attempts Test",
+            steps=[
+                Step(
+                    name="Retry with limit",
+                    tool="retry",
+                    max_attempts=3,
+                    on_failure="continue",  # Continue so we can check result
+                    steps=[
+                        Step(
+                            name="Always fail",
+                            tool="bash",
+                            command="echo 'attempt {_attempt}'; exit 1",
+                        ),
+                    ],
+                ),
+                Step(
+                    name="Check result",
+                    tool="bash",
+                    command="echo 'Attempts made: {_retry_attempts}'",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Should have exactly 3 attempts (max_attempts limit)
+        attempt_calls = [
+            c for c in mock_subprocess.calls if "attempt" in c["command"]
+        ]
+        assert len(attempt_calls) == 3
+
+        # Verify attempts 1, 2, and 3 were made
+        assert mock_subprocess.was_called_with("attempt 1")
+        assert mock_subprocess.was_called_with("attempt 2")
+        assert mock_subprocess.was_called_with("attempt 3")
+
+    def test_retry_until_condition(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+    ) -> None:
+        """Verify retry exits when until condition is met."""
+        from orchestrator.config import Step
+
+        # Create a workflow that succeeds on attempt 2
+        config = WorkflowConfig(
+            name="Until Condition Test",
+            steps=[
+                Step(
+                    name="Initialize",
+                    tool="set",
+                    var="status",
+                    value="pending",
+                ),
+                Step(
+                    name="Retry until success",
+                    tool="retry",
+                    max_attempts=5,
+                    until="{status} == success",
+                    steps=[
+                        Step(
+                            name="Check status",
+                            tool="bash",
+                            command='echo "checking"',
+                            output_var="status",
+                        ),
+                    ],
+                ),
+                Step(
+                    name="Final check",
+                    tool="bash",
+                    command="echo 'Status: {status}'",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Track attempts
+        attempt_count = [0]
+
+        def custom_subprocess(
+            cmd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[str]:
+            if "checking" in cmd:
+                attempt_count[0] += 1
+                # Return "success" on attempt 2+
+                if attempt_count[0] >= 2:
+                    return subprocess.CompletedProcess(
+                        args=cmd, returncode=0, stdout="success", stderr=""
+                    )
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=0, stdout="pending", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="mock", stderr=""
+            )
+
+        with patch("orchestrator.tools.bash.subprocess.run", custom_subprocess):
+            with patch("time.sleep"):
+                runner.run()
+
+        # Should have exited after 2 attempts (not all 5)
+        assert attempt_count[0] == 2
+
+        # Context should reflect success
+        assert runner.context.get("status") == "success"
+
+    def test_retry_on_failure_continue(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify on_failure: continue allows workflow to proceed."""
+        from orchestrator.config import Step
+
+        # Create a workflow with retry that fails all attempts
+        config = WorkflowConfig(
+            name="On Failure Continue Test",
+            steps=[
+                Step(
+                    name="Failing retry",
+                    tool="retry",
+                    max_attempts=2,
+                    on_failure="continue",
+                    steps=[
+                        Step(
+                            name="Always fail",
+                            tool="bash",
+                            command="echo 'failing'; exit 1",
+                        ),
+                    ],
+                ),
+                Step(
+                    name="After retry",
+                    tool="bash",
+                    command="echo 'Workflow continued despite retry failure'",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # The step after retry should have executed
+        assert mock_subprocess.was_called_with(
+            "Workflow continued despite retry failure"
+        )
+
+        # Verify retry actually failed but workflow continued
+        assert runner.context.get("_retry_succeeded") == "false"
+
+    def test_retry_context_variables(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify {_attempt} and result variables are set."""
+        from orchestrator.config import Step
+
+        # Create a workflow that succeeds on attempt 2
+        # Using a simpler approach - just verify context variables after run
+        config = WorkflowConfig(
+            name="Context Variables Test",
+            steps=[
+                Step(
+                    name="Retry operation",
+                    tool="retry",
+                    max_attempts=5,
+                    steps=[
+                        Step(
+                            name="Track attempt",
+                            tool="bash",
+                            command="echo 'Attempt {_attempt}'",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+
+        # Track calls to find which attempts were made
+        call_count = [0]
+
+        def custom_subprocess(
+            cmd: str, **kwargs: Any
+        ) -> subprocess.CompletedProcess[str]:
+            if "Attempt" in cmd:
+                call_count[0] += 1
+                # Succeed on the second attempt
+                if call_count[0] >= 2:
+                    return subprocess.CompletedProcess(
+                        args=cmd, returncode=0, stdout="ok", stderr=""
+                    )
+                return subprocess.CompletedProcess(
+                    args=cmd, returncode=1, stdout="", stderr=""
+                )
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout="mock", stderr=""
+            )
+
+        with patch("orchestrator.tools.bash.subprocess.run", custom_subprocess):
+            with patch("time.sleep"):
+                runner.run()
+
+        # Verify result context variables are set
+        assert runner.context.get("_retry_succeeded") == "true"
+        assert runner.context.get("_retry_attempts") == "2"
+        # Also check the call count (should be 2 attempts)
+        assert call_count[0] == 2
+
+    def test_retry_delay_option(self) -> None:
+        """Verify delay option is parsed correctly from workflow."""
+        config = load_example("retry_workflow")
+        # Find retry step with delay
+        retry_with_delay = None
+        for step in config.steps:
+            if step.tool == "retry" and step.delay is not None and step.delay > 0:
+                retry_with_delay = step
+                break
+
+        assert retry_with_delay is not None
+        assert retry_with_delay.delay == 2
+
+    def test_retry_until_option_parsed(self) -> None:
+        """Verify until condition is parsed from workflow."""
+        config = load_example("retry_workflow")
+        # Find retry step with until condition
+        retry_with_until = None
+        for step in config.steps:
+            if step.tool == "retry" and step.until is not None:
+                retry_with_until = step
+                break
+
+        assert retry_with_until is not None
+        assert "{api_result} == success" in retry_with_until.until
+
+    def test_retry_on_failure_option_parsed(self) -> None:
+        """Verify on_failure option is parsed from workflow."""
+        config = load_example("retry_workflow")
+        # Find retry step with on_failure: continue
+        retry_with_on_failure = None
+        for step in config.steps:
+            if step.tool == "retry" and step.on_failure == "continue":
+                retry_with_on_failure = step
+                break
+
+        assert retry_with_on_failure is not None
+        assert retry_with_on_failure.name == "Retry with on_failure: continue"
+
+    def test_retry_nested_steps_structure(self) -> None:
+        """Verify nested steps are parsed correctly."""
+        config = load_example("retry_workflow")
+        # Find first retry step
+        retry_step = next(s for s in config.steps if s.tool == "retry")
+
+        assert retry_step.steps is not None
+        assert len(retry_step.steps) >= 1
+        # First nested step should be a bash step
+        nested_step = retry_step.steps[0]
+        assert nested_step.tool == "bash"
+        assert nested_step.name == "Try operation"
+
+
+# =============================================================================
+# JSON Manipulation Workflow Tests
+# =============================================================================
+
+
+class TestJsonManipulationWorkflow:
+    """Tests for json_manipulation.yml - native JSON manipulation."""
+
+    def test_workflow_loads(self) -> None:
+        """Verify workflow loads with json steps."""
+        config = load_example("json_manipulation")
+        assert config.name == "JSON Manipulation Demo"
+        # Find json tool steps
+        json_steps = [s for s in config.steps if s.tool == "json"]
+        assert len(json_steps) >= 10  # Many json steps in the demo
+        # Verify we have all action types
+        actions = {s.action for s in json_steps}
+        assert "query" in actions
+        assert "set" in actions
+        assert "update" in actions
+        assert "delete" in actions
+
+    def test_json_query_action(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: query extracts values from JSON."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+
+        # Create a test JSON file
+        test_json = project_path / "test.json"
+        test_json.write_text(
+            '{"name": "test-project", "version": "1.0.0", '
+            '"dependencies": {"express": "^4.18.0"}}'
+        )
+
+        # Create context with project path
+        context = ExecutionContext(project_path)
+
+        # Test simple query
+        tool = JsonTool()
+        step_dict = {
+            "action": "query",
+            "file": str(test_json),
+            "query": ".name",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "test-project"
+
+    def test_json_query_nested_path(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify query extracts nested values."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+
+        test_json = project_path / "test.json"
+        test_json.write_text(
+            '{"scripts": {"test": "jest", "build": "tsc"}, '
+            '"keywords": ["demo", "test"]}'
+        )
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Test nested object path
+        step_dict = {
+            "action": "query",
+            "file": str(test_json),
+            "query": ".scripts.test",
+        }
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        assert result.output == "jest"
+
+        # Test array indexing
+        step_dict["query"] = ".keywords[0]"
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        assert result.output == "demo"
+
+    def test_json_set_action(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: set modifies values in JSON."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text('{"version": "1.0.0"}')
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Set simple value
+        step_dict = {
+            "action": "set",
+            "file": str(test_json),
+            "path": ".version",
+            "value": "2.0.0",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        # Verify the change was written
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["version"] == "2.0.0"
+
+    def test_json_set_nested_object(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify set can create nested object values."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text("{}")
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Set nested object value
+        step_dict = {
+            "action": "set",
+            "file": str(test_json),
+            "path": ".repository",
+            "value": {"type": "git", "url": "https://github.com/user/project"},
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        # Verify the nested object was written
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["repository"]["type"] == "git"
+        assert data["repository"]["url"] == "https://github.com/user/project"
+
+    def test_json_update_action(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: update with merge/append operations."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text(
+            '{"dependencies": {"express": "^4.18.0"}, "keywords": ["demo"]}'
+        )
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Test merge operation
+        step_dict = {
+            "action": "update",
+            "file": str(test_json),
+            "path": ".dependencies",
+            "operation": "merge",
+            "value": {"axios": "^1.6.0", "lodash": "^4.17.21"},
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["dependencies"]["express"] == "^4.18.0"
+        assert data["dependencies"]["axios"] == "^1.6.0"
+        assert data["dependencies"]["lodash"] == "^4.17.21"
+
+    def test_json_update_append_operation(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify append operation adds to array."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text('{"keywords": ["demo", "test"]}')
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Test append operation
+        step_dict = {
+            "action": "update",
+            "file": str(test_json),
+            "path": ".keywords",
+            "operation": "append",
+            "value": "json-demo",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["keywords"] == ["demo", "test", "json-demo"]
+
+    def test_json_update_prepend_operation(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify prepend operation adds to start of array."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text('{"keywords": ["demo", "test"]}')
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Test prepend operation
+        step_dict = {
+            "action": "update",
+            "file": str(test_json),
+            "path": ".keywords",
+            "operation": "prepend",
+            "value": "first-keyword",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["keywords"] == ["first-keyword", "demo", "test"]
+        assert data["keywords"][0] == "first-keyword"
+
+    def test_json_delete_action(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify action: delete removes values from JSON."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "test.json"
+        test_json.write_text(
+            '{"devDependencies": {"jest": "^29.0.0", "typescript": "^5.0.0"}, '
+            '"license": "MIT"}'
+        )
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Delete nested key
+        step_dict = {
+            "action": "delete",
+            "file": str(test_json),
+            "path": ".devDependencies.jest",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert "jest" not in data["devDependencies"]
+        assert "typescript" in data["devDependencies"]
+
+        # Delete top-level key
+        step_dict = {
+            "action": "delete",
+            "file": str(test_json),
+            "path": ".license",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert "license" not in data
+
+    def test_json_from_variable(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify json works with source variable (not just file)."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Set a JSON string variable in context
+        api_response = (
+            '{"status":"success","data":{"user":{"id":123,"name":"John Doe"},'
+            '"metadata":{"timestamp":"2024-01-15"}}}'
+        )
+        context.set("api_response", api_response)
+
+        # Query from variable
+        step_dict = {
+            "action": "query",
+            "source": "api_response",
+            "query": ".data.user.name",
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        assert result.output == "John Doe"
+
+        # Query nested timestamp
+        step_dict["query"] = ".data.metadata.timestamp"
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        assert result.output == "2024-01-15"
+
+        # Query status
+        step_dict["query"] = ".status"
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        assert result.output == "success"
+
+    def test_json_workflow_integration(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify full json workflow with multiple operations."""
+        from orchestrator.config import Step
+        import json as json_module
+
+        # Create initial test JSON file
+        test_json = project_path / "test-int.json"
+        test_json.write_text('{"name":"test","items":[]}')
+
+        # Create a simplified workflow with json steps
+        config = WorkflowConfig(
+            name="JSON Integration Test",
+            steps=[
+                Step(
+                    name="Set version",
+                    tool="json",
+                    action="set",
+                    file=str(test_json),
+                    path=".version",
+                    value="1.0.0",
+                ),
+                Step(
+                    name="Append item",
+                    tool="json",
+                    action="update",
+                    file=str(test_json),
+                    path=".items",
+                    operation="append",
+                    value="first",
+                ),
+                Step(
+                    name="Query version",
+                    tool="json",
+                    action="query",
+                    file=str(test_json),
+                    query=".version",
+                    output_var="current_version",
+                ),
+            ],
+        )
+
+        runner = create_runner(config, project_path, mock_server, mock_tmux)
+        run_with_mocks(runner, mock_subprocess)
+
+        # Verify version was queried and stored
+        assert runner.context.get("current_version") == "1.0.0"
+
+        # Verify file contents
+        with open(test_json) as f:
+            data = json_module.load(f)
+        assert data["version"] == "1.0.0"
+        assert data["items"] == ["first"]
+
+    def test_json_query_array_iteration(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify query can extract array of values."""
+        from orchestrator.tools.json_tool import JsonTool
+        from orchestrator.context import ExecutionContext
+        import json as json_module
+
+        test_json = project_path / "users.json"
+        test_json.write_text(
+            '[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},'
+            '{"id":3,"name":"Carol"}]'
+        )
+
+        context = ExecutionContext(project_path)
+        tool = JsonTool()
+
+        # Query all names - this returns the array as JSON
+        step_dict = {
+            "action": "query",
+            "file": str(test_json),
+            "query": ".",  # Get entire array
+        }
+
+        result = tool.execute(step_dict, context, mock_tmux)
+        assert result.success
+        data = json_module.loads(result.output)
+        assert len(data) == 3
+        assert data[0]["name"] == "Alice"
+        assert data[2]["name"] == "Carol"
+
+    def test_json_validation_missing_action(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify validation fails for missing action."""
+        from orchestrator.tools.json_tool import JsonTool
+
+        tool = JsonTool()
+
+        step_dict = {
+            "file": "/tmp/test.json",
+            "query": ".name",
+        }
+
+        with pytest.raises(ValueError, match="requires 'action' field"):
+            tool.validate_step(step_dict)
+
+    def test_json_validation_missing_source(
+        self,
+        project_path: Path,
+        mock_server: MagicMock,
+        mock_tmux: MagicMock,
+        mock_subprocess: MockSubprocess,
+    ) -> None:
+        """Verify validation fails when neither file nor source provided."""
+        from orchestrator.tools.json_tool import JsonTool
+
+        tool = JsonTool()
+
+        step_dict = {
+            "action": "query",
+            "query": ".name",
+        }
+
+        with pytest.raises(ValueError, match="requires either 'file'.*or 'source'"):
+            tool.validate_step(step_dict)

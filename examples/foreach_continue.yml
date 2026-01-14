@@ -1,0 +1,226 @@
+# Continue Tool Example
+# Demonstrates skipping to next iteration in loops
+# Use continue to filter out items or skip invalid entries
+
+type: claude-workflow
+version: 2
+name: "Continue Tool Demo"
+description: "Showcase continue tool for skipping iterations in foreach and range loops"
+
+steps:
+  # ============================================================
+  # BASIC: Skip specific items
+  # ============================================================
+  - name: "Process list, skip 'skip_me'"
+    tool: foreach
+    items: ["process", "skip_me", "handle", "skip_me", "complete"]
+    item_var: item
+    index_var: idx
+    steps:
+      - name: "Check if should skip"
+        tool: continue
+        when: "{item} == skip_me"
+
+      - name: "Process {item}"
+        tool: bash
+        command: "echo '[{idx}] Processing: {item}'"
+
+  - name: "Basic continue demo complete"
+    tool: bash
+    command: "echo 'Only non-skip items were processed'"
+
+  # ============================================================
+  # PRACTICAL: Filter invalid files
+  # ============================================================
+  - name: "Process only TypeScript files"
+    tool: foreach
+    items: ["main.ts", "readme.md", "config.ts", "styles.css", "utils.ts"]
+    item_var: file
+    steps:
+      - name: "Get file extension"
+        tool: bash
+        command: "echo '{file}' | sed 's/.*\\.//'"
+        output_var: ext
+
+      - name: "Skip non-TypeScript files"
+        tool: continue
+        when: "{ext} != ts"
+
+      - name: "Lint {file}"
+        tool: bash
+        command: "echo 'Linting TypeScript file: {file}'"
+
+  # ============================================================
+  # PRACTICAL: Skip empty values
+  # ============================================================
+  - name: "Process non-empty items"
+    tool: foreach
+    items: ["value1", "", "value2", "", "", "value3"]
+    item_var: val
+    steps:
+      - name: "Skip empty values"
+        tool: continue
+        when: "{val} is empty"
+
+      - name: "Handle {val}"
+        tool: bash
+        command: "echo 'Processing non-empty value: {val}'"
+
+  # ============================================================
+  # PRACTICAL: Validation before processing
+  # ============================================================
+  - name: "Process valid users only"
+    tool: foreach
+    items: ["alice@example.com", "invalid-email", "bob@test.org", "@missing", "carol@demo.io"]
+    item_var: email
+    steps:
+      - name: "Validate email format"
+        tool: bash
+        command: |
+          if echo "{email}" | grep -E '^[^@]+@[^@]+\.[^@]+$' > /dev/null; then
+            echo "valid"
+          else
+            echo "invalid"
+          fi
+        output_var: email_valid
+
+      - name: "Skip invalid emails"
+        tool: continue
+        when: "{email_valid} != valid"
+
+      - name: "Send notification to {email}"
+        tool: bash
+        command: "echo 'Sending email to: {email}'"
+
+  # ============================================================
+  # RANGE + CONTINUE: Skip certain numbers
+  # ============================================================
+  - name: "Process numbers, skip multiples of 3"
+    tool: range
+    from: 1
+    to: 10
+    var: num
+    steps:
+      - name: "Check divisibility"
+        tool: bash
+        command: |
+          if [ $(( {num} % 3 )) -eq 0 ]; then
+            echo "skip"
+          else
+            echo "process"
+          fi
+        output_var: should_process
+
+      - name: "Skip multiples of 3"
+        tool: continue
+        when: "{should_process} == skip"
+
+      - name: "Handle {num}"
+        tool: bash
+        command: "echo 'Number {num} is not divisible by 3'"
+
+  # ============================================================
+  # COMPLEX: Multiple continue conditions
+  # ============================================================
+  - name: "Filter files with multiple criteria"
+    tool: foreach
+    items:
+      - "src/main.ts"
+      - "src/test.spec.ts"
+      - "node_modules/dep/index.js"
+      - "src/utils.ts"
+      - ".git/config"
+      - "dist/bundle.js"
+      - "src/helpers.ts"
+    item_var: path
+    steps:
+      # Skip test files
+      - name: "Skip test files"
+        tool: continue
+        when: "{path} contains .spec."
+
+      # Skip node_modules
+      - name: "Skip node_modules"
+        tool: continue
+        when: "{path} starts with node_modules"
+
+      # Skip hidden directories
+      - name: "Skip hidden directories"
+        tool: continue
+        when: "{path} starts with ."
+
+      # Skip dist directory
+      - name: "Skip dist directory"
+        tool: continue
+        when: "{path} starts with dist"
+
+      # Process remaining files
+      - name: "Process {path}"
+        tool: bash
+        command: "echo 'Analyzing source file: {path}'"
+
+  # ============================================================
+  # PRACTICAL: Process records with status check
+  # ============================================================
+  - name: "Process active records only"
+    tool: foreach
+    items:
+      - '{"id":1,"status":"active","name":"Record A"}'
+      - '{"id":2,"status":"deleted","name":"Record B"}'
+      - '{"id":3,"status":"active","name":"Record C"}'
+      - '{"id":4,"status":"pending","name":"Record D"}'
+      - '{"id":5,"status":"active","name":"Record E"}'
+    item_var: record
+    steps:
+      - name: "Extract status"
+        tool: bash
+        command: "echo '{record}' | grep -o '\"status\":\"[^\"]*\"' | cut -d'\"' -f4"
+        output_var: status
+
+      - name: "Skip non-active records"
+        tool: continue
+        when: "{status} != active"
+
+      - name: "Extract record name"
+        tool: bash
+        command: "echo '{record}' | grep -o '\"name\":\"[^\"]*\"' | cut -d'\"' -f4"
+        output_var: name
+
+      - name: "Process {name}"
+        tool: bash
+        command: "echo 'Processing active record: {name}'"
+
+  # ============================================================
+  # PRACTICAL: Skip already processed items
+  # ============================================================
+  - name: "Initialize processed list"
+    tool: set
+    var: processed_ids
+    value: "2,4"
+
+  - name: "Skip already processed items"
+    tool: foreach
+    items: ["1", "2", "3", "4", "5"]
+    item_var: id
+    steps:
+      - name: "Check if already processed"
+        tool: bash
+        command: |
+          if echo ",{processed_ids}," | grep -q ",{id},"; then
+            echo "yes"
+          else
+            echo "no"
+          fi
+        output_var: already_done
+
+      - name: "Skip processed items"
+        tool: continue
+        when: "{already_done} == yes"
+
+      - name: "Process new item {id}"
+        tool: bash
+        command: "echo 'Processing item {id} (not in processed list)'"
+
+  - name: "Continue demo complete"
+    tool: bash
+    command: "echo 'All continue examples completed!'"

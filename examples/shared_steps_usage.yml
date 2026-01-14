@@ -1,0 +1,216 @@
+# Shared Steps Usage Example
+# Demonstrates using shared steps (reusable workflow components)
+# Shared steps enable DRY principle across workflows
+
+type: claude-workflow
+version: 2
+name: "Shared Steps Demo"
+description: "Showcase shared step usage with builtin steps: git-status, git-commit, lint-fix, run-tests"
+
+steps:
+  # ============================================================
+  # BUILTIN: git-status - Get repository status
+  # ============================================================
+  - name: "Check repository status"
+    uses: builtin:git-status
+    outputs:
+      branch: current_branch
+      has_changes: has_uncommitted
+      staged_count: staged_files
+      modified_count: modified_files
+      untracked_count: untracked_files
+      commit_sha: current_sha
+
+  - name: "Show git status"
+    tool: bash
+    command: |
+      echo "=== Git Status ==="
+      echo "Branch: {current_branch}"
+      echo "Commit: {current_sha}"
+      echo "Has changes: {has_uncommitted}"
+      echo "Staged: {staged_files}"
+      echo "Modified: {modified_files}"
+      echo "Untracked: {untracked_files}"
+
+  # ============================================================
+  # BUILTIN: lint-fix - Run linter with auto-fix
+  # ============================================================
+  - name: "Run linter (check mode)"
+    uses: builtin:lint-fix
+    with:
+      language: "auto"
+      fix: false
+      path: "."
+    outputs:
+      success: lint_passed
+      fixed_count: files_fixed
+      output: lint_output
+    on_error: continue
+
+  - name: "Show lint results"
+    tool: bash
+    command: |
+      echo "=== Lint Results ==="
+      echo "Passed: {lint_passed}"
+      echo "Files fixed: {files_fixed}"
+
+  # ============================================================
+  # BUILTIN: lint-fix - With auto-fix enabled
+  # ============================================================
+  - name: "Run linter with auto-fix"
+    uses: builtin:lint-fix
+    with:
+      language: "auto"
+      fix: true
+      path: "."
+    outputs:
+      success: lint_fix_passed
+      fixed_count: auto_fixed_count
+    on_error: continue
+    when: "{lint_passed} != true"
+
+  - name: "Show auto-fix results"
+    tool: bash
+    command: "echo 'Auto-fix applied to {auto_fixed_count} files'"
+    when: "{lint_passed} != true"
+
+  # ============================================================
+  # BUILTIN: run-tests - Run test suite
+  # ============================================================
+  - name: "Run test suite"
+    uses: builtin:run-tests
+    with:
+      language: "auto"
+      coverage: true
+      test_path: ""
+    outputs:
+      success: tests_passed
+      coverage_percent: test_coverage
+      output: test_output
+    on_error: continue
+
+  - name: "Show test results"
+    tool: bash
+    command: |
+      echo "=== Test Results ==="
+      echo "Passed: {tests_passed}"
+      echo "Coverage: {test_coverage}%"
+
+  # ============================================================
+  # CONDITIONAL: Commit only if tests pass
+  # ============================================================
+  - name: "Check if safe to commit"
+    tool: bash
+    command: |
+      if [ "{tests_passed}" = "true" ] && [ "{has_uncommitted}" = "true" ]; then
+        echo "safe"
+      else
+        echo "skip"
+      fi
+    output_var: commit_decision
+
+  - name: "Create commit"
+    uses: builtin:git-commit
+    with:
+      message: "chore: automated commit after lint and test"
+      add_all: true
+      allow_empty: false
+    outputs:
+      commit_sha: new_commit_sha
+      committed: was_committed
+    when: "{commit_decision} == safe"
+
+  - name: "Show commit result"
+    tool: bash
+    command: |
+      if [ "{was_committed}" = "true" ]; then
+        echo "New commit created: {new_commit_sha}"
+      else
+        echo "No commit created (was_committed={was_committed})"
+      fi
+    when: "{commit_decision} == safe"
+
+  # ============================================================
+  # SHARED STEPS IN LOOPS: Process multiple paths
+  # ============================================================
+  - name: "Lint multiple directories"
+    tool: foreach
+    items: ["src", "tests", "scripts"]
+    item_var: dir
+    on_item_error: continue
+    steps:
+      - name: "Check if {dir} exists"
+        tool: bash
+        command: |
+          if [ -d "{dir}" ]; then
+            echo "exists"
+          else
+            echo "missing"
+          fi
+        output_var: dir_exists
+
+      - name: "Skip missing directory"
+        tool: continue
+        when: "{dir_exists} == missing"
+
+      - name: "Lint {dir}"
+        uses: builtin:lint-fix
+        with:
+          language: "auto"
+          fix: false
+          path: "{dir}"
+        outputs:
+          success: dir_lint_passed
+        on_error: continue
+
+      - name: "Show {dir} lint result"
+        tool: bash
+        command: "echo '{dir}: lint_passed={dir_lint_passed}'"
+
+  # ============================================================
+  # SHARED STEPS WITH COMPLEX INPUTS: Language-specific
+  # ============================================================
+  - name: "Run Python tests (if applicable)"
+    uses: builtin:run-tests
+    with:
+      language: "python"
+      coverage: true
+      test_path: "tests/"
+    outputs:
+      success: python_tests_passed
+    on_error: continue
+
+  - name: "Run JavaScript tests (if applicable)"
+    uses: builtin:run-tests
+    with:
+      language: "javascript"
+      coverage: false
+      test_path: ""
+    outputs:
+      success: js_tests_passed
+    on_error: continue
+
+  # ============================================================
+  # FINAL STATUS: Aggregate all results
+  # ============================================================
+  - name: "Generate summary"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "          WORKFLOW SUMMARY"
+      echo "========================================"
+      echo ""
+      echo "Git Status:"
+      echo "  Branch: {current_branch}"
+      echo "  Has changes: {has_uncommitted}"
+      echo ""
+      echo "Quality Checks:"
+      echo "  Lint passed: {lint_passed}"
+      echo "  Tests passed: {tests_passed}"
+      echo "  Coverage: {test_coverage}%"
+      echo ""
+      echo "Actions Taken:"
+      echo "  Commit created: {was_committed:-no}"
+      echo ""
+      echo "========================================"

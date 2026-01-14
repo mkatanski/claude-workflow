@@ -1,0 +1,319 @@
+# Data Tool Example
+# Demonstrates writing temporary files for workflow use
+# Use data tool to create context files, configs, reports for Claude
+
+type: claude-workflow
+version: 2
+name: "Data Tool Demo"
+description: "Showcase data tool for creating temporary files with various formats"
+
+steps:
+  # ============================================================
+  # BASIC: Create simple text file
+  # ============================================================
+  - name: "Create text file"
+    tool: data
+    content: |
+      This is a simple text file created by the data tool.
+      It can contain multiple lines.
+      Variables are interpolated automatically.
+    format: text
+    filename: "simple-notes.txt"
+    output_var: text_file
+
+  - name: "Show text file path"
+    tool: bash
+    command: "echo 'Created text file: {text_file}'"
+
+  - name: "Read text file"
+    tool: bash
+    command: "cat {text_file}"
+
+  # ============================================================
+  # MARKDOWN: Create markdown document
+  # ============================================================
+  - name: "Get current date"
+    tool: bash
+    command: "date +%Y-%m-%d"
+    output_var: today
+
+  - name: "Get git branch"
+    tool: bash
+    command: "git branch --show-current 2>/dev/null || echo 'main'"
+    output_var: branch
+
+  - name: "Create markdown context file"
+    tool: data
+    content: |
+      # Project Context
+
+      **Date:** {today}
+      **Branch:** {branch}
+
+      ## Current Status
+
+      - Working on feature implementation
+      - Tests are passing
+      - Ready for code review
+
+      ## Key Files
+
+      - `src/main.ts` - Main entry point
+      - `src/utils.ts` - Utility functions
+      - `tests/` - Test suite
+
+      ## Notes
+
+      This context file is auto-generated for Claude to understand
+      the current project state before making changes.
+    format: markdown
+    filename: "project-context.md"
+    output_var: context_file
+
+  - name: "Show markdown file"
+    tool: bash
+    command: "cat {context_file}"
+
+  # ============================================================
+  # JSON: Create JSON configuration
+  # ============================================================
+  - name: "Set config values"
+    tool: context
+    action: set
+    values:
+      api_endpoint: "https://api.example.com"
+      max_retries: "5"
+      timeout_ms: "30000"
+
+  - name: "Create JSON config"
+    tool: data
+    content: |
+      {
+        "api": {
+          "endpoint": "{api_endpoint}",
+          "maxRetries": {max_retries},
+          "timeoutMs": {timeout_ms}
+        },
+        "features": {
+          "caching": true,
+          "logging": true
+        },
+        "metadata": {
+          "generatedAt": "{today}",
+          "branch": "{branch}"
+        }
+      }
+    format: json
+    filename: "runtime-config.json"
+    output_var: config_file
+
+  - name: "Show JSON config"
+    tool: bash
+    command: "cat {config_file}"
+
+  # ============================================================
+  # PRACTICAL: Generate test data file
+  # ============================================================
+  - name: "Create test users data"
+    tool: data
+    content: |
+      [
+        {"id": 1, "name": "Alice", "email": "alice@test.com", "role": "admin"},
+        {"id": 2, "name": "Bob", "email": "bob@test.com", "role": "user"},
+        {"id": 3, "name": "Carol", "email": "carol@test.com", "role": "user"},
+        {"id": 4, "name": "David", "email": "david@test.com", "role": "moderator"}
+      ]
+    format: json
+    filename: "test-users.json"
+    output_var: users_file
+
+  - name: "Use test data"
+    tool: bash
+    command: "echo 'Test users file: {users_file}' && cat {users_file} | head -5"
+
+  # ============================================================
+  # PRACTICAL: Create script file
+  # ============================================================
+  - name: "Set script parameters"
+    tool: context
+    action: set
+    values:
+      target_dir: "/tmp/output"
+      log_level: "info"
+
+  - name: "Generate bash script"
+    tool: data
+    content: |
+      #!/bin/bash
+      # Auto-generated deployment script
+      # Generated on: {today}
+
+      set -e
+
+      TARGET_DIR="{target_dir}"
+      LOG_LEVEL="{log_level}"
+
+      echo "Starting deployment..."
+      echo "Target: $TARGET_DIR"
+      echo "Log level: $LOG_LEVEL"
+
+      # Create target directory
+      mkdir -p "$TARGET_DIR"
+
+      # Simulate deployment
+      echo "Deploying application..."
+      sleep 1
+      echo "Deployment complete!"
+    format: text
+    filename: "deploy.sh"
+    output_var: script_file
+
+  - name: "Show generated script"
+    tool: bash
+    command: "cat {script_file}"
+
+  # ============================================================
+  # PRACTICAL: Create Claude prompt context
+  # ============================================================
+  - name: "Get recent git log"
+    tool: bash
+    command: "git log --oneline -5 2>/dev/null || echo 'No git history available'"
+    output_var: git_log
+
+  - name: "Get directory structure"
+    tool: bash
+    command: "ls -la 2>/dev/null | head -10 || echo 'Directory listing not available'"
+    output_var: dir_listing
+
+  - name: "Create comprehensive context for Claude"
+    tool: data
+    content: |
+      # Development Context
+
+      ## Git Information
+
+      **Current Branch:** {branch}
+
+      ### Recent Commits
+
+      ```
+      {git_log}
+      ```
+
+      ## Project Structure
+
+      ```
+      {dir_listing}
+      ```
+
+      ## Configuration
+
+      - API Endpoint: {api_endpoint}
+      - Max Retries: {max_retries}
+      - Timeout: {timeout_ms}ms
+
+      ## Instructions
+
+      Please review the codebase with this context in mind:
+
+      1. Focus on code quality and best practices
+      2. Ensure all changes follow existing patterns
+      3. Add tests for new functionality
+      4. Update documentation as needed
+
+      ---
+      *This context was auto-generated for the AI assistant.*
+    format: markdown
+    filename: "ai-context.md"
+    output_var: ai_context_file
+
+  - name: "Show AI context file"
+    tool: bash
+    command: "echo 'AI context saved to: {ai_context_file}' && wc -l {ai_context_file}"
+
+  # ============================================================
+  # PRACTICAL: Create environment file
+  # ============================================================
+  - name: "Create .env template"
+    tool: data
+    content: |
+      # Environment Configuration
+      # Generated: {today}
+
+      NODE_ENV=development
+      PORT=3000
+
+      # API Settings
+      API_URL={api_endpoint}
+      API_TIMEOUT={timeout_ms}
+      API_RETRIES={max_retries}
+
+      # Feature Flags
+      ENABLE_CACHING=true
+      ENABLE_LOGGING=true
+
+      # Database (fill in with actual values)
+      DB_HOST=localhost
+      DB_PORT=5432
+      DB_NAME=myapp
+      DB_USER=
+      DB_PASSWORD=
+    format: text
+    filename: "env-template"
+    output_var: env_file
+
+  - name: "Show env template"
+    tool: bash
+    command: "cat {env_file}"
+
+  # ============================================================
+  # PRACTICAL: Create CSV data
+  # ============================================================
+  - name: "Create CSV report"
+    tool: data
+    content: |
+      id,name,status,score,created_at
+      1,Task Alpha,completed,95,{today}
+      2,Task Beta,in_progress,78,{today}
+      3,Task Gamma,pending,0,{today}
+      4,Task Delta,completed,88,{today}
+      5,Task Epsilon,failed,45,{today}
+    format: text
+    filename: "task-report.csv"
+    output_var: csv_file
+
+  - name: "Show CSV data"
+    tool: bash
+    command: "cat {csv_file}"
+
+  # ============================================================
+  # USE FILES WITH CLAUDE: Pass context to AI
+  # ============================================================
+  - name: "Use context file with Claude"
+    prompt: |
+      I've prepared a context file for you at: {ai_context_file}
+
+      Please read this file and acknowledge the project context.
+      Then provide a brief summary of what you understood.
+
+      Note: This is a demonstration of how to pass context files to Claude.
+
+  # ============================================================
+  # CLEANUP NOTE
+  # ============================================================
+  - name: "Data tool demo complete"
+    tool: bash
+    command: |
+      echo "Data tool demo complete!"
+      echo ""
+      echo "Files created during this demo:"
+      echo "  - {text_file}"
+      echo "  - {context_file}"
+      echo "  - {config_file}"
+      echo "  - {users_file}"
+      echo "  - {script_file}"
+      echo "  - {ai_context_file}"
+      echo "  - {env_file}"
+      echo "  - {csv_file}"
+      echo ""
+      echo "Note: These files are auto-cleaned when the workflow ends"

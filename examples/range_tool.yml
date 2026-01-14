@@ -1,0 +1,151 @@
+# Range Tool Example
+# Demonstrates number range iteration with various options
+# Use range when you need to iterate a fixed number of times
+
+type: claude-workflow
+version: 2
+name: "Range Tool Demo"
+description: "Showcase range tool for count-based iteration with all options"
+
+steps:
+  # ============================================================
+  # BASIC: Simple range 1 to 5
+  # ============================================================
+  - name: "Basic range (1-5)"
+    tool: range
+    from: 1
+    to: 5
+    var: num
+    steps:
+      - name: "Process item {num}"
+        tool: bash
+        command: "echo 'Processing batch #{num}'"
+
+  # ============================================================
+  # STEP OPTION: Custom step increment (count by 2)
+  # ============================================================
+  - name: "Range with step=2 (even numbers 0-10)"
+    tool: range
+    from: 0
+    to: 10
+    step: 2
+    var: even_num
+    steps:
+      - name: "Even number: {even_num}"
+        tool: bash
+        command: "echo 'Even: {even_num}'"
+
+  # ============================================================
+  # COUNTDOWN: Negative step for descending order
+  # ============================================================
+  - name: "Countdown (10 to 1)"
+    tool: range
+    from: 10
+    to: 1
+    step: -1
+    var: countdown
+    steps:
+      - name: "Count {countdown}"
+        tool: bash
+        command: "echo '{countdown}...'"
+
+  # ============================================================
+  # PRACTICAL: Pagination simulation
+  # ============================================================
+  - name: "Initialize pagination"
+    tool: set
+    var: page_size
+    value: "10"
+
+  - name: "Process 3 pages of results"
+    tool: range
+    from: 1
+    to: 3
+    var: page
+    steps:
+      - name: "Fetch page {page}"
+        tool: bash
+        command: |
+          offset=$(( ({page} - 1) * {page_size} ))
+          echo "Fetching page {page}: offset=${offset}, limit={page_size}"
+
+  # ============================================================
+  # PRACTICAL: Retry counter pattern
+  # ============================================================
+  - name: "Initialize attempt tracking"
+    tool: set
+    var: succeeded
+    value: "false"
+
+  - name: "Try up to 3 times"
+    tool: range
+    from: 1
+    to: 3
+    var: attempt
+    steps:
+      - name: "Attempt {attempt}/3"
+        tool: bash
+        command: |
+          echo "Attempt {attempt} of 3"
+          # Simulate success on attempt 2
+          if [ {attempt} -eq 2 ]; then
+            echo "Success!"
+          else
+            echo "Failed, will retry..."
+          fi
+
+  # ============================================================
+  # PRACTICAL: Generate test data
+  # ============================================================
+  - name: "Generate 5 test users"
+    tool: range
+    from: 1
+    to: 5
+    var: user_id
+    steps:
+      - name: "Create test user {user_id}"
+        tool: bash
+        command: |
+          echo '{"id": {user_id}, "name": "User {user_id}", "email": "user{user_id}@test.com"}'
+
+  # ============================================================
+  # PRACTICAL: Batch processing with configurable batch count
+  # ============================================================
+  - name: "Set batch configuration"
+    tool: context
+    action: set
+    values:
+      total_items: "100"
+      batch_size: "25"
+      num_batches: "4"
+
+  - name: "Process items in batches"
+    tool: range
+    from: 1
+    to: 4
+    var: batch_num
+    steps:
+      - name: "Process batch {batch_num}/4"
+        tool: bash
+        command: |
+          start=$(( ({batch_num} - 1) * {batch_size} + 1 ))
+          end=$(( {batch_num} * {batch_size} ))
+          echo "Batch {batch_num}: Processing items ${start}-${end}"
+
+  # ============================================================
+  # LARGE STEP: Quick scan (every 5th item)
+  # ============================================================
+  - name: "Sample check (every 5th from 1-50)"
+    tool: range
+    from: 5
+    to: 50
+    step: 5
+    var: sample_point
+    steps:
+      - name: "Check sample at {sample_point}"
+        tool: bash
+        command: "echo 'Sampling at position {sample_point}'"
+
+  - name: "Range demo complete"
+    tool: bash
+    command: "echo 'All range examples completed successfully!'"
