@@ -154,6 +154,7 @@ class WorkflowConfig:
 
     name: str
     steps: List[Step]
+    vars: Dict[str, str] = field(default_factory=dict)
     tmux: TmuxConfig = field(default_factory=TmuxConfig)
     claude: ClaudeConfig = field(default_factory=ClaudeConfig)
     claude_sdk: ClaudeSdkConfig = field(default_factory=ClaudeSdkConfig)
@@ -322,9 +323,13 @@ def load_config(
         save_to=on_error_data.get("save_to", ".claude/workflow_debug/"),
     )
 
+    # Parse workflow variables
+    workflow_vars = data.get("vars", {})
+
     return WorkflowConfig(
         name=data.get("name", "Workflow"),
         steps=steps,
+        vars=workflow_vars,
         tmux=tmux_config,
         claude=claude_config,
         claude_sdk=claude_sdk_config,

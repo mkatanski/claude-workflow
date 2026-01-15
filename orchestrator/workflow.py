@@ -49,6 +49,9 @@ class WorkflowRunner:
         )
         self.context = ExecutionContext(project_path=project_path)
 
+        # Load workflow variables from config
+        self.context.update(config.vars)
+
         # Workflow temp directory
         self.session_id = f"{int(time.time())}_{uuid4().hex[:8]}"
         self.temp_dir = project_path / ".claude" / "workflow_temp" / self.session_id
