@@ -101,11 +101,23 @@ def main() -> None:
         default=False,
         help="Use classic panel-based display instead of CI-style (default: CI-style)",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Use verbose output mode with full step output (overrides --classic)",
+    )
 
     args = parser.parse_args()
 
     # Configure display mode (must be done before any display calls)
-    DisplayAdapter.use_v2 = not args.classic
+    # Verbose mode takes precedence over classic mode
+    if args.verbose:
+        DisplayAdapter.use_verbose = True
+        DisplayAdapter.use_v2 = False
+    else:
+        DisplayAdapter.use_verbose = False
+        DisplayAdapter.use_v2 = not args.classic
     DisplayAdapter.reset()  # Reset singleton to pick up new setting
 
     # Convert to Path and resolve

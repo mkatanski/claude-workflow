@@ -81,7 +81,27 @@ Create a dependency graph:
 
 ## Output Format
 
-Create a markdown document with this structure:
+Create a markdown document with this structure.
+
+### CRITICAL: Abstraction Level
+
+Architecture documents define WHAT components exist and HOW they connect, not HOW they work internally.
+
+**DO include:**
+- Class/interface names and their purposes
+- Method signatures (name, params, return type) with `...` for bodies
+- Field names with types (no default values or complex initialization)
+- Component relationships and dependencies
+- Integration points between systems
+
+**DO NOT include:**
+- Method implementations or algorithm logic
+- Constructor code beyond listing fields
+- Default value computations
+- Error handling code
+- Import statements
+- Helper/utility methods
+- Full dataclass decorators with field() calls
 
 ```markdown
 # Architecture Document: [Epic/Feature Title]
@@ -217,33 +237,43 @@ src/
 
 ### New Interfaces/Types
 ```typescript
+// Signatures only - no implementations
 interface User {
-  id: string;
-  email: string;
-  passwordHash: string;
-  createdAt: Date;
+  id: string
+  email: string
+  passwordHash: string
+  createdAt: Date
 }
 
 interface AuthTokenPayload {
-  userId: string;
-  email: string;
+  userId: string
+  email: string
 }
 
 interface LoginRequest {
-  email: string;
-  password: string;
+  email: string
+  password: string
+}
+
+// Service contract (methods with ... for bodies)
+class AuthService {
+  constructor(userRepository: UserRepository, jwtSecret: string): ...
+
+  register(email: string, password: string): Promise<User>: ...
+  login(email: string, password: string): Promise<string>: ...
+  verifyToken(token: string): Promise<AuthTokenPayload>: ...
 }
 ```
 
 ## 3. Data Models
 
-### User Schema (MongoDB)
-```typescript
-{
-  email: { type: String, required: true, unique: true },
-  passwordHash: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
-}
+### User Schema
+```
+User:
+  - id: string (primary key)
+  - email: string (unique, required)
+  - passwordHash: string (required)
+  - createdAt: Date (auto-generated)
 ```
 
 ## 4. Integration Points
@@ -281,9 +311,9 @@ interface LoginRequest {
 
 ## 7. Technical Constraints
 
-- **Password Storage**: Must use bcrypt with cost factor >= 10
-- **Token Expiry**: JWT tokens expire in 24 hours
-- **Rate Limiting**: Login endpoint needs rate limiting (TODO: separate story)
+- **Password Storage**: bcrypt required
+- **Token Expiry**: 24-hour JWT expiration
+- **Rate Limiting**: Required on login endpoint
 ```
 
 ## Best Practices
@@ -293,3 +323,4 @@ interface LoginRequest {
 3. **Be specific about locations**: Exact file paths, not vague descriptions
 4. **Consider testability**: Design for easy unit testing
 5. **Document constraints**: Be explicit about security, performance requirements
+6. **Stay at architecture level**: Show what exists, not how it works. Method bodies should be `...`, not implementation code

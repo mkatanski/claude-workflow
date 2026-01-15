@@ -30,10 +30,11 @@ if TYPE_CHECKING:
 
 
 class DisplayAdapter:
-    """Adapter that delegates to display or display_v2 based on configuration."""
+    """Adapter that delegates to display, display_v2, or display_verbose based on configuration."""
 
-    # Global switch - set before creating instances
+    # Global switches - set before creating instances
     use_v2: bool = True
+    use_verbose: bool = False  # Verbose mode takes precedence if enabled
 
     _instance: Optional["DisplayAdapter"] = None
 
@@ -54,17 +55,25 @@ class DisplayAdapter:
         self._init_display()
 
     def _init_display(self) -> None:
-        """Initialize or reinitialize display module based on use_v2 flag."""
-        if self.use_v2:
+        """Initialize or reinitialize display module based on mode flags."""
+        if self.use_verbose:
+            from . import display_verbose as display_module
+
+            self._display = display_module
+            self._is_v2 = False
+            self._is_verbose = True
+        elif self.use_v2:
             from . import display_v2 as display_module
 
             self._display = display_module
             self._is_v2 = True
+            self._is_verbose = False
         else:
             from . import display as display_module
 
             self._display = display_module
             self._is_v2 = False
+            self._is_verbose = False
 
     @property
     def console(self):
@@ -83,7 +92,7 @@ class DisplayAdapter:
         hook_configured: bool = True,
     ) -> None:
         """Print workflow header."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_header(config, project_path, server_port)
         else:
             # V1 uses panels
@@ -109,7 +118,15 @@ class DisplayAdapter:
         """Print step start indicator."""
         step_name = context.interpolate(step.name)
 
-        if self._is_v2:
+        if self._is_verbose:
+            # Verbose mode shows command/prompt details
+            command = context.interpolate(step.command) if step.command else None
+            prompt = context.interpolate(step.prompt) if step.prompt else None
+            self._display.print_step_start(
+                step_name, step_num, total_steps, step.tool,
+                command=command, prompt=prompt
+            )
+        elif self._is_v2:
             self._display.print_step_start(step_name, step_num, total_steps, step.tool)
         else:
             # V1 uses panel
@@ -127,7 +144,7 @@ class DisplayAdapter:
         error: Optional[str] = None,
     ) -> None:
         """Print step completion result."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             if success:
                 self._display.print_step_complete(
                     step_name or "Step", duration, output_var
@@ -148,16 +165,31 @@ class DisplayAdapter:
         """Print step skipped message."""
         step_name = context.interpolate(step.name)
 
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_step_skipped(step_name, reason, step_num, total_steps)
         else:
             self._display.print_step_skipped(step, context, step_num, total_steps, reason)
 
     def update_step_status(self, elapsed: float) -> None:
         """Update the current step's elapsed time in-place (v2 only)."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.update_step_status(elapsed)
         # V1 doesn't support in-place updates - no-op
+
+    def print_step_output(
+        self,
+        output: str,
+        tool: str,
+        max_lines: Optional[int] = None,
+    ) -> None:
+        """Print step output (verbose mode only).
+
+        For claude: shows last 20 lines by default
+        For bash: shows full output by default
+        """
+        if self._is_verbose:
+            self._display.print_step_output(output, tool, max_lines)
+        # V1 and V2 don't show step output inline
 
     # =========================================================================
     # Nested Step Display (for foreach and similar tools)
@@ -171,7 +203,7 @@ class DisplayAdapter:
         tool: str = "claude",
     ) -> None:
         """Print nested step start indicator (string-based for tools)."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_step_start(step_name, step_num, total_steps, tool)
         else:
             from .display import ICONS
@@ -187,7 +219,7 @@ class DisplayAdapter:
         output_var: Optional[str] = None,
     ) -> None:
         """Print nested step completion (string-based for tools)."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_step_complete(step_name, duration, output_var)
         else:
             self._display.print_step_result(True, duration, output_var)
@@ -199,7 +231,7 @@ class DisplayAdapter:
         error: Optional[str] = None,
     ) -> None:
         """Print nested step failure (string-based for tools)."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_step_failed(step_name, duration, error)
         else:
             self._display.print_step_result(False, duration)
@@ -210,7 +242,10 @@ class DisplayAdapter:
         reason: str,
     ) -> None:
         """Print nested step skipped message with humanized reason."""
-        if self._is_v2:
+        if self._is_verbose:
+            # Verbose mode has its own skipped format
+            self._display.print_step_skipped(step_name, reason)
+        elif self._is_v2:
             human_reason = self.humanize_reason(reason)
             indent = self.get_current_indent()
             from .display_v2 import StatusIcons
@@ -249,14 +284,17 @@ class DisplayAdapter:
             from .display_v2 import humanize_skip_reason
             return humanize_skip_reason(reason)
         else:
-            # V1 doesn't humanize - return shortened reason
+            # V1 and verbose don't humanize - return shortened reason
             if len(reason) > 30:
                 return reason[:27] + "..."
             return reason
 
     def get_current_indent(self) -> str:
         """Get current indentation string."""
-        if self._is_v2:
+        if self._is_verbose:
+            from .display_verbose import _get_indent
+            return _get_indent()
+        elif self._is_v2:
             from .display_v2 import _get_indent
             return _get_indent()
         else:
@@ -297,7 +335,7 @@ class DisplayAdapter:
         item_count: Optional[int] = None,
     ) -> None:
         """Print group/foreach header."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_group_start(name, item_count)
         else:
             # V1 doesn't have this - print simple message
@@ -313,7 +351,7 @@ class DisplayAdapter:
         item_preview: str,
     ) -> None:
         """Print iteration header."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_iteration_header(index, total, item_preview)
         else:
             # V1 style
@@ -331,17 +369,17 @@ class DisplayAdapter:
         duration: float,
     ) -> None:
         """Print iteration completion."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_iteration_complete(index, total, duration)
         # V1 doesn't have explicit iteration complete message
 
     # =========================================================================
-    # Indentation Context (v2 only, no-op for v1)
+    # Indentation Context (v2 and verbose, no-op for v1)
     # =========================================================================
 
     def indent(self):
-        """Context manager for indentation (v2 only)."""
-        if self._is_v2:
+        """Context manager for indentation (v2 and verbose modes)."""
+        if self._is_v2 or self._is_verbose:
             return self._display.indent()
         else:
             # Return a no-op context manager for v1
@@ -355,14 +393,14 @@ class DisplayAdapter:
 
     def print_auto_approve_plan(self) -> None:
         """Print plan auto-approval message."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_auto_approve_plan()
         else:
             self.console.print("[yellow]  ⚡ Auto-approving plan...[/yellow]")
 
     def print_bash_running(self, command: str) -> None:
         """Print bash command running message."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_bash_running(command)
         else:
             from .display import ICONS
@@ -378,9 +416,9 @@ class DisplayAdapter:
         """Create a status line for tracking long-running operations.
 
         Returns:
-            StatusLine (v2) or AnimatedWaiter (v1)
+            StatusLine (v2/verbose) or AnimatedWaiter (v1)
         """
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             return self._display.StatusLine(step_name, tool_name)
         else:
             return self._display.AnimatedWaiter(tool_name)
@@ -394,7 +432,10 @@ class DisplayAdapter:
 
         This is for tools that still need the animated spinner display.
         """
-        if self._is_v2:
+        if self._is_verbose:
+            # Verbose mode has its own AnimatedWaiter
+            return self._display.AnimatedWaiter(tool_name)
+        elif self._is_v2:
             # For v2, we still provide AnimatedWaiter from v1 for compatibility
             from .display import AnimatedWaiter
 
@@ -408,7 +449,7 @@ class DisplayAdapter:
 
     def print_checklist_start(self, checklist_name: str, item_count: int) -> None:
         """Print checklist start header."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_checklist_start(checklist_name, item_count)
         else:
             self.console.print(
@@ -424,7 +465,7 @@ class DisplayAdapter:
         details: Optional[str] = None,
     ) -> None:
         """Print a single checklist item result."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_checklist_item(name, passed, severity, message, details)
         else:
             # V1 style
@@ -450,7 +491,7 @@ class DisplayAdapter:
         duration: float,
     ) -> None:
         """Print checklist completion summary."""
-        if self._is_v2:
+        if self._is_v2 or self._is_verbose:
             self._display.print_checklist_complete(
                 checklist_name, passed_count, total_count,
                 has_errors, has_warnings, duration

@@ -61,6 +61,10 @@ class ClaudeTool(BaseTool):
             # Wait for completion via server signal
             output = self._wait_for_completion(tmux_manager)
 
+            # Display captured output in verbose mode
+            display = get_display()
+            display.print_step_output(output, "claude", max_lines=20)
+
             return ToolResult(
                 success=True,
                 output=output,

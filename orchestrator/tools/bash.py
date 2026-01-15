@@ -119,6 +119,9 @@ class BashTool(BaseTool):
 
             success = process.returncode == 0
 
+            # Display output in verbose mode
+            display.print_step_output(output, "bash")
+
             return ToolResult(
                 success=success,
                 output=output,
@@ -174,6 +177,10 @@ class BashTool(BaseTool):
 
             if strip_output:
                 output = output.strip()
+
+            # Display output in verbose mode
+            display = get_display()
+            display.print_step_output(output, "bash")
 
             return ToolResult(
                 success=True,  # Can't easily determine exit code in tmux

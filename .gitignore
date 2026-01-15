@@ -13,3 +13,8 @@ build/
 .coverage
 !.claude
 !CLAUDE.MD
+
+# Claude Code artifacts
+executed
+status
+.claude/epic-prompt.md

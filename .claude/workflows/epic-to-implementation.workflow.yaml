@@ -58,6 +58,10 @@ vars:
   lint_failure_occurred: "false"
   deps_before: ""
 
+  # Temp file management
+  workflow_id: ""
+  temp_dir: ""
+
 claude:
   model: sonnet
   interactive: true
@@ -91,6 +95,19 @@ steps:
     tool: bash
     command: "mkdir -p {output_dir}"
 
+  - name: "Setup temp directory"
+    tool: bash
+    command: |
+      WORKFLOW_ID=$(date +%Y%m%d%H%M%S)-$$
+      mkdir -p /tmp/orchestrator-${WORKFLOW_ID}
+      echo "${WORKFLOW_ID}"
+    output_var: workflow_id
+
+  - name: "Set temp dir path"
+    tool: set
+    var: temp_dir
+    value: "/tmp/orchestrator-{workflow_id}"
+
   - name: "Read epic prompt file"
     tool: bash
     command: "cat {prompt_file} 2>/dev/null || echo ''"
@@ -99,7 +116,7 @@ steps:
   - name: "Validate prompt file exists"
     tool: bash
     command: |
-      if [ -z "{epic_prompt_content}" ]; then
+      if [ ! -s "{prompt_file}" ]; then
         echo "ERROR: Epic prompt file is empty or missing: {prompt_file}"
         echo "Please create the file with your feature/epic description and run again."
         exit 1
@@ -120,7 +137,13 @@ steps:
       ## Input Prompt
       {epic_prompt_content}
 
-      Output ONLY the markdown document, no additional commentary.
+      IMPORTANT: After generating the epic description, save it to a temporary file:
+      - Save the FULL markdown document to: {temp_dir}/epic-description.md
+      - Output only "SAVED" when done (nothing else)
+
+  - name: "Read epic description from temp file"
+    tool: bash
+    command: "cat {temp_dir}/epic-description.md"
     output_var: epic_description
 
   - name: "Save epic description"
@@ -250,7 +273,13 @@ steps:
       ## Codebase Structure
       {codebase_structure}
 
-      Output ONLY the markdown document.
+      IMPORTANT: After generating the architecture document, save it to a temporary file:
+      - Save the FULL markdown document to: {temp_dir}/architecture.md
+      - Output only "SAVED" when done (nothing else)
+
+  - name: "Read architecture from temp file"
+    tool: bash
+    command: "cat {temp_dir}/architecture.md"
     output_var: architecture_document
 
   - name: "Save architectural document"
@@ -291,7 +320,13 @@ steps:
       ## Architecture Document
       {architecture_document}
 
-      Output ONLY valid JSON array, nothing else.
+      IMPORTANT: After generating the stories, save them to a temporary file:
+      - Save the FULL JSON array to: {temp_dir}/stories.json
+      - Output only "SAVED" when done (nothing else)
+
+  - name: "Read stories from temp file"
+    tool: bash
+    command: "cat {temp_dir}/stories.json"
     output_var: stories_raw
 
   - name: "Save stories to file"
@@ -986,6 +1021,11 @@ steps:
       echo ""
       echo "=========================================="
     visible: true
+
+  - name: "Cleanup temp files"
+    tool: bash
+    command: "rm -rf {temp_dir}"
+    on_error: continue
 
   - name: "workflow_end"
     tool: bash
