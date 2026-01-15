@@ -142,6 +142,10 @@ class Step:
     path: Optional[str] = None  # JSON path for set/update/delete
     operation: Optional[str] = None  # Update operation: append, prepend, increment, merge
     create_if_missing: bool = False  # Create file/object if not exists
+    # Fields for checklist tool
+    checklist: Optional[str] = None  # Checklist file name (without extension)
+    # Note: 'items' field is already used by steps, so inline checklists use step['items']
+    # Note: 'on_fail' is handled separately in the tool
 
 
 @dataclass
@@ -247,6 +251,8 @@ def _parse_step(step_data: Dict[str, Any]) -> Step:
         path=step_data.get("path"),
         operation=step_data.get("operation"),
         create_if_missing=step_data.get("create_if_missing", False),
+        # checklist tool fields
+        checklist=step_data.get("checklist"),
     )
 
 

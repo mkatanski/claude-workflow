@@ -5,6 +5,7 @@ from typing import Dict, List
 from .base import BaseTool, LoopSignal, ToolResult
 from .bash import BashTool
 from .break_tool import BreakTool
+from .checklist import ChecklistTool
 from .claude import ClaudeTool
 from .claude_sdk import ClaudeSdkTool
 from .context_tool import ContextTool
@@ -76,6 +77,7 @@ ToolRegistry.register(RetryTool())
 ToolRegistry.register(ContextTool())
 ToolRegistry.register(DataTool())
 ToolRegistry.register(JsonTool())
+ToolRegistry.register(ChecklistTool())
 
 
 __all__ = [
@@ -83,6 +85,7 @@ __all__ = [
     "LoopSignal",
     "ToolResult",
     "ToolRegistry",
+    "ChecklistTool",
     "ClaudeTool",
     "ClaudeSdkTool",
     "BashTool",

@@ -402,6 +402,72 @@ class DisplayAdapter:
         return self._display.AnimatedWaiter(tool_name)
 
 
+    # =========================================================================
+    # Checklist Display
+    # =========================================================================
+
+    def print_checklist_start(self, checklist_name: str, item_count: int) -> None:
+        """Print checklist start header."""
+        if self._is_v2:
+            self._display.print_checklist_start(checklist_name, item_count)
+        else:
+            self.console.print(
+                f"\n  [cyan]Checklist: {checklist_name}[/cyan] ({item_count} checks)"
+            )
+
+    def print_checklist_item(
+        self,
+        name: str,
+        passed: bool,
+        severity: str,
+        message: Optional[str] = None,
+        details: Optional[str] = None,
+    ) -> None:
+        """Print a single checklist item result."""
+        if self._is_v2:
+            self._display.print_checklist_item(name, passed, severity, message, details)
+        else:
+            # V1 style
+            if passed:
+                icon = "[green]✓[/green]"
+            elif severity == "error":
+                icon = "[red]✗[/red]"
+            elif severity == "warning":
+                icon = "[yellow]⚠[/yellow]"
+            else:
+                icon = "[dim]ℹ[/dim]"
+            self.console.print(f"     {icon} {name}")
+            if not passed and message:
+                self.console.print(f"        [dim]{message}[/dim]")
+
+    def print_checklist_complete(
+        self,
+        checklist_name: str,
+        passed_count: int,
+        total_count: int,
+        has_errors: bool,
+        has_warnings: bool,
+        duration: float,
+    ) -> None:
+        """Print checklist completion summary."""
+        if self._is_v2:
+            self._display.print_checklist_complete(
+                checklist_name, passed_count, total_count,
+                has_errors, has_warnings, duration
+            )
+        else:
+            # V1 style
+            if has_errors:
+                status = "[red]FAILED[/red]"
+            elif has_warnings:
+                status = "[yellow]PASSED with warnings[/yellow]"
+            else:
+                status = "[green]PASSED[/green]"
+            self.console.print(
+                f"\n     {status}: {passed_count}/{total_count} checks passed"
+            )
+
+
 # Convenience function to get display adapter
 def get_display() -> DisplayAdapter:
     """Get the display adapter instance."""

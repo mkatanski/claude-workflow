@@ -525,3 +525,114 @@ class StatusLine:
             print_step_complete(self.step_name, elapsed, output_var)
         else:
             print_step_failed(self.step_name, elapsed)
+
+
+# =============================================================================
+# Checklist Display
+# =============================================================================
+
+
+@dataclass
+class ChecklistIcons:
+    """Status icons for checklist items."""
+
+    PASSED = "[green]✓[/green]"
+    FAILED = "[red]✗[/red]"
+    WARNING = "[yellow]⚠[/yellow]"
+    INFO = "[dim]ℹ[/dim]"
+
+
+def print_checklist_start(checklist_name: str, item_count: int) -> None:
+    """Print checklist header when starting.
+
+    Format:     ▶ Checklist: pre-commit (4 checks)
+    """
+    indent = _get_indent()
+    console.print(
+        f"{indent}[{StatusIcons.RUNNING}] Checklist: [cyan]{checklist_name}[/cyan] "
+        f"[dim]({item_count} checks)[/dim]"
+    )
+    _state.can_update_inplace = False
+
+
+def print_checklist_item(
+    name: str,
+    passed: bool,
+    severity: str,
+    message: Optional[str] = None,
+    details: Optional[str] = None,
+) -> None:
+    """Print a single checklist item result.
+
+    Format:     ✓ No debug imports
+            or  ✗ No print statements
+                  Found 2 matches in src/main.py
+    """
+    indent = _get_indent()
+
+    # Choose icon based on status and severity
+    if passed:
+        icon = ChecklistIcons.PASSED
+    elif severity == "error":
+        icon = ChecklistIcons.FAILED
+    elif severity == "warning":
+        icon = ChecklistIcons.WARNING
+    else:
+        icon = ChecklistIcons.INFO
+
+    console.print(f"{indent}    [{icon}] {name}")
+
+    # Show details for failed checks
+    if not passed and message:
+        console.print(f"{indent}        [dim]{message}[/dim]")
+    if not passed and details:
+        # Show first few lines of details
+        for line in details.split("\n")[:3]:
+            console.print(f"{indent}        [dim]{line}[/dim]")
+
+    _state.can_update_inplace = False
+
+
+def print_checklist_complete(
+    checklist_name: str,
+    passed_count: int,
+    total_count: int,
+    has_errors: bool,
+    has_warnings: bool,
+    duration: float,
+) -> None:
+    """Print checklist completion summary.
+
+    Format:     ✓ Checklist: pre-commit  4/4 passed  0.3s
+            or  ✗ Checklist: pre-commit  2/4 passed (1 error, 1 warning)  0.3s
+    """
+    indent = _get_indent()
+    duration_str = _format_duration(duration)
+
+    if has_errors:
+        icon = StatusIcons.FAILED
+        status_color = "red"
+    elif has_warnings:
+        icon = StatusIcons.SUCCESS  # Warnings don't fail
+        status_color = "yellow"
+    else:
+        icon = StatusIcons.SUCCESS
+        status_color = "green"
+
+    # Build status suffix
+    parts = []
+    if has_errors or has_warnings:
+        if has_errors:
+            error_count = total_count - passed_count  # Simplified
+            parts.append(f"{error_count} failed")
+        if has_warnings:
+            parts.append("warnings")
+        suffix = f" [dim]({', '.join(parts)})[/dim]"
+    else:
+        suffix = ""
+
+    console.print(
+        f"{indent}[{icon}] Checklist: [{status_color}]{checklist_name}[/{status_color}]  "
+        f"[dim]{passed_count}/{total_count} passed{suffix}  {duration_str}[/dim]"
+    )
+    _state.can_update_inplace = False

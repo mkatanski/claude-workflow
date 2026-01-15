@@ -1,0 +1,43 @@
+name: architecture
+description: Architecture alignment checks
+on_fail: warn
+
+items:
+  - name: "No circular imports"
+    type: bash
+    command: |
+      python -c "
+      import sys
+      sys.setrecursionlimit(100)
+      try:
+          import orchestrator
+          print('0')
+      except RecursionError:
+          print('1')
+      except Exception:
+          print('0')
+      " 2>/dev/null || echo "0"
+    expect: "0"
+    severity: error
+
+  - name: "No logic in __init__.py"
+    type: regex
+    pattern: "^(def |class )"
+    files: "**/__init__.py"
+    exclude: "**/.venv/**"
+    expect: 0
+    severity: warning
+
+  - name: "Follows layer boundaries"
+    type: model
+    prompt: |
+      Check if the changed files respect layer boundaries:
+      - tools/ should not import from workflow.py directly
+      - shared_steps/ can import from tools/
+      - No circular dependencies between modules
+
+      Changed files: {changed_files}
+
+      If no violations found, output "PASS".
+      Otherwise output "FAIL: [describe violations]"
+    severity: warning

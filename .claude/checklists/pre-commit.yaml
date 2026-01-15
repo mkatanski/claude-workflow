@@ -1,0 +1,33 @@
+name: pre-commit
+description: Final checks before committing
+on_fail: stop
+
+items:
+  - name: "No debug imports"
+    type: regex
+    pattern: "^(import pdb|from pdb|import ipdb|from ipdb)"
+    files: "**/*.py"
+    exclude: "**/.venv/**"
+    expect: 0
+    severity: error
+
+  - name: "No breakpoints"
+    type: regex
+    pattern: "breakpoint\\(\\)|pdb\\.set_trace\\(\\)"
+    files: "**/*.py"
+    exclude: "**/.venv/**"
+    expect: 0
+    severity: error
+
+  - name: "No .env files staged"
+    type: bash
+    command: "git diff --cached --name-only | grep -E '\\.env' | wc -l | tr -d ' '"
+    expect: "0"
+    severity: error
+
+  - name: "No secrets in staged files"
+    type: bash
+    command: "git diff --cached | grep -iE '(password|secret|api_key)\\s*=' | wc -l | tr -d ' '"
+    expect: "0"
+    severity: error
+    # Note: "Lint passes" check removed - already handled by builtin:lint-fix in workflow
