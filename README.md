@@ -211,7 +211,7 @@ steps:
 |------|-------------|
 | `context` | Batch variable operations (set, copy, clear, export) |
 | `data` | Write data to temp files (JSON, text, markdown) |
-| `json` | Native JSON manipulation (query, set, update, delete) |
+| `json` | Native JSON/YAML manipulation with [JMESPath](https://jmespath.org/) queries |
 
 ### Integrations
 

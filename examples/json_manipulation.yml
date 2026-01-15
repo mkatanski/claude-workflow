@@ -1,11 +1,11 @@
-# JSON Tool Example
-# Demonstrates native JSON manipulation: query, set, update, delete
-# Use json tool for working with JSON files and variables
+# JSON/YAML Tool Example
+# Demonstrates native JSON and YAML manipulation using JMESPath queries
+# Supports: query, set, update, delete actions
 
 type: claude-workflow
 version: 2
-name: "JSON Manipulation Demo"
-description: "Showcase all json tool actions: query, set, update, delete"
+name: "JSON/YAML Manipulation Demo"
+description: "Showcase json tool with JMESPath queries and YAML support"
 
 steps:
   # ============================================================
@@ -41,13 +41,13 @@ steps:
       echo "Sample JSON created"
 
   # ============================================================
-  # ACTION: query - Extract values from JSON file
+  # ACTION: query - Extract values using JMESPath
   # ============================================================
   - name: "Query: Get project name"
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".name"
+    query: "name"  # JMESPath: no leading dot
     output_var: project_name
 
   - name: "Show project name"
@@ -58,7 +58,7 @@ steps:
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".version"
+    query: "version"
     output_var: version
 
   - name: "Show version"
@@ -66,13 +66,13 @@ steps:
     command: "echo 'Version: {version}'"
 
   # ============================================================
-  # QUERY: Nested paths
+  # QUERY: Nested paths (JMESPath)
   # ============================================================
   - name: "Query: Get test script"
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".scripts.test"
+    query: "scripts.test"  # JMESPath nested access
     output_var: test_command
 
   - name: "Show test command"
@@ -83,7 +83,7 @@ steps:
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".dependencies.express"
+    query: "dependencies.express"
     output_var: express_version
 
   - name: "Show express version"
@@ -91,18 +91,54 @@ steps:
     command: "echo 'Express: {express_version}'"
 
   # ============================================================
-  # QUERY: Array access
+  # QUERY: Array access and projections
   # ============================================================
   - name: "Query: Get first keyword"
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".keywords[0]"
+    query: "keywords[0]"  # JMESPath array index
     output_var: first_keyword
 
   - name: "Show first keyword"
     tool: bash
     command: "echo 'First keyword: {first_keyword}'"
+
+  - name: "Query: Get last keyword"
+    tool: json
+    action: query
+    file: "/tmp/demo-package.json"
+    query: "keywords[-1]"  # JMESPath negative index
+    output_var: last_keyword
+
+  - name: "Show last keyword"
+    tool: bash
+    command: "echo 'Last keyword: {last_keyword}'"
+
+  # ============================================================
+  # QUERY: JMESPath functions
+  # ============================================================
+  - name: "Query: Count keywords"
+    tool: json
+    action: query
+    file: "/tmp/demo-package.json"
+    query: "length(keywords)"  # JMESPath length function
+    output_var: keyword_count
+
+  - name: "Show keyword count"
+    tool: bash
+    command: "echo 'Keyword count: {keyword_count}'"
+
+  - name: "Query: Get all dependency keys"
+    tool: json
+    action: query
+    file: "/tmp/demo-package.json"
+    query: "keys(dependencies)"  # JMESPath keys function
+    output_var: dep_keys
+
+  - name: "Show dependency keys"
+    tool: bash
+    command: "echo 'Dependencies: {dep_keys}'"
 
   # ============================================================
   # ACTION: set - Set/update values in JSON file
@@ -118,7 +154,7 @@ steps:
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".version"
+    query: "version"
     output_var: new_version
 
   - name: "Show updated version"
@@ -180,7 +216,7 @@ steps:
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".keywords"
+    query: "keywords"
     output_var: all_keywords
 
   - name: "Show all keywords"
@@ -202,7 +238,7 @@ steps:
     tool: json
     action: query
     file: "/tmp/demo-package.json"
-    query: ".keywords[0]"
+    query: "keywords[0]"
     output_var: first_kw
 
   - name: "Show first keyword"
@@ -246,7 +282,7 @@ steps:
     tool: json
     action: query
     source: api_response
-    query: ".data.user.name"
+    query: "data.user.name"  # JMESPath syntax
     output_var: user_name
 
   - name: "Show user from API"
@@ -257,12 +293,101 @@ steps:
     tool: json
     action: query
     source: api_response
-    query: ".data.metadata.timestamp"
+    query: "data.metadata.timestamp"
     output_var: api_timestamp
 
   - name: "Show timestamp"
     tool: bash
     command: "echo 'API timestamp: {api_timestamp}'"
+
+  # ============================================================
+  # YAML FILE SUPPORT
+  # ============================================================
+  - name: "Create sample YAML config"
+    tool: bash
+    command: |
+      cat > /tmp/demo-config.yaml << 'EOF'
+      name: my-app
+      version: 1.0.0
+      database:
+        host: localhost
+        port: 5432
+        name: mydb
+      features:
+        - authentication
+        - caching
+        - logging
+      servers:
+        - name: web1
+          port: 80
+        - name: web2
+          port: 8080
+        - name: db1
+          port: 5432
+      EOF
+      echo "Sample YAML created"
+
+  - name: "Query: Get YAML config name"
+    tool: json
+    action: query
+    file: "/tmp/demo-config.yaml"
+    query: "name"
+    output_var: yaml_name
+
+  - name: "Show YAML name"
+    tool: bash
+    command: "echo 'YAML config name: {yaml_name}'"
+
+  - name: "Query: Get database host from YAML"
+    tool: json
+    action: query
+    file: "/tmp/demo-config.yaml"
+    query: "database.host"
+    output_var: db_host
+
+  - name: "Show DB host"
+    tool: bash
+    command: "echo 'Database host: {db_host}'"
+
+  - name: "Query: Get all server names (JMESPath projection)"
+    tool: json
+    action: query
+    file: "/tmp/demo-config.yaml"
+    query: "servers[*].name"  # JMESPath array projection
+    output_var: server_names
+
+  - name: "Show server names"
+    tool: bash
+    command: "echo 'Server names: {server_names}'"
+
+  - name: "Query: Filter servers by port (JMESPath filter)"
+    tool: json
+    action: query
+    file: "/tmp/demo-config.yaml"
+    query: "servers[?port > `1000`].name"  # JMESPath filter with backtick literal
+    output_var: high_port_servers
+
+  - name: "Show high port servers"
+    tool: bash
+    command: "echo 'Servers with port > 1000: {high_port_servers}'"
+
+  - name: "Set: Update YAML config"
+    tool: json
+    action: set
+    file: "/tmp/demo-config.yaml"
+    path: ".version"
+    value: "2.0.0"
+
+  - name: "Verify YAML update"
+    tool: json
+    action: query
+    file: "/tmp/demo-config.yaml"
+    query: "version"
+    output_var: yaml_version
+
+  - name: "Show updated YAML version"
+    tool: bash
+    command: "echo 'YAML version updated to: {yaml_version}'"
 
   # ============================================================
   # PRACTICAL: Build JSON config
@@ -303,24 +428,46 @@ steps:
     command: "cat /tmp/app-config.json"
 
   # ============================================================
-  # PRACTICAL: Iterate over JSON array
+  # PRACTICAL: Iterate over JSON array with JMESPath
   # ============================================================
   - name: "Create users JSON"
     tool: bash
     command: |
-      echo '[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"},{"id":3,"name":"Carol"}]' > /tmp/users.json
+      echo '[{"id":1,"name":"Alice","active":true},{"id":2,"name":"Bob","active":false},{"id":3,"name":"Carol","active":true}]' > /tmp/users.json
     output_var: users_json
 
-  - name: "Query: Get all users as list"
+  - name: "Query: Get all user names (JMESPath projection)"
     tool: json
     action: query
     file: "/tmp/users.json"
-    query: ".[].name"
+    query: "[*].name"  # JMESPath projection on root array
     output_var: user_names
 
   - name: "Show all user names"
     tool: bash
     command: "echo 'Users: {user_names}'"
+
+  - name: "Query: Get active users (JMESPath filter)"
+    tool: json
+    action: query
+    file: "/tmp/users.json"
+    query: "[?active == `true`].name"  # JMESPath filter
+    output_var: active_users
+
+  - name: "Show active users"
+    tool: bash
+    command: "echo 'Active users: {active_users}'"
+
+  - name: "Query: Count active users"
+    tool: json
+    action: query
+    file: "/tmp/users.json"
+    query: "length([?active == `true`])"  # JMESPath function with filter
+    output_var: active_count
+
+  - name: "Show active user count"
+    tool: bash
+    command: "echo 'Active user count: {active_count}'"
 
   # ============================================================
   # CLEANUP
@@ -328,9 +475,9 @@ steps:
   - name: "Clean up demo files"
     tool: bash
     command: |
-      rm -f /tmp/demo-package.json /tmp/app-config.json /tmp/users.json
+      rm -f /tmp/demo-package.json /tmp/app-config.json /tmp/users.json /tmp/demo-config.yaml
       echo "Cleanup complete"
 
-  - name: "JSON manipulation demo complete"
+  - name: "JSON/YAML manipulation demo complete"
     tool: bash
-    command: "echo 'All JSON examples completed!'"
+    command: "echo 'All JSON/YAML examples completed!'"

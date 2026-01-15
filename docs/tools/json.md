@@ -1,17 +1,27 @@
-# JSON Tool
+# JSON/YAML Tool
 
-The `json` tool provides native JSON manipulation capabilities without requiring external tools like `jq`. It supports querying, setting, updating, and deleting values in JSON files or in-memory variables.
+The `json` tool provides native JSON and YAML manipulation capabilities using JMESPath query syntax. It supports querying, setting, updating, and deleting values in JSON/YAML files or in-memory variables.
 
 ## Overview
 
-The JSON tool enables workflows to:
+The JSON/YAML tool enables workflows to:
 
-1. **Query** - Extract values from JSON data using path expressions
+1. **Query** - Extract values from JSON/YAML data using JMESPath expressions
 2. **Set** - Set or replace values at specific paths
 3. **Update** - Modify existing values with operations (append, prepend, increment, merge)
-4. **Delete** - Remove keys or elements from JSON structures
+4. **Delete** - Remove keys or elements from data structures
 
-All operations can work on either JSON files or variables stored in the workflow context.
+All operations can work on either files (JSON or YAML) or variables stored in the workflow context.
+
+## File Format Support
+
+| Extension | Format | Read | Write |
+|-----------|--------|------|-------|
+| `.json` | JSON | Yes | Yes |
+| `.yaml` | YAML | Yes | Yes |
+| `.yml` | YAML | Yes | Yes |
+
+File format is auto-detected by extension. All formats are queried using JMESPath syntax.
 
 ## Configuration
 
@@ -20,7 +30,7 @@ All operations can work on either JSON files or variables stored in the workflow
 | `tool` | string | Yes | - | Must be `"json"` |
 | `name` | string | Yes | - | Step name for display and goto refs |
 | `action` | string | Yes | - | One of: `query`, `set`, `update`, `delete` |
-| `file` | string | Conditional | - | Path to JSON file (required if `source` not provided) |
+| `file` | string | Conditional | - | Path to JSON/YAML file (required if `source` not provided) |
 | `source` | string | Conditional | - | Variable name containing JSON (required if `file` not provided) |
 | `create_if_missing` | boolean | No | `false` | Create empty object if file/source doesn't exist |
 | `output_var` | string | No | - | Variable name to store query result |
@@ -29,7 +39,7 @@ All operations can work on either JSON files or variables stored in the workflow
 
 | Action | Field | Required | Description |
 |--------|-------|----------|-------------|
-| `query` | `query` | Yes | Path expression to extract value |
+| `query` | `query` | Yes | JMESPath expression to extract value |
 | `set` | `path` | Yes | Path where to set the value |
 | `set` | `value` | Yes | Value to set (supports interpolation) |
 | `update` | `path` | Yes | Path to the value to update |
@@ -37,193 +47,206 @@ All operations can work on either JSON files or variables stored in the workflow
 | `update` | `value` | Yes | Value to use in the operation |
 | `delete` | `path` | Yes | Path to the key/element to delete |
 
-## Path Expression Syntax
+## JMESPath Query Syntax
 
-The JSON tool uses a dot-notation path syntax for navigating JSON structures:
+The JSON tool uses [JMESPath](https://jmespath.org/) for queries - a powerful query language for JSON.
+
+### Basic Access
 
 | Syntax | Description | Example |
 |--------|-------------|---------|
-| `.` or empty | Root of the document | `.` returns entire JSON |
-| `.field` | Access object field | `.name` returns the `name` field |
-| `.field.nested` | Access nested field | `.user.email` |
-| `[0]` | Access array element by index | `.items[0]` returns first element |
-| `.arr[1].field` | Combined access | `.users[0].name` |
-| `['key']` or `["key"]` | Bracket notation for keys | `.data['special-key']` |
+| `@` | Entire document | `@` returns the whole JSON |
+| `name` | Access field | `name` returns the `name` field |
+| `a.b.c` | Nested field | `user.email` |
+| `items[0]` | Array index | `items[0]` returns first element |
+| `items[-1]` | Negative index | `items[-1]` returns last element |
+| `items[*]` | All elements | `items[*].name` returns all names |
 
-## Advanced Query Syntax (jq-style)
+**Note**: JMESPath does NOT use leading dots. Use `name` instead of `.name`.
 
-The JSON tool supports jq-style query syntax for complex data transformations, eliminating the need for external `jq` in most cases.
+### Built-in Functions
 
-### Pipeline Operator (`|`)
+| Function | Description | Example |
+|----------|-------------|---------|
+| `length(x)` | Length of array/object/string | `length(items)` |
+| `keys(obj)` | Get object keys | `keys(config)` |
+| `values(obj)` | Get object values | `values(config)` |
+| `sort(arr)` | Sort array | `sort(names)` |
+| `reverse(arr)` | Reverse array | `reverse(items)` |
+| `min(arr)` | Minimum value | `min(scores)` |
+| `max(arr)` | Maximum value | `max(scores)` |
+| `sum(arr)` | Sum of numbers | `sum(values)` |
+| `join(sep, arr)` | Join strings | `join(', ', names)` |
+| `contains(arr, val)` | Check if contains | `contains(tags, 'test')` |
+| `starts_with(str, prefix)` | String prefix check | `starts_with(name, 'test')` |
+| `ends_with(str, suffix)` | String suffix check | `ends_with(file, '.js')` |
+| `type(val)` | Get type name | `type(config)` |
+| `not_null(...)` | First non-null value | `not_null(a, b, c)` |
+| `merge(obj1, obj2)` | Merge objects | `merge(defaults, config)` |
 
-Chain operations together by piping output from one stage to the next:
+### Custom Functions
+
+Additional functions extending JMESPath:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `to_entries(obj)` | Convert to `[{key, value}]` | `to_entries(config)` |
+| `from_entries(arr)` | Convert from `[{key, value}]` | `from_entries(pairs)` |
+| `unique(arr)` | Remove duplicates | `unique(tags)` |
+| `flatten(arr)` | Flatten one level | `flatten(nested)` |
+| `add(arr)` | Sum numbers or concat arrays/strings | `add(values)` |
+
+### Filter Expressions
+
+Filter arrays using `[?condition]`:
 
 ```yaml
-- name: "Get story count"
-  tool: json
-  action: query
-  file: "stories.json"
-  query: ".stories | length"
-  output_var: count
+# Filter by equality (strings use single quotes)
+query: "items[?status == 'active']"
+
+# Filter by comparison (numbers use backticks)
+query: "items[?priority >= `3`]"
+
+# Filter with and/or
+query: "items[?status == 'active' && priority > `2`]"
+
+# Extract field from filtered results
+query: "items[?active == `true`].name"
 ```
 
-### Array Iteration (`[]`)
+**Important**: In JMESPath filters:
+- Strings use single quotes: `'active'`
+- Numbers use backticks: `` `3` ``
+- Booleans use backticks: `` `true` ``, `` `false` ``
 
-Iterate over all elements in an array:
+### Multi-Select and Projections
 
 ```yaml
-# Get all story IDs
-- name: "Get story IDs"
-  tool: json
-  action: query
-  file: "stories.json"
-  query: ".stories[].id"
-  output_var: ids
-  # Returns: ["story_1", "story_2", "story_3"]
+# Select multiple fields
+query: "{name: name, count: length(items)}"
 
-# Nested iteration
-- name: "Get all tags"
-  tool: json
-  action: query
-  source: data
-  query: ".items[].tags[]"
-  output_var: all_tags
+# Project specific fields from array
+query: "items[*].{id: id, title: title}"
+
+# Flatten nested arrays
+query: "items[*].tags[]"
 ```
 
-### Built-in Transforms
+## Query Examples
 
-| Transform | Input | Output | Description |
-|-----------|-------|--------|-------------|
-| `length` | array/object/string | integer | Length or key count |
-| `to_entries` | object | array | Convert to `[{key, value}, ...]` |
-| `from_entries` | array | object | Convert from `[{key, value}, ...]` |
-| `keys` | object | array | Get all keys |
-| `values` | object | array | Get all values |
-| `first` | array | any | First element |
-| `last` | array | any | Last element |
-| `sort` | array | array | Sort elements |
-| `reverse` | array | array | Reverse order |
-| `unique` | array | array | Remove duplicates |
-| `flatten` | array | array | Flatten one level |
-| `min` | array | any | Minimum value |
-| `max` | array | any | Maximum value |
-| `add` | array | any | Sum numbers or concat strings |
+### Simple Queries
 
 ```yaml
-# Get keys from an object
-- name: "Get config keys"
-  tool: json
-  action: query
-  file: "config.json"
-  query: ".settings | keys"
-  output_var: setting_names
+steps:
+  # Get a field value
+  - name: "Get name"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "name"
+    output_var: package_name
 
-# Count failed stories (retry_counts >= 3)
-- name: "Count failures"
-  tool: json
-  action: query
-  file: "progress.json"
-  query: "[.retry_counts | to_entries | select(.value >= 3)] | length"
-  output_var: failed_count
+  # Get nested value
+  - name: "Get test script"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "scripts.test"
+    output_var: test_cmd
+
+  # Get array element
+  - name: "Get first keyword"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "keywords[0]"
+    output_var: first_kw
 ```
 
-### Select Filter (`select()`)
-
-Filter items based on conditions:
+### Using Functions
 
 ```yaml
-# Filter active items
-- name: "Get active items"
-  tool: json
-  action: query
-  source: data
-  query: '.items[] | select(.status == "active")'
-  output_var: active_items
+steps:
+  # Count items
+  - name: "Count dependencies"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "length(keys(dependencies))"
+    output_var: dep_count
 
-# Numeric comparison
-- name: "Get high priority"
-  tool: json
-  action: query
-  source: tasks
-  query: ".tasks[] | select(.priority >= 3)"
-  output_var: high_priority
+  # Get all keys
+  - name: "List scripts"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "keys(scripts)"
+    output_var: script_names
+
+  # Sort values
+  - name: "Sorted keywords"
+    tool: json
+    action: query
+    file: "package.json"
+    query: "sort(keywords)"
+    output_var: sorted_kw
 ```
 
-**Supported operators in select:**
-- Equality: `==`, `!=`
-- Comparison: `>`, `>=`, `<`, `<=`
-- String: `contains`, `starts_with`, `ends_with`
-
-### String Interpolation
-
-Format output strings with field values:
+### Filtering
 
 ```yaml
-# Format story list
-- name: "Format stories"
-  tool: json
-  action: query
-  file: "stories.json"
-  query: '.stories[] | "  - (.id): (.title)"'
-  output_var: story_list
-  # Returns: ["  - story_1: Fix bug", "  - story_2: Add feature"]
+steps:
+  # Filter by status
+  - name: "Get active users"
+    tool: json
+    action: query
+    file: "users.json"
+    query: "users[?active == `true`]"
+    output_var: active_users
+
+  # Filter and extract names
+  - name: "Active user names"
+    tool: json
+    action: query
+    file: "users.json"
+    query: "users[?active == `true`].name"
+    output_var: names
+
+  # Numeric filter
+  - name: "High priority tasks"
+    tool: json
+    action: query
+    file: "tasks.json"
+    query: "tasks[?priority >= `3`]"
+    output_var: high_priority
 ```
 
-### Array Construction (`[...]`)
-
-Explicitly wrap results in an array:
+### Array Projections
 
 ```yaml
-# Get filtered entries as array
-- name: "Get failed entries"
-  tool: json
-  action: query
-  file: "progress.json"
-  query: "[.retry_counts | to_entries | select(.value >= 3)]"
-  output_var: failed_entries
-```
+steps:
+  # Get all IDs from array
+  - name: "All user IDs"
+    tool: json
+    action: query
+    file: "users.json"
+    query: "users[*].id"
+    output_var: user_ids
 
-### Complex Query Examples
-
-```yaml
-# Pattern from story-executor: count failed stories
-- name: "Count failed stories"
-  tool: json
-  action: query
-  file: ".claude/stories/progress.json"
-  query: "[.retry_counts | to_entries | select(.value >= 3)] | length"
-  output_var: failed_count
-
-# Format story list for display
-- name: "Format story list"
-  tool: json
-  action: query
-  file: ".claude/stories/stories.json"
-  query: '.stories[] | "  - (.id): (.title)"'
-  output_var: story_lines
-
-# Get completed story count
-- name: "Get progress"
-  tool: json
-  action: query
-  file: ".claude/stories/progress.json"
-  query: ".completed | length"
-  output_var: completed_count
-
-# Get pending items with high value
-- name: "High value pending"
-  tool: json
-  action: query
-  source: items
-  query: '.items[] | select(.status == "pending") | select(.value > 100)'
-  output_var: high_value_pending
+  # Flatten nested arrays
+  - name: "All tags"
+    tool: json
+    action: query
+    file: "items.json"
+    query: "items[*].tags[]"
+    output_var: all_tags
 ```
 
 ## Actions
 
 ### Query Action
 
-Extract values from JSON data using path expressions.
+Extract values from JSON/YAML data using JMESPath expressions.
 
 ```yaml
 steps:
@@ -231,7 +254,7 @@ steps:
     tool: json
     action: query
     file: "package.json"
-    query: ".name"
+    query: "name"
     output_var: package_name
 
   - name: "Display Name"
@@ -246,7 +269,7 @@ steps:
 
 ### Set Action
 
-Set or replace values at specific paths. Intermediate objects/arrays are created automatically if they don't exist.
+Set or replace values at specific paths. Intermediate objects/arrays are created automatically.
 
 ```yaml
 steps:
@@ -258,11 +281,7 @@ steps:
     value: "2.0.0"
 ```
 
-**Value Interpolation:**
-- String values are interpolated with workflow variables
-- Values that look like JSON (starting with `{`, `[`, or `"`) are parsed
-- Numeric strings are converted to numbers
-- Objects and arrays in the value field are recursively interpolated
+**Note**: The `path` field uses dot-notation with leading dot (e.g., `.version`, `.scripts.test`).
 
 ### Update Action
 
@@ -287,12 +306,6 @@ steps:
       lodash: "^4.17.21"
 ```
 
-**Auto-Initialization:**
-When the path doesn't exist and `update` is used:
-- `append`/`prepend`: Initializes as empty array `[]`
-- `increment`: Initializes as `0`
-- `merge`: Initializes as empty object `{}`
-
 ### Delete Action
 
 Remove keys from objects or elements from arrays.
@@ -306,46 +319,36 @@ steps:
     path: ".devDependencies.eslint"
 ```
 
-## Working with Files
+## YAML File Examples
 
-### Reading from Files
+The JSON tool works seamlessly with YAML files:
 
 ```yaml
 steps:
-  - name: "Get Config Value"
+  # Query YAML config
+  - name: "Get DB host"
     tool: json
     action: query
-    file: "config.json"
-    query: ".database.host"
+    file: "config.yaml"
+    query: "database.host"
     output_var: db_host
-```
 
-**File Path Resolution:**
-- Absolute paths are used as-is
-- Relative paths are resolved from the project path
-- Variable interpolation is supported in file paths: `file: "{config_dir}/settings.json"`
-
-### Creating New Files
-
-Use `create_if_missing: true` to create files that don't exist:
-
-```yaml
-steps:
-  - name: "Initialize Config"
+  # Update YAML value
+  - name: "Update version"
     tool: json
     action: set
-    file: "config.json"
-    create_if_missing: true
+    file: "config.yaml"
     path: ".version"
-    value: "1.0.0"
+    value: "2.0.0"
+
+  # Filter YAML array
+  - name: "Get web servers"
+    tool: json
+    action: query
+    file: "config.yaml"
+    query: "servers[?type == 'web'].name"
+    output_var: web_servers
 ```
-
-### Atomic File Writes
-
-The JSON tool uses atomic writes for file operations:
-1. Writes to a temporary file in the same directory
-2. Renames the temp file to the target path
-3. This prevents partial writes on failures
 
 ## Working with Variables
 
@@ -362,7 +365,7 @@ steps:
     tool: json
     action: query
     source: api_response
-    query: ".data.user.name"
+    query: "data.user.name"
     output_var: user_name
 ```
 
@@ -377,20 +380,7 @@ steps:
     create_if_missing: true
     path: ".status"
     value: "pending"
-
-  - name: "Add Item to State"
-    tool: json
-    action: update
-    source: state
-    path: ".items"
-    operation: append
-    value: "first_item"
 ```
-
-**Variable Storage:**
-- Variables containing JSON objects/arrays are stored as JSON strings
-- When read via `source`, JSON strings are automatically parsed
-- After mutations, the variable is updated with the new JSON string
 
 ## Example Workflows
 
@@ -406,7 +396,7 @@ steps:
     tool: json
     action: query
     file: "package.json"
-    query: ".version"
+    query: "version"
     output_var: current_version
 
   - name: "Display Current"
@@ -419,61 +409,39 @@ steps:
     file: "package.json"
     path: ".version"
     value: "2.0.0"
-
-  - name: "Add Build Metadata"
-    tool: json
-    action: update
-    file: "package.json"
-    path: ".build"
-    operation: merge
-    value:
-      timestamp: "{build_time}"
-      commit: "{git_sha}"
 ```
 
-### Configuration Management
+### YAML Configuration Management
 
 ```yaml
 type: claude-workflow
 version: 2
-name: Environment Configuration
+name: Update Config
 
 steps:
-  - name: "Set Environment"
-    tool: set
-    var: env
-    value: "production"
+  - name: "Get current DB host"
+    tool: json
+    action: query
+    file: "config.yml"
+    query: "database.host"
+    output_var: db_host
 
-  - name: "Load Base Config"
-    tool: bash
-    command: "cat config/base.json"
-    output_var: config
-
-  - name: "Set Environment Value"
+  - name: "Update to production"
     tool: json
     action: set
-    source: config
-    path: ".environment"
-    value: "{env}"
+    file: "config.yml"
+    path: ".database.host"
+    value: "prod-db.example.com"
 
-  - name: "Enable Production Features"
+  - name: "Add feature flag"
     tool: json
-    action: set
-    source: config
-    path: ".features.caching"
-    value: true
-    when: "{env} == production"
-
-  - name: "Set Replica Count"
-    tool: json
-    action: set
-    source: config
-    path: ".replicas"
-    value: 3
-
-  - name: "Write Final Config"
-    tool: bash
-    command: "echo '{config}' > config/generated.json"
+    action: update
+    file: "config.yml"
+    path: ".features"
+    operation: merge
+    value:
+      caching: true
+      logging: true
 ```
 
 ### API Response Processing
@@ -489,178 +457,19 @@ steps:
     command: "curl -s https://api.example.com/users"
     output_var: response
 
-  - name: "Extract First User"
+  - name: "Get active user names"
     tool: json
     action: query
     source: response
-    query: ".data[0]"
-    output_var: first_user
+    query: "data[?active == `true`].name"
+    output_var: active_names
 
-  - name: "Get User Name"
+  - name: "Count active users"
     tool: json
     action: query
-    source: first_user
-    query: ".name"
-    output_var: user_name
-
-  - name: "Get User Email"
-    tool: json
-    action: query
-    source: first_user
-    query: ".email"
-    output_var: user_email
-
-  - name: "Process User"
-    prompt: "Create a welcome message for user {user_name} at {user_email}"
-```
-
-### Building JSON Incrementally
-
-```yaml
-type: claude-workflow
-version: 2
-name: Build Report
-
-steps:
-  - name: "Initialize Report"
-    tool: json
-    action: set
-    source: report
-    create_if_missing: true
-    path: ".title"
-    value: "Daily Report"
-
-  - name: "Add Timestamp"
-    tool: bash
-    command: "date -u +%Y-%m-%dT%H:%M:%SZ"
-    output_var: timestamp
-
-  - name: "Set Generated Time"
-    tool: json
-    action: set
-    source: report
-    path: ".generated_at"
-    value: "{timestamp}"
-
-  - name: "Add First Finding"
-    tool: json
-    action: update
-    source: report
-    path: ".findings"
-    operation: append
-    value:
-      type: "info"
-      message: "Build completed successfully"
-
-  - name: "Add Second Finding"
-    tool: json
-    action: update
-    source: report
-    path: ".findings"
-    operation: append
-    value:
-      type: "warning"
-      message: "Deprecated API usage detected"
-
-  - name: "Increment Counter"
-    tool: json
-    action: update
-    source: report
-    path: ".finding_count"
-    operation: increment
-    value: 2
-
-  - name: "Save Report"
-    tool: bash
-    command: "echo '{report}' > reports/daily.json"
-```
-
-### Nested Object Manipulation
-
-```yaml
-type: claude-workflow
-version: 2
-name: Complex Nested Updates
-
-steps:
-  - name: "Set Deep Value"
-    tool: json
-    action: set
-    file: "config.json"
-    create_if_missing: true
-    path: ".database.connections.primary.host"
-    value: "db.example.com"
-
-  - name: "Set Array in Nested Object"
-    tool: json
-    action: set
-    file: "config.json"
-    path: ".database.connections.primary.replicas"
-    value: ["replica1.db", "replica2.db"]
-
-  - name: "Add Replica"
-    tool: json
-    action: update
-    file: "config.json"
-    path: ".database.connections.primary.replicas"
-    operation: append
-    value: "replica3.db"
-
-  - name: "Merge Connection Options"
-    tool: json
-    action: update
-    file: "config.json"
-    path: ".database.connections.primary.options"
-    operation: merge
-    value:
-      timeout: 30
-      pool_size: 10
-```
-
-### Working with Arrays
-
-```yaml
-type: claude-workflow
-version: 2
-name: Array Operations
-
-steps:
-  - name: "Initialize List"
-    tool: json
-    action: set
-    source: tasks
-    create_if_missing: true
-    path: ".items"
-    value: []
-
-  - name: "Add to End"
-    tool: json
-    action: update
-    source: tasks
-    path: ".items"
-    operation: append
-    value: "Task 1"
-
-  - name: "Add to Beginning"
-    tool: json
-    action: update
-    source: tasks
-    path: ".items"
-    operation: prepend
-    value: "Priority Task"
-
-  - name: "Query First Item"
-    tool: json
-    action: query
-    source: tasks
-    query: ".items[0]"
-    output_var: first_task
-
-  - name: "Delete First Item"
-    tool: json
-    action: delete
-    source: tasks
-    path: ".items[0]"
+    source: response
+    query: "length(data[?active == `true`])"
+    output_var: active_count
 ```
 
 ## Error Handling
@@ -671,10 +480,8 @@ steps:
 |-------|-------|----------|
 | `File not found` | File doesn't exist | Use `create_if_missing: true` or ensure file exists |
 | `Variable not found` | Source variable not set | Initialize variable first or use `create_if_missing: true` |
-| `Key not found` | Query path doesn't exist | Check path or use `set` to create the path |
-| `Cannot index non-array` | Using array index on non-array | Verify the data structure |
+| `JMESPath error` | Invalid query syntax | Check JMESPath syntax (no leading dots in queries) |
 | `Cannot append to non-array` | Append operation on non-array | Ensure target is an array |
-| `Merge requires objects` | Merge operation on non-objects | Ensure both target and value are objects |
 
 ### Error Handling in Workflows
 
@@ -684,7 +491,7 @@ steps:
     tool: json
     action: query
     file: "config.json"
-    query: ".optional.setting"
+    query: "optional.setting"
     output_var: setting
     on_error: continue
 
@@ -695,87 +502,53 @@ steps:
     when: "{setting} is empty"
 ```
 
+## Migration from jq-style Syntax
+
+If upgrading from the previous jq-style syntax:
+
+| Old (jq-style) | New (JMESPath) |
+|----------------|----------------|
+| `.name` | `name` |
+| `.a.b.c` | `a.b.c` |
+| `.items[]` | `items[*]` |
+| `.items[0]` | `items[0]` |
+| `.items \| length` | `length(items)` |
+| `.items \| keys` | `keys(items)` |
+| `.items \| first` | `items[0]` |
+| `.items \| last` | `items[-1]` |
+| `select(.x >= 3)` | `[?x >= \`3\`]` |
+| `select(.s == "a")` | `[?s == 'a']` |
+| `.items \| to_entries` | `to_entries(items)` |
+
 ## Tips and Best Practices
 
-### 1. Use Variables for Complex Transformations
+### 1. No Leading Dots in Queries
 
-When performing multiple operations on the same JSON, load it into a variable first:
-
+JMESPath queries don't use leading dots:
 ```yaml
-steps:
-  - name: "Load Config"
-    tool: bash
-    command: "cat config.json"
-    output_var: config
+# Correct
+query: "name"
+query: "scripts.test"
 
-  # Multiple operations on the variable
-  - name: "Modify A"
-    tool: json
-    action: set
-    source: config
-    path: ".a"
-    value: "1"
-
-  - name: "Modify B"
-    tool: json
-    action: set
-    source: config
-    path: ".b"
-    value: "2"
-
-  # Write once at the end
-  - name: "Save Config"
-    tool: bash
-    command: "echo '{config}' > config.json"
+# Incorrect (old jq-style)
+query: ".name"
+query: ".scripts.test"
 ```
 
-### 2. Initialize Before Update Operations
-
-For `append`, `prepend`, `increment`, and `merge`, the path is auto-initialized if it doesn't exist. However, explicitly initializing can make workflows clearer:
+### 2. Use Backticks for Literals in Filters
 
 ```yaml
-steps:
-  - name: "Initialize Array"
-    tool: json
-    action: set
-    source: data
-    create_if_missing: true
-    path: ".items"
-    value: []
+# Numbers need backticks
+query: "items[?count > `5`]"
 
-  - name: "Add Items"
-    tool: json
-    action: update
-    source: data
-    path: ".items"
-    operation: append
-    value: "new item"
+# Booleans need backticks
+query: "items[?active == `true`]"
+
+# Strings use single quotes
+query: "items[?status == 'active']"
 ```
 
-### 3. Use Query for Validation
-
-Query values before performing operations to validate data:
-
-```yaml
-steps:
-  - name: "Check Type"
-    tool: json
-    action: query
-    file: "data.json"
-    query: ".items"
-    output_var: items
-
-  - name: "Append Only If Array"
-    tool: json
-    action: update
-    file: "data.json"
-    path: ".items"
-    operation: append
-    value: "new item"
-    when: "{items} starts with ["
-```
-
-### 4. Path Expressions Support Interpolation
+### 3. Path Expressions Support Interpolation
 
 Use variables in path expressions:
 
@@ -790,48 +563,25 @@ steps:
     tool: json
     action: query
     file: "data.json"
-    query: ".items[{index}]"
+    query: "items[{index}]"
     output_var: item
 ```
 
-### 5. Handle Missing Files Gracefully
+### 4. YAML Files Preserve Format
 
-Use `create_if_missing` for idempotent workflows:
+When writing to YAML files, the tool preserves YAML formatting. When writing to JSON files, output is formatted with 2-space indentation.
 
-```yaml
-steps:
-  - name: "Ensure Config Exists"
-    tool: json
-    action: set
-    file: "state.json"
-    create_if_missing: true
-    path: ".initialized"
-    value: true
-```
+## Further Reading
 
-## Comparison with Bash + jq
+### JMESPath Resources
 
-| Feature | JSON Tool | bash + jq |
-|---------|-----------|-----------|
-| Dependencies | None (built-in) | Requires jq |
-| Syntax | jq-compatible query syntax | jq filter syntax |
-| Pipelines | `\| length`, `\| to_entries` | Same |
-| Array iteration | `.items[]` | Same |
-| Filtering | `select(.value >= 3)` | Same |
-| String interpolation | `"(.id): (.title)"` | `"\(.id): \(.title)"` |
-| Transforms | `length`, `keys`, `to_entries`, etc. | Full jq library |
-| Mutations | Native support | Complex command chaining |
-| Atomic writes | Automatic | Manual implementation |
-| Error handling | Structured errors | Exit codes + stderr |
-| Variable integration | Direct | String escaping required |
+- **[JMESPath Official Site](https://jmespath.org/)** - Language specification and overview
+- **[JMESPath Tutorial](https://jmespath.org/tutorial.html)** - Interactive tutorial to learn JMESPath
+- **[JMESPath Specification](https://jmespath.org/specification.html)** - Complete language specification
+- **[JMESPath Examples](https://jmespath.org/examples.html)** - Common query patterns and examples
 
-**When to use JSON tool:**
-- Most jq-style queries (pipelines, iteration, filtering)
-- Simple to moderately complex transformations
-- Workflow-centric JSON manipulation
-- Cross-platform compatibility (no jq required)
+### Related Tools
 
-**When to use bash + jq:**
-- Advanced jq features not yet supported (recursive descent `..`, `@base64`, etc.)
-- Complex map/reduce operations
-- One-liner scripts outside workflows
+- [data Tool Reference](./data.md) - Writing temp files for Claude
+- [bash Tool Reference](./bash.md) - Shell command execution
+- [set Tool Reference](./set.md) - Simple variable assignment

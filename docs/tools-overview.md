@@ -160,7 +160,7 @@ ToolResult(success=True, loop_signal=LoopSignal.BREAK)
 | Tool | Purpose |
 |------|---------|
 | `data` | Write content to managed temp files for Claude to read |
-| `json` | Native JSON manipulation (query, set, update, delete) without bash + jq |
+| `json` | Native JSON/YAML manipulation with JMESPath queries (query, set, update, delete) |
 
 ### Integration Tools
 
@@ -348,17 +348,24 @@ Use `retry` for automatic retries with optional success conditions:
       output_var: test_exit_code
 ```
 
-### Need to manipulate JSON data?
+### Need to manipulate JSON or YAML data?
 
-Use `json` for native JSON operations without shell commands:
+Use `json` for native JSON/YAML operations with [JMESPath](https://jmespath.org/) query syntax:
 
 ```yaml
 - name: get_user_name
   tool: json
   action: query
   file: "config.json"
-  query: ".users[0].name"
+  query: "users[0].name"  # JMESPath syntax (no leading dot)
   output_var: first_user
+
+- name: get_active_users
+  tool: json
+  action: query
+  file: "users.yaml"  # Works with YAML files too
+  query: "users[?active == `true`].name"  # JMESPath filter
+  output_var: active_names
 
 - name: update_version
   tool: json
@@ -368,7 +375,10 @@ Use `json` for native JSON operations without shell commands:
   value: "2.0.0"
 ```
 
-The `json` tool supports query, set, update (append, prepend, increment, merge), and delete operations.
+The `json` tool supports:
+- **File formats**: JSON (`.json`) and YAML (`.yaml`, `.yml`) with auto-detection
+- **Query syntax**: [JMESPath](https://jmespath.org/) expressions for powerful data extraction
+- **Actions**: query, set, update (append, prepend, increment, merge), and delete
 
 ### Need to write data to a temp file for Claude?
 

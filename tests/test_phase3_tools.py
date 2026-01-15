@@ -1,7 +1,7 @@
-"""Tests for Phase 3 tools: json tool and foreach enhancements.
+"""Tests for Phase 3 tools: json/yaml tool and foreach enhancements.
 
-These tests cover the JSON manipulation tool and the new foreach
-features (filter, order_by, break_when).
+These tests cover the JSON/YAML manipulation tool (with JMESPath queries)
+and the foreach features (filter, order_by, break_when).
 """
 
 import json
@@ -10,10 +10,11 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
+import yaml
 
 from orchestrator.context import ExecutionContext
 from orchestrator.tools import ToolRegistry
-from orchestrator.tools.base import LoopSignal, ToolResult
+from orchestrator.tools.base import ToolResult
 from orchestrator.tools.foreach import ForEachTool
 from orchestrator.tools.json_tool import JsonTool
 
@@ -66,7 +67,7 @@ class TestJsonToolValidation:
     def test_validate_requires_file_or_source(self) -> None:
         """Test that either 'file' or 'source' is required."""
         tool = JsonTool()
-        step: Dict[str, Any] = {"action": "query", "query": ".field"}
+        step: Dict[str, Any] = {"action": "query", "query": "field"}
 
         with pytest.raises(ValueError, match="requires either 'file'"):
             tool.validate_step(step)
@@ -133,7 +134,7 @@ class TestJsonToolValidation:
         tool = JsonTool()
 
         # Valid query
-        tool.validate_step({"action": "query", "file": "test.json", "query": ".field"})
+        tool.validate_step({"action": "query", "file": "test.json", "query": "field"})
 
         # Valid set
         tool.validate_step(
@@ -156,12 +157,12 @@ class TestJsonToolValidation:
 
 
 # =============================================================================
-# JsonTool Query Tests
+# JsonTool Query Tests (JMESPath syntax)
 # =============================================================================
 
 
 class TestJsonToolQuery:
-    """Tests for JsonTool query action."""
+    """Tests for JsonTool query action using JMESPath."""
 
     def test_query_simple_field(
         self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
@@ -174,7 +175,7 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".name",
+            "query": "name",  # JMESPath: no leading dot
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -193,7 +194,7 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".user.profile.name",
+            "query": "user.profile.name",  # JMESPath nested access
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -212,7 +213,7 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".items[1]",
+            "query": "items[1]",  # JMESPath array indexing
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -231,7 +232,7 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".user",
+            "query": "user",
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -250,7 +251,7 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "source": "data",
-            "query": ".items[0]",
+            "query": "items[0]",
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -258,10 +259,10 @@ class TestJsonToolQuery:
         assert result.success
         assert result.output == "1"
 
-    def test_query_nonexistent_path_fails(
+    def test_query_nonexistent_path_returns_empty(
         self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
     ) -> None:
-        """Test that querying a nonexistent path fails."""
+        """Test that querying a nonexistent path returns empty (JMESPath behavior)."""
         tool = JsonTool()
         json_file = tmp_path / "test.json"
         json_file.write_text('{"name": "John"}')
@@ -269,13 +270,260 @@ class TestJsonToolQuery:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".nonexistent",
+            "query": "nonexistent",
         }
 
         result = tool.execute(step, context, mock_tmux)
 
-        assert not result.success
-        assert "not found" in (result.error or "").lower()
+        # JMESPath returns null for missing keys, which we convert to empty string
+        assert result.success
+        assert result.output == ""
+
+    def test_query_array_projection(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath array projection with [*]."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text(
+            '{"users": [{"name": "Alice"}, {"name": "Bob"}, {"name": "Carol"}]}'
+        )
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "users[*].name",  # JMESPath projection
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == ["Alice", "Bob", "Carol"]
+
+    def test_query_filter_expression(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath filter expression."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text(
+            '{"items": [{"status": "active", "v": 1}, {"status": "inactive", "v": 2}, {"status": "active", "v": 3}]}'
+        )
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "items[?status == 'active']",  # JMESPath filter
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert len(parsed) == 2
+        assert all(item["status"] == "active" for item in parsed)
+
+    def test_query_length_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath length function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"items": [1, 2, 3, 4, 5]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "length(items)",  # JMESPath function
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "5"
+
+    def test_query_sort_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath sort function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"nums": [3, 1, 4, 1, 5]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "sort(nums)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == [1, 1, 3, 4, 5]
+
+    def test_query_keys_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath keys function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"config": {"host": "localhost", "port": 8080}}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "keys(config)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert set(parsed) == {"host", "port"}
+
+    def test_query_custom_to_entries_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test custom to_entries function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"counts": {"a": 1, "b": 2}}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "to_entries(counts)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert len(parsed) == 2
+        assert {"key": "a", "value": 1} in parsed
+        assert {"key": "b", "value": 2} in parsed
+
+    def test_query_custom_from_entries_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test custom from_entries function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text(
+            '{"entries": [{"key": "x", "value": 10}, {"key": "y", "value": 20}]}'
+        )
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "from_entries(entries)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == {"x": 10, "y": 20}
+
+    def test_query_custom_unique_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test custom unique function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"nums": [1, 2, 2, 3, 1]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "unique(nums)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == [1, 2, 3]
+
+    def test_query_custom_flatten_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test custom flatten function."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"nested": [[1, 2], [3, 4], [5]]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "flatten(nested)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == [1, 2, 3, 4, 5]
+
+    def test_query_custom_add_function(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test custom add function for numbers."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"nums": [1, 2, 3, 4]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "add(nums)",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "10"
+
+    def test_query_multiselect_hash(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath multiselect hash."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"user": {"name": "John", "age": 30, "city": "NYC"}}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "{name: user.name, age: user.age}",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == {"name": "John", "age": 30}
+
+    def test_query_negative_index(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath negative array indexing."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"items": [1, 2, 3, 4, 5]}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "items[-1]",  # Last element
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "5"
 
 
 # =============================================================================
@@ -622,7 +870,7 @@ class TestJsonToolFileOps:
         step: Dict[str, Any] = {
             "action": "query",
             "file": str(json_file),
-            "query": ".field",
+            "query": "field",
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -641,7 +889,7 @@ class TestJsonToolFileOps:
         step: Dict[str, Any] = {
             "action": "query",
             "file": "data.json",  # Relative path
-            "query": ".key",
+            "query": "key",
         }
 
         result = tool.execute(step, context, mock_tmux)
@@ -651,431 +899,218 @@ class TestJsonToolFileOps:
 
 
 # =============================================================================
-# JsonTool Advanced Query Tests (jq-style features)
+# JsonTool YAML Support Tests
 # =============================================================================
 
 
-class TestJsonToolArrayIteration:
-    """Tests for array iteration syntax (.items[])."""
+class TestJsonToolYamlSupport:
+    """Tests for JsonTool YAML file support."""
 
-    def test_iteration_all_elements(self) -> None:
-        """Test iterating over all array elements."""
+    def test_query_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test querying a YAML file."""
         tool = JsonTool()
-        data = {"items": [1, 2, 3]}
+        yaml_file = tmp_path / "test.yaml"
+        yaml_file.write_text("name: John\nage: 30\n")
 
-        result = tool._execute_query(data, ".items[]")
-
-        assert result == [1, 2, 3]
-
-    def test_iteration_with_field_access(self) -> None:
-        """Test iterating and accessing field from each element."""
-        tool = JsonTool()
-        data = {
-            "users": [
-                {"name": "Alice", "age": 30},
-                {"name": "Bob", "age": 25},
-            ]
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(yaml_file),
+            "query": "name",
         }
 
-        result = tool._execute_query(data, ".users[].name")
+        result = tool.execute(step, context, mock_tmux)
 
-        assert result == ["Alice", "Bob"]
+        assert result.success
+        assert result.output == "John"
 
-    def test_nested_iteration(self) -> None:
-        """Test nested array iteration."""
+    def test_query_yaml_file_yml_extension(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test querying a .yml file."""
         tool = JsonTool()
-        data = {
-            "groups": [
-                {"items": [1, 2]},
-                {"items": [3, 4]},
-            ]
+        yaml_file = tmp_path / "config.yml"
+        yaml_file.write_text("database:\n  host: localhost\n  port: 5432\n")
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(yaml_file),
+            "query": "database.host",
         }
 
-        result = tool._execute_query(data, ".groups[].items[]")
+        result = tool.execute(step, context, mock_tmux)
 
-        assert result == [1, 2, 3, 4]
+        assert result.success
+        assert result.output == "localhost"
 
-    def test_iteration_empty_array(self) -> None:
-        """Test iterating over empty array."""
+    def test_set_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test setting a value in a YAML file."""
         tool = JsonTool()
-        data = {"items": []}
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text("version: 1.0.0\n")
 
-        result = tool._execute_query(data, ".items[]")
-
-        assert result == []
-
-    def test_iteration_on_non_array_fails(self) -> None:
-        """Test that iterating over non-array raises error."""
-        tool = JsonTool()
-        data = {"value": "not an array"}
-
-        with pytest.raises(TypeError):
-            tool._execute_query(data, ".value[]")
-
-
-class TestJsonToolPipeline:
-    """Tests for pipeline operator (|)."""
-
-    def test_simple_pipeline(self) -> None:
-        """Test basic pipeline with two stages."""
-        tool = JsonTool()
-        data = {"items": [1, 2, 3]}
-
-        result = tool._execute_query(data, ".items | length")
-
-        assert result == 3
-
-    def test_multi_stage_pipeline(self) -> None:
-        """Test pipeline with multiple stages."""
-        tool = JsonTool()
-        data = {"items": [3, 1, 2]}
-
-        result = tool._execute_query(data, ".items | sort | first")
-
-        assert result == 1
-
-    def test_pipeline_with_iteration(self) -> None:
-        """Test pipeline combining iteration and transforms."""
-        tool = JsonTool()
-        data = {
-            "users": [
-                {"name": "Alice"},
-                {"name": "Bob"},
-            ]
+        step: Dict[str, Any] = {
+            "action": "set",
+            "file": str(yaml_file),
+            "path": ".version",
+            "value": "2.0.0",
         }
 
-        result = tool._execute_query(data, ".users[] | .name")
+        result = tool.execute(step, context, mock_tmux)
 
-        assert result == ["Alice", "Bob"]
+        assert result.success
+        data = yaml.safe_load(yaml_file.read_text())
+        assert data["version"] == "2.0.0"
 
-
-class TestJsonToolTransforms:
-    """Tests for built-in transform functions."""
-
-    def test_length_array(self) -> None:
-        """Test length on array."""
+    def test_update_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test updating a value in a YAML file."""
         tool = JsonTool()
-        data = {"items": [1, 2, 3, 4, 5]}
+        yaml_file = tmp_path / "config.yml"
+        yaml_file.write_text("items:\n  - one\n  - two\n")
 
-        result = tool._execute_query(data, ".items | length")
-
-        assert result == 5
-
-    def test_length_object(self) -> None:
-        """Test length on object (key count)."""
-        tool = JsonTool()
-        data = {"config": {"a": 1, "b": 2, "c": 3}}
-
-        result = tool._execute_query(data, ".config | length")
-
-        assert result == 3
-
-    def test_length_string(self) -> None:
-        """Test length on string."""
-        tool = JsonTool()
-        data = {"text": "hello"}
-
-        result = tool._execute_query(data, ".text | length")
-
-        assert result == 5
-
-    def test_to_entries(self) -> None:
-        """Test to_entries transform."""
-        tool = JsonTool()
-        data = {"counts": {"a": 1, "b": 2}}
-
-        result = tool._execute_query(data, ".counts | to_entries")
-
-        assert len(result) == 2
-        assert {"key": "a", "value": 1} in result
-        assert {"key": "b", "value": 2} in result
-
-    def test_from_entries(self) -> None:
-        """Test from_entries transform."""
-        tool = JsonTool()
-        data = {"entries": [{"key": "x", "value": 10}, {"key": "y", "value": 20}]}
-
-        result = tool._execute_query(data, ".entries | from_entries")
-
-        assert result == {"x": 10, "y": 20}
-
-    def test_keys(self) -> None:
-        """Test keys transform."""
-        tool = JsonTool()
-        data = {"config": {"host": "localhost", "port": 8080}}
-
-        result = tool._execute_query(data, ".config | keys")
-
-        assert set(result) == {"host", "port"}
-
-    def test_values(self) -> None:
-        """Test values transform."""
-        tool = JsonTool()
-        data = {"config": {"a": 1, "b": 2}}
-
-        result = tool._execute_query(data, ".config | values")
-
-        assert set(result) == {1, 2}
-
-    def test_sort(self) -> None:
-        """Test sort transform."""
-        tool = JsonTool()
-        data = {"nums": [3, 1, 4, 1, 5]}
-
-        result = tool._execute_query(data, ".nums | sort")
-
-        assert result == [1, 1, 3, 4, 5]
-
-    def test_reverse(self) -> None:
-        """Test reverse transform."""
-        tool = JsonTool()
-        data = {"items": [1, 2, 3]}
-
-        result = tool._execute_query(data, ".items | reverse")
-
-        assert result == [3, 2, 1]
-
-    def test_unique(self) -> None:
-        """Test unique transform."""
-        tool = JsonTool()
-        data = {"nums": [1, 2, 2, 3, 1]}
-
-        result = tool._execute_query(data, ".nums | unique")
-
-        assert result == [1, 2, 3]
-
-    def test_first_and_last(self) -> None:
-        """Test first and last transforms."""
-        tool = JsonTool()
-        data = {"items": [10, 20, 30]}
-
-        assert tool._execute_query(data, ".items | first") == 10
-        assert tool._execute_query(data, ".items | last") == 30
-
-    def test_min_max(self) -> None:
-        """Test min and max transforms."""
-        tool = JsonTool()
-        data = {"nums": [5, 2, 8, 1, 9]}
-
-        assert tool._execute_query(data, ".nums | min") == 1
-        assert tool._execute_query(data, ".nums | max") == 9
-
-    def test_add_numbers(self) -> None:
-        """Test add transform on numbers."""
-        tool = JsonTool()
-        data = {"nums": [1, 2, 3, 4]}
-
-        result = tool._execute_query(data, ".nums | add")
-
-        assert result == 10
-
-    def test_add_strings(self) -> None:
-        """Test add transform on strings."""
-        tool = JsonTool()
-        data = {"parts": ["hello", " ", "world"]}
-
-        result = tool._execute_query(data, ".parts | add")
-
-        assert result == "hello world"
-
-    def test_flatten(self) -> None:
-        """Test flatten transform."""
-        tool = JsonTool()
-        data = {"nested": [[1, 2], [3, 4], [5]]}
-
-        result = tool._execute_query(data, ".nested | flatten")
-
-        assert result == [1, 2, 3, 4, 5]
-
-
-class TestJsonToolSelect:
-    """Tests for select() filter function."""
-
-    def test_select_equality(self) -> None:
-        """Test select with equality."""
-        tool = JsonTool()
-        data = {
-            "items": [
-                {"status": "active", "name": "A"},
-                {"status": "inactive", "name": "B"},
-                {"status": "active", "name": "C"},
-            ]
+        step: Dict[str, Any] = {
+            "action": "update",
+            "file": str(yaml_file),
+            "path": ".items",
+            "operation": "append",
+            "value": "three",
         }
 
-        result = tool._execute_query(data, '.items[] | select(.status == "active")')
+        result = tool.execute(step, context, mock_tmux)
 
-        assert len(result) == 2
-        assert all(item["status"] == "active" for item in result)
+        assert result.success
+        data = yaml.safe_load(yaml_file.read_text())
+        assert data["items"] == ["one", "two", "three"]
 
-    def test_select_numeric_comparison(self) -> None:
-        """Test select with numeric comparison."""
+    def test_delete_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test deleting a key from a YAML file."""
         tool = JsonTool()
-        data = {"items": [{"value": 1}, {"value": 5}, {"value": 3}]}
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text("name: test\nversion: 1.0.0\ndebug: true\n")
 
-        result = tool._execute_query(data, ".items[] | select(.value >= 3)")
+        step: Dict[str, Any] = {
+            "action": "delete",
+            "file": str(yaml_file),
+            "path": ".debug",
+        }
 
-        assert len(result) == 2
+        result = tool.execute(step, context, mock_tmux)
 
-    def test_select_with_to_entries(self) -> None:
-        """Test select on to_entries output (story-executor pattern)."""
+        assert result.success
+        data = yaml.safe_load(yaml_file.read_text())
+        assert "debug" not in data
+        assert data["name"] == "test"
+        assert data["version"] == "1.0.0"
+
+    def test_yaml_nested_structure(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test querying nested YAML structure with JMESPath."""
         tool = JsonTool()
-        data = {"retry_counts": {"story_1": 3, "story_2": 1, "story_3": 5}}
-
-        result = tool._execute_query(
-            data, ".retry_counts | to_entries | select(.value >= 3)"
+        yaml_file = tmp_path / "nested.yaml"
+        yaml_file.write_text(
+            """
+servers:
+  - name: web1
+    port: 80
+  - name: web2
+    port: 8080
+  - name: db1
+    port: 5432
+"""
         )
 
-        assert len(result) == 2
-        keys = [item["key"] for item in result]
-        assert "story_1" in keys
-        assert "story_3" in keys
-
-    def test_select_contains(self) -> None:
-        """Test select with contains operator."""
-        tool = JsonTool()
-        data = {
-            "files": [
-                {"name": "test_foo.py"},
-                {"name": "bar.js"},
-                {"name": "test_bar.py"},
-            ]
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(yaml_file),
+            "query": "servers[*].name",
         }
 
-        result = tool._execute_query(data, '.files[] | select(.name contains "test")')
+        result = tool.execute(step, context, mock_tmux)
 
-        assert len(result) == 2
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == ["web1", "web2", "db1"]
 
-    def test_select_starts_with(self) -> None:
-        """Test select with starts_with operator."""
+    def test_yaml_filter_query(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test JMESPath filter on YAML data."""
         tool = JsonTool()
-        data = {"items": [{"id": "user_1"}, {"id": "admin_1"}, {"id": "user_2"}]}
-
-        result = tool._execute_query(data, '.items[] | select(.id starts_with "user")')
-
-        assert len(result) == 2
-
-
-class TestJsonToolStringInterpolation:
-    """Tests for string interpolation feature."""
-
-    def test_simple_interpolation(self) -> None:
-        """Test basic string interpolation."""
-        tool = JsonTool()
-        data = {"name": "Alice", "age": 30}
-
-        result = tool._execute_query(data, '"Name: (.name)"')
-
-        assert result == "Name: Alice"
-
-    def test_multiple_fields(self) -> None:
-        """Test interpolation with multiple fields."""
-        tool = JsonTool()
-        data = {"first": "John", "last": "Doe"}
-
-        result = tool._execute_query(data, '"(.first) (.last)"')
-
-        assert result == "John Doe"
-
-    def test_interpolation_with_iteration(self) -> None:
-        """Test string interpolation over array (story-executor pattern)."""
-        tool = JsonTool()
-        data = {
-            "stories": [
-                {"id": "story_1", "title": "Fix bug"},
-                {"id": "story_2", "title": "Add feature"},
-            ]
-        }
-
-        result = tool._execute_query(data, '.stories[] | "  - (.id): (.title)"')
-
-        assert len(result) == 2
-        assert "  - story_1: Fix bug" in result
-        assert "  - story_2: Add feature" in result
-
-
-class TestJsonToolArrayConstruction:
-    """Tests for array construction [...] syntax."""
-
-    def test_basic_array_construction(self) -> None:
-        """Test basic array construction."""
-        tool = JsonTool()
-        data = {"items": [1, 2, 3]}
-
-        result = tool._execute_query(data, "[.items[]]")
-
-        assert result == [1, 2, 3]
-
-    def test_array_construction_with_select(self) -> None:
-        """Test array construction with select filter on objects."""
-        tool = JsonTool()
-        data = {"items": [{"v": 1}, {"v": 2}, {"v": 3}, {"v": 4}, {"v": 5}]}
-
-        result = tool._execute_query(data, "[.items[] | select(.v >= 3)]")
-
-        assert len(result) == 3
-        assert all(item["v"] >= 3 for item in result)
-
-    def test_array_construction_with_length(self) -> None:
-        """Test array construction followed by length (story-executor pattern)."""
-        tool = JsonTool()
-        data = {"retry_counts": {"story_1": 3, "story_2": 1, "story_3": 5}}
-
-        result = tool._execute_query(
-            data, "[.retry_counts | to_entries | select(.value >= 3)] | length"
+        yaml_file = tmp_path / "data.yml"
+        yaml_file.write_text(
+            """
+tasks:
+  - name: task1
+    status: pending
+  - name: task2
+    status: done
+  - name: task3
+    status: pending
+"""
         )
 
-        assert result == 2
-
-
-class TestJsonToolComplexQueries:
-    """Tests for complex query patterns from real workflows."""
-
-    def test_story_executor_failed_count(self) -> None:
-        """Test the pattern used in story-executor for counting failed stories."""
-        tool = JsonTool()
-        data = {
-            "retry_counts": {
-                "story_1": 3,
-                "story_2": 1,
-                "story_3": 5,
-                "story_4": 0,
-            }
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(yaml_file),
+            "query": "tasks[?status == 'pending'].name",
         }
 
-        # This is the exact pattern from story-executor
-        result = tool._execute_query(
-            data, "[.retry_counts | to_entries | select(.value >= 3)] | length"
-        )
+        result = tool.execute(step, context, mock_tmux)
 
-        assert result == 2  # story_1 and story_3
+        assert result.success
+        parsed = json.loads(result.output or "")
+        assert parsed == ["task1", "task3"]
 
-    def test_story_executor_story_list(self) -> None:
-        """Test the pattern used to format story list."""
+    def test_create_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test creating a new YAML file."""
         tool = JsonTool()
-        data = {
-            "stories": [
-                {"id": "story_1", "title": "Fix bug"},
-                {"id": "story_2", "title": "Add feature"},
-                {"id": "story_3", "title": "Refactor"},
-            ]
+        yaml_file = tmp_path / "new.yaml"
+
+        step: Dict[str, Any] = {
+            "action": "set",
+            "file": str(yaml_file),
+            "path": ".config.name",
+            "value": "myapp",
+            "create_if_missing": True,
         }
 
-        # Pattern from story-executor for listing stories
-        result = tool._execute_query(data, '.stories[] | "  - (.id): (.title)"')
+        result = tool.execute(step, context, mock_tmux)
 
-        assert len(result) == 3
-        assert "  - story_1: Fix bug" in result
+        assert result.success
+        assert yaml_file.exists()
+        data = yaml.safe_load(yaml_file.read_text())
+        assert data["config"]["name"] == "myapp"
 
-    def test_story_count(self) -> None:
-        """Test simple story count."""
+    def test_empty_yaml_file(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test handling empty YAML file."""
         tool = JsonTool()
-        data = {"stories": [{}, {}, {}], "completed": [{}]}
+        yaml_file = tmp_path / "empty.yaml"
+        yaml_file.write_text("")  # Empty file
 
-        stories_count = tool._execute_query(data, ".stories | length")
-        completed_count = tool._execute_query(data, ".completed | length")
+        step: Dict[str, Any] = {
+            "action": "set",
+            "file": str(yaml_file),
+            "path": ".name",
+            "value": "test",
+        }
 
-        assert stories_count == 3
-        assert completed_count == 1
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        data = yaml.safe_load(yaml_file.read_text())
+        assert data["name"] == "test"
 
 
 # =============================================================================

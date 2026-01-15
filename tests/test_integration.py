@@ -3085,7 +3085,7 @@ class TestJsonManipulationWorkflow:
     def test_workflow_loads(self) -> None:
         """Verify workflow loads with json steps."""
         config = load_example("json_manipulation")
-        assert config.name == "JSON Manipulation Demo"
+        assert config.name == "JSON/YAML Manipulation Demo"
         # Find json tool steps
         json_steps = [s for s in config.steps if s.tool == "json"]
         assert len(json_steps) >= 10  # Many json steps in the demo
@@ -3117,12 +3117,12 @@ class TestJsonManipulationWorkflow:
         # Create context with project path
         context = ExecutionContext(project_path)
 
-        # Test simple query
+        # Test simple query (JMESPath syntax - no leading dot)
         tool = JsonTool()
         step_dict = {
             "action": "query",
             "file": str(test_json),
-            "query": ".name",
+            "query": "name",
         }
 
         result = tool.execute(step_dict, context, mock_tmux)
@@ -3150,18 +3150,18 @@ class TestJsonManipulationWorkflow:
         context = ExecutionContext(project_path)
         tool = JsonTool()
 
-        # Test nested object path
+        # Test nested object path (JMESPath syntax)
         step_dict = {
             "action": "query",
             "file": str(test_json),
-            "query": ".scripts.test",
+            "query": "scripts.test",
         }
         result = tool.execute(step_dict, context, mock_tmux)
         assert result.success
         assert result.output == "jest"
 
-        # Test array indexing
-        step_dict["query"] = ".keywords[0]"
+        # Test array indexing (JMESPath syntax)
+        step_dict["query"] = "keywords[0]"
         result = tool.execute(step_dict, context, mock_tmux)
         assert result.success
         assert result.output == "demo"
@@ -3413,11 +3413,11 @@ class TestJsonManipulationWorkflow:
         )
         context.set("api_response", api_response)
 
-        # Query from variable
+        # Query from variable (JMESPath syntax - no leading dots)
         step_dict = {
             "action": "query",
             "source": "api_response",
-            "query": ".data.user.name",
+            "query": "data.user.name",
         }
 
         result = tool.execute(step_dict, context, mock_tmux)
@@ -3425,13 +3425,13 @@ class TestJsonManipulationWorkflow:
         assert result.output == "John Doe"
 
         # Query nested timestamp
-        step_dict["query"] = ".data.metadata.timestamp"
+        step_dict["query"] = "data.metadata.timestamp"
         result = tool.execute(step_dict, context, mock_tmux)
         assert result.success
         assert result.output == "2024-01-15"
 
         # Query status
-        step_dict["query"] = ".status"
+        step_dict["query"] = "status"
         result = tool.execute(step_dict, context, mock_tmux)
         assert result.success
         assert result.output == "success"
@@ -3477,7 +3477,7 @@ class TestJsonManipulationWorkflow:
                     tool="json",
                     action="query",
                     file=str(test_json),
-                    query=".version",
+                    query="version",
                     output_var="current_version",
                 ),
             ],
@@ -3520,7 +3520,7 @@ class TestJsonManipulationWorkflow:
         step_dict = {
             "action": "query",
             "file": str(test_json),
-            "query": ".",  # Get entire array
+            "query": "@",  # JMESPath: @ returns entire document
         }
 
         result = tool.execute(step_dict, context, mock_tmux)
@@ -3544,7 +3544,7 @@ class TestJsonManipulationWorkflow:
 
         step_dict = {
             "file": "/tmp/test.json",
-            "query": ".name",
+            "query": "name",
         }
 
         with pytest.raises(ValueError, match="requires 'action' field"):
@@ -3564,7 +3564,7 @@ class TestJsonManipulationWorkflow:
 
         step_dict = {
             "action": "query",
-            "query": ".name",
+            "query": "name",
         }
 
         with pytest.raises(ValueError, match="requires either 'file'.*or 'source'"):
