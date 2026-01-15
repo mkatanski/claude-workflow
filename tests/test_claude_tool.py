@@ -331,6 +331,7 @@ class TestModelOverride:
         """Create mock execution context."""
         context = MagicMock(spec=ExecutionContext)
         context.interpolate.side_effect = lambda x: x  # Return input unchanged
+        context.interpolate_for_claude.side_effect = lambda x: x  # Return input unchanged
         context.project_path = Path("/test/project")
         return context
 

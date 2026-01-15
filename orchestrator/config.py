@@ -329,7 +329,8 @@ def load_config(
 def discover_workflows(project_path: Path) -> List[WorkflowInfo]:
     """Discover all workflow files with 'type: claude-workflow' marker.
 
-    Scans the .claude/ directory for YAML files containing the marker.
+    Recursively scans the .claude/ directory and subdirectories for YAML files
+    containing the marker.
 
     Args:
         project_path: Path to the project root
@@ -344,9 +345,9 @@ def discover_workflows(project_path: Path) -> List[WorkflowInfo]:
 
     workflows: List[WorkflowInfo] = []
 
-    # Scan for .yml and .yaml files
+    # Recursively scan for .yml and .yaml files
     for pattern in ("*.yml", "*.yaml"):
-        for file_path in claude_dir.glob(pattern):
+        for file_path in claude_dir.rglob(pattern):
             if not file_path.is_file():
                 continue
 

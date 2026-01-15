@@ -41,12 +41,14 @@ class ClaudeTool(BaseTool):
         tmux_manager: "TmuxManager",
     ) -> ToolResult:
         """Execute Claude Code with the given prompt."""
-        prompt = context.interpolate(step["prompt"])
+        # Use interpolate_for_claude to automatically externalize large variables
+        # to temp files and replace with @filepath references
+        prompt = context.interpolate_for_claude(step["prompt"])
 
         # Apply append_system_prompt if configured
         append_prompt = getattr(tmux_manager.claude_config, "append_system_prompt", None)
         if append_prompt and isinstance(append_prompt, str):
-            extension = context.interpolate(append_prompt)
+            extension = context.interpolate_for_claude(append_prompt)
             prompt = f"{extension}\n\n{prompt}"
 
         # Extract step-level model override (takes precedence over workflow config)

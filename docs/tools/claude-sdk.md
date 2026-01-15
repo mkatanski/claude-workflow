@@ -289,6 +289,28 @@ These run with `bypassPermissions` mode for seamless execution.
 
 ## Tips and Patterns
 
+### Large Variables Are Handled Automatically
+
+Variables exceeding 10,000 characters are **automatically externalized** to temp files. The system:
+- Writes large content to `{temp_dir}/{variable_name}.txt`
+- Replaces `{var}` with `@/path/to/file.txt` in the prompt
+- Claude reads the file via its `@filepath` syntax
+
+This prevents prompt size errors and works transparently:
+```yaml
+steps:
+  - name: "Get logs"
+    tool: bash
+    command: "cat large_logfile.txt"  # Could be 100KB+
+    output_var: logs
+
+  - name: "Analyze"
+    tool: claude_sdk
+    prompt: "Find critical errors in: {logs}"
+    output_type: boolean
+    # Automatically becomes: Find critical errors in: @/path/to/logs.txt
+```
+
 ### Use Variables for Context
 
 ```yaml

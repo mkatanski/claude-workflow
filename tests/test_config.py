@@ -801,6 +801,87 @@ steps: []
         assert len(workflows) == 1
         assert workflows[0].name == "Minimal Workflow"
 
+    def test_discover_workflows_finds_in_subdirectories(
+        self, tmp_project: Path
+    ) -> None:
+        """Test that workflows in subdirectories are discovered."""
+        # Create workflow in root .claude/
+        root_workflow = tmp_project / ".claude" / "root.yml"
+        root_workflow.write_text("""
+type: claude-workflow
+version: 2
+name: Root Workflow
+steps: []
+""")
+
+        # Create workflow in subdirectory
+        subdir = tmp_project / ".claude" / "workflows" / "deploy"
+        subdir.mkdir(parents=True)
+        nested_workflow = subdir / "deploy-prod.yml"
+        nested_workflow.write_text("""
+type: claude-workflow
+version: 2
+name: Deploy Production
+steps: []
+""")
+
+        workflows = discover_workflows(tmp_project)
+
+        assert len(workflows) == 2
+        names = [w.name for w in workflows]
+        assert "Root Workflow" in names
+        assert "Deploy Production" in names
+
+    def test_discover_workflows_finds_deeply_nested(
+        self, tmp_project: Path
+    ) -> None:
+        """Test that deeply nested workflows are discovered."""
+        deep_dir = tmp_project / ".claude" / "a" / "b" / "c"
+        deep_dir.mkdir(parents=True)
+        workflow = deep_dir / "deep.yml"
+        workflow.write_text("""
+type: claude-workflow
+version: 2
+name: Deep Workflow
+steps: []
+""")
+
+        workflows = discover_workflows(tmp_project)
+
+        assert len(workflows) == 1
+        assert workflows[0].name == "Deep Workflow"
+
+    def test_discover_workflows_ignores_invalid_in_subdirectories(
+        self, tmp_project: Path
+    ) -> None:
+        """Test that invalid workflows in subdirectories are ignored."""
+        # Create valid workflow in subdirectory
+        subdir = tmp_project / ".claude" / "workflows"
+        subdir.mkdir(parents=True)
+        valid_workflow = subdir / "valid.yml"
+        valid_workflow.write_text("""
+type: claude-workflow
+version: 2
+name: Valid Nested
+steps: []
+""")
+
+        # Create invalid workflow (wrong type) in another subdirectory
+        invalid_dir = tmp_project / ".claude" / "other"
+        invalid_dir.mkdir(parents=True)
+        invalid_workflow = invalid_dir / "invalid.yml"
+        invalid_workflow.write_text("""
+type: not-a-workflow
+version: 2
+name: Invalid Nested
+steps: []
+""")
+
+        workflows = discover_workflows(tmp_project)
+
+        assert len(workflows) == 1
+        assert workflows[0].name == "Valid Nested"
+
 
 # =============================================================================
 # Tests for validate_workflow_file()

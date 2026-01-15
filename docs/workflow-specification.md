@@ -56,7 +56,7 @@ This document provides a comprehensive specification for claude-workflow YAML fi
 
 ## Overview
 
-A workflow file defines a sequence of automated steps that can invoke Claude Code, execute bash commands, interact with Linear, and perform control flow operations. Workflows are written in YAML format and stored in a project's `.claude/` directory.
+A workflow file defines a sequence of automated steps that can invoke Claude Code, execute bash commands, interact with Linear, and perform control flow operations. Workflows are written in YAML format and stored in a project's `.claude/` directory or any of its subdirectories. Files are discovered recursively.
 
 ## File Structure
 
@@ -247,6 +247,31 @@ Supported access patterns:
 - Simple: `{variable}`
 - Nested: `{object.field.subfield}`
 - Array index: `{array.0.field}`
+
+### Large Variable Externalization
+
+Variables exceeding 10,000 characters are **automatically externalized** when used in `claude` or `claude_sdk` tool prompts:
+
+- Large content is written to `{temp_dir}/{variable_name}.txt`
+- The prompt receives `@/path/to/file.txt` instead of inline content
+- Claude reads the file using the `@filepath` syntax
+- Files are automatically cleaned up when the workflow ends
+
+This happens transparently - no special handling needed:
+
+```yaml
+steps:
+  - name: "Get large data"
+    tool: bash
+    command: "cat huge_file.txt"
+    output_var: data  # Could be 100KB+
+
+  - name: "Process"
+    prompt: "Analyze: {data}"
+    # Automatically becomes: Analyze: @/path/to/data.txt
+```
+
+For nested paths like `{result.data.content}`, the filename uses underscores: `result_data_content.txt`.
 
 ---
 

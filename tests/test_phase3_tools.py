@@ -651,6 +651,434 @@ class TestJsonToolFileOps:
 
 
 # =============================================================================
+# JsonTool Advanced Query Tests (jq-style features)
+# =============================================================================
+
+
+class TestJsonToolArrayIteration:
+    """Tests for array iteration syntax (.items[])."""
+
+    def test_iteration_all_elements(self) -> None:
+        """Test iterating over all array elements."""
+        tool = JsonTool()
+        data = {"items": [1, 2, 3]}
+
+        result = tool._execute_query(data, ".items[]")
+
+        assert result == [1, 2, 3]
+
+    def test_iteration_with_field_access(self) -> None:
+        """Test iterating and accessing field from each element."""
+        tool = JsonTool()
+        data = {
+            "users": [
+                {"name": "Alice", "age": 30},
+                {"name": "Bob", "age": 25},
+            ]
+        }
+
+        result = tool._execute_query(data, ".users[].name")
+
+        assert result == ["Alice", "Bob"]
+
+    def test_nested_iteration(self) -> None:
+        """Test nested array iteration."""
+        tool = JsonTool()
+        data = {
+            "groups": [
+                {"items": [1, 2]},
+                {"items": [3, 4]},
+            ]
+        }
+
+        result = tool._execute_query(data, ".groups[].items[]")
+
+        assert result == [1, 2, 3, 4]
+
+    def test_iteration_empty_array(self) -> None:
+        """Test iterating over empty array."""
+        tool = JsonTool()
+        data = {"items": []}
+
+        result = tool._execute_query(data, ".items[]")
+
+        assert result == []
+
+    def test_iteration_on_non_array_fails(self) -> None:
+        """Test that iterating over non-array raises error."""
+        tool = JsonTool()
+        data = {"value": "not an array"}
+
+        with pytest.raises(TypeError):
+            tool._execute_query(data, ".value[]")
+
+
+class TestJsonToolPipeline:
+    """Tests for pipeline operator (|)."""
+
+    def test_simple_pipeline(self) -> None:
+        """Test basic pipeline with two stages."""
+        tool = JsonTool()
+        data = {"items": [1, 2, 3]}
+
+        result = tool._execute_query(data, ".items | length")
+
+        assert result == 3
+
+    def test_multi_stage_pipeline(self) -> None:
+        """Test pipeline with multiple stages."""
+        tool = JsonTool()
+        data = {"items": [3, 1, 2]}
+
+        result = tool._execute_query(data, ".items | sort | first")
+
+        assert result == 1
+
+    def test_pipeline_with_iteration(self) -> None:
+        """Test pipeline combining iteration and transforms."""
+        tool = JsonTool()
+        data = {
+            "users": [
+                {"name": "Alice"},
+                {"name": "Bob"},
+            ]
+        }
+
+        result = tool._execute_query(data, ".users[] | .name")
+
+        assert result == ["Alice", "Bob"]
+
+
+class TestJsonToolTransforms:
+    """Tests for built-in transform functions."""
+
+    def test_length_array(self) -> None:
+        """Test length on array."""
+        tool = JsonTool()
+        data = {"items": [1, 2, 3, 4, 5]}
+
+        result = tool._execute_query(data, ".items | length")
+
+        assert result == 5
+
+    def test_length_object(self) -> None:
+        """Test length on object (key count)."""
+        tool = JsonTool()
+        data = {"config": {"a": 1, "b": 2, "c": 3}}
+
+        result = tool._execute_query(data, ".config | length")
+
+        assert result == 3
+
+    def test_length_string(self) -> None:
+        """Test length on string."""
+        tool = JsonTool()
+        data = {"text": "hello"}
+
+        result = tool._execute_query(data, ".text | length")
+
+        assert result == 5
+
+    def test_to_entries(self) -> None:
+        """Test to_entries transform."""
+        tool = JsonTool()
+        data = {"counts": {"a": 1, "b": 2}}
+
+        result = tool._execute_query(data, ".counts | to_entries")
+
+        assert len(result) == 2
+        assert {"key": "a", "value": 1} in result
+        assert {"key": "b", "value": 2} in result
+
+    def test_from_entries(self) -> None:
+        """Test from_entries transform."""
+        tool = JsonTool()
+        data = {"entries": [{"key": "x", "value": 10}, {"key": "y", "value": 20}]}
+
+        result = tool._execute_query(data, ".entries | from_entries")
+
+        assert result == {"x": 10, "y": 20}
+
+    def test_keys(self) -> None:
+        """Test keys transform."""
+        tool = JsonTool()
+        data = {"config": {"host": "localhost", "port": 8080}}
+
+        result = tool._execute_query(data, ".config | keys")
+
+        assert set(result) == {"host", "port"}
+
+    def test_values(self) -> None:
+        """Test values transform."""
+        tool = JsonTool()
+        data = {"config": {"a": 1, "b": 2}}
+
+        result = tool._execute_query(data, ".config | values")
+
+        assert set(result) == {1, 2}
+
+    def test_sort(self) -> None:
+        """Test sort transform."""
+        tool = JsonTool()
+        data = {"nums": [3, 1, 4, 1, 5]}
+
+        result = tool._execute_query(data, ".nums | sort")
+
+        assert result == [1, 1, 3, 4, 5]
+
+    def test_reverse(self) -> None:
+        """Test reverse transform."""
+        tool = JsonTool()
+        data = {"items": [1, 2, 3]}
+
+        result = tool._execute_query(data, ".items | reverse")
+
+        assert result == [3, 2, 1]
+
+    def test_unique(self) -> None:
+        """Test unique transform."""
+        tool = JsonTool()
+        data = {"nums": [1, 2, 2, 3, 1]}
+
+        result = tool._execute_query(data, ".nums | unique")
+
+        assert result == [1, 2, 3]
+
+    def test_first_and_last(self) -> None:
+        """Test first and last transforms."""
+        tool = JsonTool()
+        data = {"items": [10, 20, 30]}
+
+        assert tool._execute_query(data, ".items | first") == 10
+        assert tool._execute_query(data, ".items | last") == 30
+
+    def test_min_max(self) -> None:
+        """Test min and max transforms."""
+        tool = JsonTool()
+        data = {"nums": [5, 2, 8, 1, 9]}
+
+        assert tool._execute_query(data, ".nums | min") == 1
+        assert tool._execute_query(data, ".nums | max") == 9
+
+    def test_add_numbers(self) -> None:
+        """Test add transform on numbers."""
+        tool = JsonTool()
+        data = {"nums": [1, 2, 3, 4]}
+
+        result = tool._execute_query(data, ".nums | add")
+
+        assert result == 10
+
+    def test_add_strings(self) -> None:
+        """Test add transform on strings."""
+        tool = JsonTool()
+        data = {"parts": ["hello", " ", "world"]}
+
+        result = tool._execute_query(data, ".parts | add")
+
+        assert result == "hello world"
+
+    def test_flatten(self) -> None:
+        """Test flatten transform."""
+        tool = JsonTool()
+        data = {"nested": [[1, 2], [3, 4], [5]]}
+
+        result = tool._execute_query(data, ".nested | flatten")
+
+        assert result == [1, 2, 3, 4, 5]
+
+
+class TestJsonToolSelect:
+    """Tests for select() filter function."""
+
+    def test_select_equality(self) -> None:
+        """Test select with equality."""
+        tool = JsonTool()
+        data = {
+            "items": [
+                {"status": "active", "name": "A"},
+                {"status": "inactive", "name": "B"},
+                {"status": "active", "name": "C"},
+            ]
+        }
+
+        result = tool._execute_query(data, '.items[] | select(.status == "active")')
+
+        assert len(result) == 2
+        assert all(item["status"] == "active" for item in result)
+
+    def test_select_numeric_comparison(self) -> None:
+        """Test select with numeric comparison."""
+        tool = JsonTool()
+        data = {"items": [{"value": 1}, {"value": 5}, {"value": 3}]}
+
+        result = tool._execute_query(data, ".items[] | select(.value >= 3)")
+
+        assert len(result) == 2
+
+    def test_select_with_to_entries(self) -> None:
+        """Test select on to_entries output (story-executor pattern)."""
+        tool = JsonTool()
+        data = {"retry_counts": {"story_1": 3, "story_2": 1, "story_3": 5}}
+
+        result = tool._execute_query(
+            data, ".retry_counts | to_entries | select(.value >= 3)"
+        )
+
+        assert len(result) == 2
+        keys = [item["key"] for item in result]
+        assert "story_1" in keys
+        assert "story_3" in keys
+
+    def test_select_contains(self) -> None:
+        """Test select with contains operator."""
+        tool = JsonTool()
+        data = {
+            "files": [
+                {"name": "test_foo.py"},
+                {"name": "bar.js"},
+                {"name": "test_bar.py"},
+            ]
+        }
+
+        result = tool._execute_query(data, '.files[] | select(.name contains "test")')
+
+        assert len(result) == 2
+
+    def test_select_starts_with(self) -> None:
+        """Test select with starts_with operator."""
+        tool = JsonTool()
+        data = {"items": [{"id": "user_1"}, {"id": "admin_1"}, {"id": "user_2"}]}
+
+        result = tool._execute_query(data, '.items[] | select(.id starts_with "user")')
+
+        assert len(result) == 2
+
+
+class TestJsonToolStringInterpolation:
+    """Tests for string interpolation feature."""
+
+    def test_simple_interpolation(self) -> None:
+        """Test basic string interpolation."""
+        tool = JsonTool()
+        data = {"name": "Alice", "age": 30}
+
+        result = tool._execute_query(data, '"Name: (.name)"')
+
+        assert result == "Name: Alice"
+
+    def test_multiple_fields(self) -> None:
+        """Test interpolation with multiple fields."""
+        tool = JsonTool()
+        data = {"first": "John", "last": "Doe"}
+
+        result = tool._execute_query(data, '"(.first) (.last)"')
+
+        assert result == "John Doe"
+
+    def test_interpolation_with_iteration(self) -> None:
+        """Test string interpolation over array (story-executor pattern)."""
+        tool = JsonTool()
+        data = {
+            "stories": [
+                {"id": "story_1", "title": "Fix bug"},
+                {"id": "story_2", "title": "Add feature"},
+            ]
+        }
+
+        result = tool._execute_query(data, '.stories[] | "  - (.id): (.title)"')
+
+        assert len(result) == 2
+        assert "  - story_1: Fix bug" in result
+        assert "  - story_2: Add feature" in result
+
+
+class TestJsonToolArrayConstruction:
+    """Tests for array construction [...] syntax."""
+
+    def test_basic_array_construction(self) -> None:
+        """Test basic array construction."""
+        tool = JsonTool()
+        data = {"items": [1, 2, 3]}
+
+        result = tool._execute_query(data, "[.items[]]")
+
+        assert result == [1, 2, 3]
+
+    def test_array_construction_with_select(self) -> None:
+        """Test array construction with select filter on objects."""
+        tool = JsonTool()
+        data = {"items": [{"v": 1}, {"v": 2}, {"v": 3}, {"v": 4}, {"v": 5}]}
+
+        result = tool._execute_query(data, "[.items[] | select(.v >= 3)]")
+
+        assert len(result) == 3
+        assert all(item["v"] >= 3 for item in result)
+
+    def test_array_construction_with_length(self) -> None:
+        """Test array construction followed by length (story-executor pattern)."""
+        tool = JsonTool()
+        data = {"retry_counts": {"story_1": 3, "story_2": 1, "story_3": 5}}
+
+        result = tool._execute_query(
+            data, "[.retry_counts | to_entries | select(.value >= 3)] | length"
+        )
+
+        assert result == 2
+
+
+class TestJsonToolComplexQueries:
+    """Tests for complex query patterns from real workflows."""
+
+    def test_story_executor_failed_count(self) -> None:
+        """Test the pattern used in story-executor for counting failed stories."""
+        tool = JsonTool()
+        data = {
+            "retry_counts": {
+                "story_1": 3,
+                "story_2": 1,
+                "story_3": 5,
+                "story_4": 0,
+            }
+        }
+
+        # This is the exact pattern from story-executor
+        result = tool._execute_query(
+            data, "[.retry_counts | to_entries | select(.value >= 3)] | length"
+        )
+
+        assert result == 2  # story_1 and story_3
+
+    def test_story_executor_story_list(self) -> None:
+        """Test the pattern used to format story list."""
+        tool = JsonTool()
+        data = {
+            "stories": [
+                {"id": "story_1", "title": "Fix bug"},
+                {"id": "story_2", "title": "Add feature"},
+                {"id": "story_3", "title": "Refactor"},
+            ]
+        }
+
+        # Pattern from story-executor for listing stories
+        result = tool._execute_query(data, '.stories[] | "  - (.id): (.title)"')
+
+        assert len(result) == 3
+        assert "  - story_1: Fix bug" in result
+
+    def test_story_count(self) -> None:
+        """Test simple story count."""
+        tool = JsonTool()
+        data = {"stories": [{}, {}, {}], "completed": [{}]}
+
+        stories_count = tool._execute_query(data, ".stories | length")
+        completed_count = tool._execute_query(data, ".completed | length")
+
+        assert stories_count == 3
+        assert completed_count == 1
+
+
+# =============================================================================
 # ForEach Filter Tests
 # =============================================================================
 

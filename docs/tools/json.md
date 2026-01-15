@@ -50,6 +50,175 @@ The JSON tool uses a dot-notation path syntax for navigating JSON structures:
 | `.arr[1].field` | Combined access | `.users[0].name` |
 | `['key']` or `["key"]` | Bracket notation for keys | `.data['special-key']` |
 
+## Advanced Query Syntax (jq-style)
+
+The JSON tool supports jq-style query syntax for complex data transformations, eliminating the need for external `jq` in most cases.
+
+### Pipeline Operator (`|`)
+
+Chain operations together by piping output from one stage to the next:
+
+```yaml
+- name: "Get story count"
+  tool: json
+  action: query
+  file: "stories.json"
+  query: ".stories | length"
+  output_var: count
+```
+
+### Array Iteration (`[]`)
+
+Iterate over all elements in an array:
+
+```yaml
+# Get all story IDs
+- name: "Get story IDs"
+  tool: json
+  action: query
+  file: "stories.json"
+  query: ".stories[].id"
+  output_var: ids
+  # Returns: ["story_1", "story_2", "story_3"]
+
+# Nested iteration
+- name: "Get all tags"
+  tool: json
+  action: query
+  source: data
+  query: ".items[].tags[]"
+  output_var: all_tags
+```
+
+### Built-in Transforms
+
+| Transform | Input | Output | Description |
+|-----------|-------|--------|-------------|
+| `length` | array/object/string | integer | Length or key count |
+| `to_entries` | object | array | Convert to `[{key, value}, ...]` |
+| `from_entries` | array | object | Convert from `[{key, value}, ...]` |
+| `keys` | object | array | Get all keys |
+| `values` | object | array | Get all values |
+| `first` | array | any | First element |
+| `last` | array | any | Last element |
+| `sort` | array | array | Sort elements |
+| `reverse` | array | array | Reverse order |
+| `unique` | array | array | Remove duplicates |
+| `flatten` | array | array | Flatten one level |
+| `min` | array | any | Minimum value |
+| `max` | array | any | Maximum value |
+| `add` | array | any | Sum numbers or concat strings |
+
+```yaml
+# Get keys from an object
+- name: "Get config keys"
+  tool: json
+  action: query
+  file: "config.json"
+  query: ".settings | keys"
+  output_var: setting_names
+
+# Count failed stories (retry_counts >= 3)
+- name: "Count failures"
+  tool: json
+  action: query
+  file: "progress.json"
+  query: "[.retry_counts | to_entries | select(.value >= 3)] | length"
+  output_var: failed_count
+```
+
+### Select Filter (`select()`)
+
+Filter items based on conditions:
+
+```yaml
+# Filter active items
+- name: "Get active items"
+  tool: json
+  action: query
+  source: data
+  query: '.items[] | select(.status == "active")'
+  output_var: active_items
+
+# Numeric comparison
+- name: "Get high priority"
+  tool: json
+  action: query
+  source: tasks
+  query: ".tasks[] | select(.priority >= 3)"
+  output_var: high_priority
+```
+
+**Supported operators in select:**
+- Equality: `==`, `!=`
+- Comparison: `>`, `>=`, `<`, `<=`
+- String: `contains`, `starts_with`, `ends_with`
+
+### String Interpolation
+
+Format output strings with field values:
+
+```yaml
+# Format story list
+- name: "Format stories"
+  tool: json
+  action: query
+  file: "stories.json"
+  query: '.stories[] | "  - (.id): (.title)"'
+  output_var: story_list
+  # Returns: ["  - story_1: Fix bug", "  - story_2: Add feature"]
+```
+
+### Array Construction (`[...]`)
+
+Explicitly wrap results in an array:
+
+```yaml
+# Get filtered entries as array
+- name: "Get failed entries"
+  tool: json
+  action: query
+  file: "progress.json"
+  query: "[.retry_counts | to_entries | select(.value >= 3)]"
+  output_var: failed_entries
+```
+
+### Complex Query Examples
+
+```yaml
+# Pattern from story-executor: count failed stories
+- name: "Count failed stories"
+  tool: json
+  action: query
+  file: ".claude/stories/progress.json"
+  query: "[.retry_counts | to_entries | select(.value >= 3)] | length"
+  output_var: failed_count
+
+# Format story list for display
+- name: "Format story list"
+  tool: json
+  action: query
+  file: ".claude/stories/stories.json"
+  query: '.stories[] | "  - (.id): (.title)"'
+  output_var: story_lines
+
+# Get completed story count
+- name: "Get progress"
+  tool: json
+  action: query
+  file: ".claude/stories/progress.json"
+  query: ".completed | length"
+  output_var: completed_count
+
+# Get pending items with high value
+- name: "High value pending"
+  tool: json
+  action: query
+  source: items
+  query: '.items[] | select(.status == "pending") | select(.value > 100)'
+  output_var: high_value_pending
+```
+
 ## Actions
 
 ### Query Action
@@ -645,18 +814,24 @@ steps:
 | Feature | JSON Tool | bash + jq |
 |---------|-----------|-----------|
 | Dependencies | None (built-in) | Requires jq |
-| Syntax | YAML path expressions | jq filter syntax |
+| Syntax | jq-compatible query syntax | jq filter syntax |
+| Pipelines | `\| length`, `\| to_entries` | Same |
+| Array iteration | `.items[]` | Same |
+| Filtering | `select(.value >= 3)` | Same |
+| String interpolation | `"(.id): (.title)"` | `"\(.id): \(.title)"` |
+| Transforms | `length`, `keys`, `to_entries`, etc. | Full jq library |
 | Mutations | Native support | Complex command chaining |
 | Atomic writes | Automatic | Manual implementation |
 | Error handling | Structured errors | Exit codes + stderr |
 | Variable integration | Direct | String escaping required |
 
 **When to use JSON tool:**
-- Simple path-based queries and mutations
+- Most jq-style queries (pipelines, iteration, filtering)
+- Simple to moderately complex transformations
 - Workflow-centric JSON manipulation
 - Cross-platform compatibility (no jq required)
 
 **When to use bash + jq:**
-- Complex transformations (map, select, reduce)
-- Advanced filtering and aggregation
+- Advanced jq features not yet supported (recursive descent `..`, `@base64`, etc.)
+- Complex map/reduce operations
 - One-liner scripts outside workflows

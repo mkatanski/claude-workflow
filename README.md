@@ -34,7 +34,7 @@ pip install claude-workflow
 tmux new -s workflow
 ```
 
-**2. Create a workflow file** at `.claude/workflow.yml` in your project:
+**2. Create a workflow file** in the `.claude/` directory (or any subdirectory):
 
 ```yaml
 type: claude-workflow
@@ -78,7 +78,7 @@ claude-workflow [project_path] [options]
 ### Examples
 
 ```bash
-# Interactive picker (shows all workflows in .claude/)
+# Interactive picker (shows all workflows in .claude/ and subdirectories)
 claude-workflow .
 
 # Run specific workflow by name
@@ -95,7 +95,7 @@ claude-workflow . -p 8000
 
 ## Workflow File Structure
 
-Workflows live in your project's `.claude/` directory. Any `.yml` or `.yaml` file with the proper header is auto-discovered.
+Workflows live in your project's `.claude/` directory and any subdirectories. Any `.yml` or `.yaml` file with the proper header (`type: claude-workflow`, `version: 2`) is auto-discovered recursively.
 
 ### Minimal Example
 

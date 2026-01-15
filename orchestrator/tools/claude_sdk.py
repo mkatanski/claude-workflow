@@ -93,8 +93,8 @@ class ClaudeSdkTool(BaseTool):
                 error="claude-agent-sdk not installed. Run: pip install claude-agent-sdk",
             )
 
-        # Interpolate prompt template with variables
-        prompt = context.interpolate(step["prompt"])
+        # Interpolate prompt template with variables, externalizing large ones
+        prompt = context.interpolate_for_claude(step["prompt"])
 
         # Build SDK options
         options = self._build_options(step, context)
