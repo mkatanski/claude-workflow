@@ -122,14 +122,14 @@ steps:
     tool: bash
     command: |
       WORKFLOW_ID=$(date +%Y%m%d%H%M%S)-$$
-      mkdir -p /tmp/orchestrator-${WORKFLOW_ID}
+      mkdir -p .temp/orchestrator-${WORKFLOW_ID}
       echo "${WORKFLOW_ID}"
     output_var: workflow_id
 
   - name: "Set temp dir path"
     tool: set
     var: temp_dir
-    value: "/tmp/orchestrator-{workflow_id}"
+    value: ".temp/orchestrator-{workflow_id}"
 
   - name: "Read epic prompt file"
     tool: bash

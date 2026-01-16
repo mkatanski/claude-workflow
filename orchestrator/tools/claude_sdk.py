@@ -128,10 +128,11 @@ class ClaudeSdkTool(BaseTool):
                     if isinstance(message, ResultMessage):
                         if hasattr(message, "result") and message.result:
                             result_text = message.result
-                        if hasattr(message, "structured_output"):
-                            structured_output = getattr(
-                                message, "structured_output", None
-                            )
+                        if (
+                            hasattr(message, "structured_output")
+                            and message.structured_output is not None
+                        ):
+                            structured_output = message.structured_output
                         if message.is_error:
                             return ToolResult(
                                 success=False,
@@ -303,6 +304,13 @@ class ClaudeSdkTool(BaseTool):
         # If no output_type, return raw text
         if not output_type:
             return result_text
+
+        # Check for empty result when we expected structured output
+        if not result_text.strip():
+            raise OutputValidationError(
+                f"Expected {output_type} output but received empty response. "
+                "The model may not have produced the expected structured output."
+            )
 
         # Try to parse JSON from result text
         try:
