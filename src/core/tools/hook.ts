@@ -59,7 +59,12 @@ export class HookTool extends BaseTool {
 		_tmuxManager: TmuxManager,
 	): Promise<ToolResult> {
 		const hookName = context.interpolate(step.hookName!);
-		const hookPath = join(context.projectPath, ".cw", "hooks", `${hookName}.ts`);
+		const hookPath = join(
+			context.projectPath,
+			".cw",
+			"hooks",
+			`${hookName}.ts`,
+		);
 
 		// Check if hook file exists
 		if (!existsSync(hookPath)) {

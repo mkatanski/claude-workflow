@@ -1,4 +1,9 @@
-export { BaseTool, successResult, errorResult, type ToolResult } from "./types.ts";
+export {
+	BaseTool,
+	successResult,
+	errorResult,
+	type ToolResult,
+} from "./types.ts";
 export { ToolRegistry } from "./registry.ts";
 export { BashTool } from "./bash.ts";
 export { ClaudeTool } from "./claude.ts";
@@ -28,14 +33,14 @@ import { HookTool } from "./hook.ts";
  * Register all built-in tools.
  */
 export function registerBuiltinTools(): void {
-  ToolRegistry.register(new BashTool());
-  ToolRegistry.register(new ClaudeTool());
-  ToolRegistry.register(new ClaudeSdkTool());
-  ToolRegistry.register(new JsonTool());
-  ToolRegistry.register(new DataTool());
-  ToolRegistry.register(new SetTool());
-  ToolRegistry.register(new ChecklistTool());
-  ToolRegistry.register(new LinearTasksTool());
-  ToolRegistry.register(new LinearManageTool());
-  ToolRegistry.register(new HookTool());
+	ToolRegistry.register(new BashTool());
+	ToolRegistry.register(new ClaudeTool());
+	ToolRegistry.register(new ClaudeSdkTool());
+	ToolRegistry.register(new JsonTool());
+	ToolRegistry.register(new DataTool());
+	ToolRegistry.register(new SetTool());
+	ToolRegistry.register(new ChecklistTool());
+	ToolRegistry.register(new LinearTasksTool());
+	ToolRegistry.register(new LinearManageTool());
+	ToolRegistry.register(new HookTool());
 }

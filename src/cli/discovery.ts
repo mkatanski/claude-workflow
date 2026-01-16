@@ -1,104 +1,187 @@
 /**
- * Workflow discovery - finds .workflow.ts files in projects.
+ * Workflow discovery - finds workflow files in projects.
+ *
+ * Supports two workflow formats:
+ * - Legacy: .workflow.ts files using the WorkflowBuilder pattern
+ * - LangGraph: .ts files using the WorkflowGraph pattern
  */
 
 import { readdir, stat } from "node:fs/promises";
 import { join, basename, resolve } from "node:path";
+import * as p from "@clack/prompts";
 import type { WorkflowDefinition, WorkflowFactory } from "../types/index.ts";
 import { createBuilder } from "../core/workflow/builder.ts";
+import type {
+	LangGraphWorkflowDefinition,
+	LangGraphWorkflowFactory,
+} from "../core/graph/types.ts";
+import { isLangGraphWorkflow } from "../core/graph/types.ts";
+
+/**
+ * Workflow format types.
+ */
+export type WorkflowFormat = "legacy" | "langgraph";
 
 /**
  * Discovered workflow file.
  */
 export interface DiscoveredWorkflow {
-  name: string;
-  path: string;
+	name: string;
+	path: string;
+	format: WorkflowFormat;
 }
 
 /**
  * Find all workflow files in a project.
+ *
+ * Discovers both legacy (.workflow.ts) and LangGraph (.ts) workflows.
+ * Legacy workflows take precedence if both exist with the same name.
  */
 export async function discoverWorkflows(
-  projectPath: string
+	projectPath: string,
 ): Promise<DiscoveredWorkflow[]> {
-  const workflows: DiscoveredWorkflow[] = [];
+	const workflows: DiscoveredWorkflow[] = [];
+	const seenNames = new Set<string>();
 
-  // Look for .cw/workflows directory
-  const workflowsDir = join(projectPath, ".cw", "workflows");
+	// Look for .cw/workflows directory
+	const workflowsDir = join(projectPath, ".cw", "workflows");
 
-  try {
-    const dirStat = await stat(workflowsDir);
-    if (!dirStat.isDirectory()) {
-      return [];
-    }
+	try {
+		const dirStat = await stat(workflowsDir);
+		if (!dirStat.isDirectory()) {
+			return [];
+		}
 
-    const files = await readdir(workflowsDir);
-    for (const file of files) {
-      if (file.endsWith(".workflow.ts")) {
-        const name = basename(file, ".workflow.ts");
-        workflows.push({
-          name,
-          path: join(workflowsDir, file),
-        });
-      }
-    }
-  } catch {
-    // Directory doesn't exist
-    return [];
-  }
+		const files = await readdir(workflowsDir);
 
-  return workflows;
+		// First pass: find legacy .workflow.ts files
+		for (const file of files) {
+			if (file.endsWith(".workflow.ts")) {
+				const name = basename(file, ".workflow.ts");
+				seenNames.add(name);
+				workflows.push({
+					name,
+					path: join(workflowsDir, file),
+					format: "legacy",
+				});
+			}
+		}
+
+		// Second pass: find new-style .ts files (excluding .workflow.ts and index.ts)
+		for (const file of files) {
+			if (
+				file.endsWith(".ts") &&
+				!file.endsWith(".workflow.ts") &&
+				file !== "index.ts"
+			) {
+				const name = basename(file, ".ts");
+				// Skip if we already have a legacy workflow with the same name
+				if (!seenNames.has(name)) {
+					seenNames.add(name);
+					workflows.push({
+						name,
+						path: join(workflowsDir, file),
+						format: "langgraph",
+					});
+				}
+			}
+		}
+	} catch {
+		// Directory doesn't exist
+		return [];
+	}
+
+	return workflows;
 }
 
 /**
- * Load a workflow from a .workflow.ts file.
+ * Load a legacy workflow from a .workflow.ts file.
  */
 export async function loadWorkflow(
-  workflowPath: string
+	workflowPath: string,
 ): Promise<WorkflowDefinition> {
-  const absolutePath = resolve(workflowPath);
+	const absolutePath = resolve(workflowPath);
 
-  // Import the workflow module
-  const module = await import(absolutePath);
+	// Import the workflow module
+	const module = await import(absolutePath);
 
-  // Get the default export (should be a WorkflowFactory function)
-  const factory: WorkflowFactory = module.default;
+	// Get the default export (should be a WorkflowFactory function)
+	const factory: WorkflowFactory = module.default;
 
-  if (typeof factory !== "function") {
-    throw new Error(
-      `Workflow file must export a default function: ${workflowPath}`
-    );
-  }
+	if (typeof factory !== "function") {
+		throw new Error(
+			`Workflow file must export a default function: ${workflowPath}`,
+		);
+	}
 
-  // Create builder and invoke factory
-  const builder = createBuilder();
-  const definition = factory(builder);
+	// Create builder and invoke factory
+	const builder = createBuilder();
+	const definition = factory(builder);
 
-  return definition;
+	return definition;
+}
+
+/**
+ * Load a LangGraph workflow from a .ts file.
+ */
+export async function loadLangGraphWorkflow(
+	workflowPath: string,
+): Promise<LangGraphWorkflowDefinition> {
+	const absolutePath = resolve(workflowPath);
+
+	// Import the workflow module
+	const module = await import(absolutePath);
+
+	// Get the default export (should be a factory function)
+	const factory: LangGraphWorkflowFactory = module.default;
+
+	if (typeof factory !== "function") {
+		throw new Error(
+			`Workflow file must export a default function: ${workflowPath}`,
+		);
+	}
+
+	// Invoke factory to get definition
+	const definition = factory();
+
+	// Validate it's a LangGraph workflow
+	if (!isLangGraphWorkflow(definition)) {
+		throw new Error(
+			`Invalid LangGraph workflow definition in: ${workflowPath}. ` +
+				"Must have 'name' (string) and 'build' (function) properties.",
+		);
+	}
+
+	return definition;
 }
 
 /**
  * Select a workflow interactively if multiple are available.
  */
 export async function selectWorkflow(
-  workflows: DiscoveredWorkflow[]
+	workflows: DiscoveredWorkflow[],
 ): Promise<DiscoveredWorkflow | null> {
-  if (workflows.length === 0) {
-    return null;
-  }
+	if (workflows.length === 0) {
+		return null;
+	}
 
-  if (workflows.length === 1) {
-    return workflows[0];
-  }
+	if (workflows.length === 1) {
+		return workflows[0];
+	}
 
-  // For now, just print options and return first one
-  // In a more complete implementation, this would be interactive
-  console.log("Available workflows:");
-  for (let i = 0; i < workflows.length; i++) {
-    console.log(`  ${i + 1}. ${workflows[i].name}`);
-  }
+	const selected = await p.select({
+		message: "Select a workflow to run",
+		options: workflows.map((workflow) => ({
+			value: workflow.name,
+			label: workflow.name,
+			hint: workflow.format,
+		})),
+	});
 
-  // Return first workflow as default
-  console.log(`\nUsing: ${workflows[0].name}`);
-  return workflows[0];
+	if (p.isCancel(selected)) {
+		return null;
+	}
+
+	const workflow = workflows.find((w) => w.name === selected);
+	return workflow ?? null;
 }
