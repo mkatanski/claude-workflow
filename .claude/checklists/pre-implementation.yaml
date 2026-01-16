@@ -11,12 +11,12 @@ items:
 
   - name: "Dependencies installed"
     type: bash
-    command: "pip check 2>&1 | grep -c 'No broken requirements' || echo '0'"
+    command: "COUNT=$(pip check 2>&1 | grep -c 'No broken requirements' || true); echo \"$COUNT\""
     expect: "1"
     severity: error
 
   - name: "Tests discoverable"
     type: bash
-    command: "pytest --collect-only -q 2>/dev/null | grep -c 'test' || echo '0'"
+    command: "COUNT=$(pytest --collect-only -q 2>/dev/null | grep -c 'test' || true); echo \"$COUNT\""
     expect_not: "0"
     severity: info

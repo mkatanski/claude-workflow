@@ -5,19 +5,19 @@ on_fail: warn
 items:
   - name: "All tests pass"
     type: bash
-    command: "pytest -q 2>&1 | tail -1 | grep -c 'passed' || echo '0'"
+    command: "COUNT=$(pytest -q 2>&1 | tail -1 | grep -c 'passed' || true); echo \"$COUNT\""
     expect_not: "0"
     severity: error
 
   - name: "No lint errors"
     type: bash
-    command: "ruff check . 2>&1 | grep -c 'error' || echo '0'"
+    command: "COUNT=$(ruff check . 2>&1 | grep -c 'error' || true); echo \"$COUNT\""
     expect: "0"
     severity: warning
 
   - name: "Architecture document updated"
     type: bash
-    command: "git diff --name-only HEAD~1 2>/dev/null | grep -c 'architecture.md' || echo '0'"
+    command: "COUNT=$(git diff --name-only HEAD~1 2>/dev/null | grep -c 'architecture.md' || true); echo \"$COUNT\""
     expect_not: "0"
     severity: info
 

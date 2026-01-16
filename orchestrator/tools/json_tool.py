@@ -351,6 +351,9 @@ class JsonTool(BaseTool):
             output = json.dumps(result)
         elif result is None:
             output = ""
+        elif isinstance(result, bool):
+            # Use JSON convention: lowercase true/false
+            output = "true" if result else "false"
         else:
             output = str(result)
 

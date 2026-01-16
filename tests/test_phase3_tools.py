@@ -525,6 +525,44 @@ class TestJsonToolQuery:
         assert result.success
         assert result.output == "5"
 
+    def test_query_boolean_true(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test that boolean true is returned as lowercase 'true'."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"enabled": true, "disabled": false}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "enabled",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "true"
+
+    def test_query_boolean_false(
+        self, context: ExecutionContext, mock_tmux: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test that boolean false is returned as lowercase 'false'."""
+        tool = JsonTool()
+        json_file = tmp_path / "test.json"
+        json_file.write_text('{"enabled": true, "disabled": false}')
+
+        step: Dict[str, Any] = {
+            "action": "query",
+            "file": str(json_file),
+            "query": "disabled",
+        }
+
+        result = tool.execute(step, context, mock_tmux)
+
+        assert result.success
+        assert result.output == "false"
+
 
 # =============================================================================
 # JsonTool Set Tests

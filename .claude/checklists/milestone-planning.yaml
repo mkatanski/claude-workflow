@@ -29,12 +29,12 @@ items:
 
   - name: "Previous milestone committed"
     type: bash
-    command: "git log --oneline -1 2>/dev/null | grep -c 'milestone\\|M[0-9]' || echo '0'"
+    command: "COUNT=$(git log --oneline -1 2>/dev/null | grep -c 'milestone\\|M[0-9]' || true); echo \"$COUNT\""
     expect_not: "0"
     severity: info
 
   - name: "Dependencies installed"
     type: bash
-    command: "pip check 2>&1 | grep -c 'No broken requirements' || echo '0'"
+    command: "COUNT=$(pip check 2>&1 | grep -c 'No broken requirements' || true); echo \"$COUNT\""
     expect: "1"
     severity: error
