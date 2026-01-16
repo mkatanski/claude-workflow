@@ -24,10 +24,10 @@ bun run dev hooks install
 1. Create a workflow file in your project:
 
 ```bash
-mkdir -p .claude/workflows
+mkdir -p .cw/workflows
 ```
 
-2. Create `.claude/workflows/my-workflow.workflow.ts`:
+2. Create `.cw/workflows/my-workflow.workflow.ts`:
 
 ```typescript
 import type { WorkflowBuilder } from "claude-workflow";

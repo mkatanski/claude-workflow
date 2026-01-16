@@ -23,8 +23,8 @@ export async function discoverWorkflows(
 ): Promise<DiscoveredWorkflow[]> {
   const workflows: DiscoveredWorkflow[] = [];
 
-  // Look for .claude/workflows directory
-  const workflowsDir = join(projectPath, ".claude", "workflows");
+  // Look for .cw/workflows directory
+  const workflowsDir = join(projectPath, ".cw", "workflows");
 
   try {
     const dirStat = await stat(workflowsDir);

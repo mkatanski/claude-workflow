@@ -62,7 +62,7 @@ export async function runWorkflow(
   }
 
   // Create temp directory for this run
-  const tempDir = join(absoluteProjectPath, ".claude", "tmp", randomUUID().slice(0, 8));
+  const tempDir = join(absoluteProjectPath, ".cw", "tmp", randomUUID().slice(0, 8));
   if (!existsSync(tempDir)) {
     mkdirSync(tempDir, { recursive: true });
   }
@@ -71,8 +71,8 @@ export async function runWorkflow(
   const workflows = await discoverWorkflows(absoluteProjectPath);
 
   if (workflows.length === 0) {
-    console.error("No workflows found in .claude/workflows/");
-    console.error("Create a workflow file like: .claude/workflows/my-workflow.workflow.ts");
+    console.error("No workflows found in .cw/workflows/");
+    console.error("Create a workflow file like: .cw/workflows/my-workflow.workflow.ts");
     process.exit(1);
   }
 
