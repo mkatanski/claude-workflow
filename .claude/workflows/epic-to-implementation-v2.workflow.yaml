@@ -576,7 +576,8 @@ steps:
 
   - name: "Stash changes if needed"
     tool: bash
-    command: "git stash push -m 'epic-workflow-auto-stash-$(date +%Y%m%d-%H%M%S)'"
+    command: |
+      git stash push -m "epic-workflow-auto-stash-$(date +%Y%m%d-%H%M%S)"
     when: "{has_uncommitted_changes} == true"
 
   - name: "Create feature branch"

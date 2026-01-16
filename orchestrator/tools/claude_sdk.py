@@ -6,6 +6,7 @@ with support for structured outputs (boolean, enum, decision, custom schema).
 
 import asyncio
 import json
+import sys
 from typing import Any, Dict, List, Optional, Union
 
 from ..context import ExecutionContext
@@ -18,9 +19,9 @@ READ_ONLY_TOOLS = ["Read", "Glob", "Grep", "WebFetch", "WebSearch"]
 
 # Model alias to full model ID mapping
 MODEL_ALIASES: Dict[str, str] = {
-    "sonnet": "claude-sonnet-4-20250514",
-    "opus": "claude-opus-4-5-20251101",
-    "haiku": "claude-haiku-3-5-20241022",
+    "sonnet": "claude-sonnet-4-5",
+    "opus": "claude-opus-4-5",
+    "haiku": "claude-haiku-4-5",
 }
 
 # Default system prompt for decision-making
@@ -118,6 +119,7 @@ class ClaudeSdkTool(BaseTool):
                 # Run the query
                 result_text = ""
                 structured_output = None
+                last_result_message = None
 
                 async for message in query(prompt=current_prompt, options=options):
                     # Capture transcript if verbose
@@ -126,6 +128,7 @@ class ClaudeSdkTool(BaseTool):
 
                     # Extract result from ResultMessage
                     if isinstance(message, ResultMessage):
+                        last_result_message = message
                         if hasattr(message, "result") and message.result:
                             result_text = message.result
                         if (
@@ -138,6 +141,24 @@ class ClaudeSdkTool(BaseTool):
                                 success=False,
                                 error=f"SDK error: {result_text}",
                             )
+
+                # Debug: Log when we expect structured output but got none
+                output_type = step.get("output_type")
+                if output_type and not structured_output and not result_text.strip():
+                    debug_info = []
+                    if last_result_message:
+                        debug_info.append(f"is_error={last_result_message.is_error}")
+                        debug_info.append(f"result={repr(last_result_message.result)}")
+                        debug_info.append(
+                            f"structured_output={repr(last_result_message.structured_output)}"
+                        )
+                        debug_info.append(f"num_turns={last_result_message.num_turns}")
+                    else:
+                        debug_info.append("No ResultMessage received")
+                    print(
+                        f"[claude_sdk debug] Empty response. {', '.join(debug_info)}",
+                        file=sys.stderr,
+                    )
 
                 # Parse and validate output
                 parsed = self._parse_output(
@@ -195,15 +216,28 @@ class ClaudeSdkTool(BaseTool):
                 system_prompt, output_type, step
             )
 
-        # Build output format for SDK structured outputs
-        output_format = self._build_output_format(step)
+        # NOTE: SDK's output_format with json_schema is unreliable - it causes
+        # empty responses (result=None, structured_output=None) even after 10 turns.
+        # Instead, we rely on system prompt instructions to get JSON output and
+        # parse it from result_text in _parse_output().
+        output_format = None
+
+        # For structured output, default to single turn and no tools
+        # to ensure immediate response without tool exploration
+        output_type = step.get("output_type")
+        if output_type:
+            default_max_turns = 1
+            tools = []  # No tools for structured output - direct response only
+        else:
+            default_max_turns = 10
+            tools = READ_ONLY_TOOLS
 
         return ClaudeAgentOptions(
             model=model,
             system_prompt=system_prompt,
-            allowed_tools=READ_ONLY_TOOLS,
+            allowed_tools=tools,
             permission_mode="bypassPermissions",
-            max_turns=step.get("max_turns", 10),
+            max_turns=step.get("max_turns", default_max_turns),
             cwd=str(context.project_path),
             output_format=output_format,
         )
