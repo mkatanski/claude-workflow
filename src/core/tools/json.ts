@@ -106,7 +106,6 @@ export class JsonTool extends BaseTool {
 				? JSON.stringify(result)
 				: String(result ?? "");
 
-		console.log(`JSON query "${query}" -> ${output.slice(0, 100)}`);
 		return successResult(output);
 	}
 
@@ -143,7 +142,6 @@ export class JsonTool extends BaseTool {
 		current[parts[parts.length - 1]] = newValue;
 
 		const output = JSON.stringify(obj);
-		console.log(`JSON set ${path} -> ${output.slice(0, 100)}`);
 		return successResult(output);
 	}
 
@@ -156,7 +154,6 @@ export class JsonTool extends BaseTool {
 		try {
 			const parsed = JSON.parse(inputStr);
 			const output = JSON.stringify(parsed);
-			console.log(`JSON parse -> ${output.slice(0, 100)}`);
 			return successResult(output);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -170,7 +167,6 @@ export class JsonTool extends BaseTool {
 	): ToolResult {
 		const input = this.getInput(step, context);
 		const output = JSON.stringify(input);
-		console.log(`JSON stringify -> ${output.slice(0, 100)}`);
 		return successResult(output);
 	}
 
@@ -199,7 +195,6 @@ export class JsonTool extends BaseTool {
 
 		const merged = { ...(input as object), ...(newValue as object) };
 		const output = JSON.stringify(merged);
-		console.log(`JSON merge -> ${output.slice(0, 100)}`);
 		return successResult(output);
 	}
 
@@ -212,7 +207,6 @@ export class JsonTool extends BaseTool {
 
 		const keys = Object.keys(input);
 		const output = JSON.stringify(keys);
-		console.log(`JSON keys -> ${output}`);
 		return successResult(output);
 	}
 
@@ -228,7 +222,6 @@ export class JsonTool extends BaseTool {
 
 		const values = Object.values(input);
 		const output = JSON.stringify(values);
-		console.log(`JSON values -> ${output.slice(0, 100)}`);
 		return successResult(output);
 	}
 
@@ -249,7 +242,6 @@ export class JsonTool extends BaseTool {
 			return errorResult("Cannot get length of this value type");
 		}
 
-		console.log(`JSON length -> ${length}`);
 		return successResult(String(length));
 	}
 }

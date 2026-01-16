@@ -70,8 +70,6 @@ export class BashTool extends BaseTool {
 		stripOutput: boolean,
 		env?: Record<string, string>,
 	): Promise<ToolResult> {
-		console.log(`Running: ${command}`);
-
 		try {
 			const proc = Bun.spawn(["sh", "-c", command], {
 				cwd,
@@ -173,10 +171,7 @@ export class BashTool extends BaseTool {
 			const currentTime = Date.now();
 			const elapsed = currentTime - startTime;
 
-			// Update display periodically
-			if (elapsed % 5000 < 200) {
-				console.log(`Waiting... ${Math.floor(elapsed / 1000)}s`);
-			}
+			// Idle detection continues in background
 
 			// Hash-based idle detection
 			if (currentTime - lastHashCheckTime >= hashCheckInterval) {

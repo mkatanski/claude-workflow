@@ -2,7 +2,7 @@
  * WorkflowTools implementation.
  *
  * Wraps existing tool classes to provide the WorkflowTools interface
- * for LangGraph node functions.
+ * for LangGraph node functions. Supports event emission for workflow observability.
  */
 
 import type { WorkflowStateType } from "./state.ts";
@@ -20,7 +20,9 @@ import type {
 	ChecklistItem,
 	ChecklistOptions,
 	ChecklistResult,
+	HookOptions,
 	HookResult,
+	LogLevel,
 } from "./tools.ts";
 import { ExecutionContext } from "../context/execution.ts";
 import type { TmuxManager } from "../tmux/manager.ts";
@@ -35,6 +37,12 @@ import { ClaudeSdkTool } from "../tools/claudeSdk.ts";
 import { JsonTool } from "../tools/json.ts";
 import { ChecklistTool } from "../tools/checklist.ts";
 import { HookTool } from "../tools/hook.ts";
+import {
+	type WorkflowEmitter,
+	createEventHelpers,
+	createTimer,
+	type EventHelpers,
+} from "../events/index.ts";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -60,12 +68,14 @@ interface ToolsContext {
  * @param state - Current workflow state
  * @param config - Tool configuration
  * @param tmuxManager - Optional tmux manager for interactive tools
+ * @param emitter - Optional event emitter for workflow observability
  * @returns WorkflowTools instance and a function to get variable updates
  */
 export function createWorkflowTools(
 	state: WorkflowStateType,
 	config: WorkflowToolsConfig,
 	tmuxManager?: TmuxManager,
+	emitter?: WorkflowEmitter,
 ): { tools: WorkflowTools; getVariableUpdates: () => Record<string, unknown> } {
 	// Create execution context with current state variables
 	const executionContext = new ExecutionContext(config.projectPath);
@@ -79,6 +89,9 @@ export function createWorkflowTools(
 		executionContext,
 		variableUpdates,
 	};
+
+	// Create event helpers if emitter is provided
+	const events: EventHelpers | null = emitter ? createEventHelpers(emitter) : null;
 
 	// Create tool instances
 	const bashTool = new BashTool();
@@ -109,6 +122,17 @@ export function createWorkflowTools(
 
 		// --- Tool execution ---
 		async bash(command: string, options?: BashOptions): Promise<BashResult> {
+			const timer = createTimer();
+			const label = options?.label;
+
+			// Emit start event
+			events?.bashStart({
+				command,
+				label,
+				cwd: options?.cwd,
+				visible: options?.visible ?? false,
+			});
+
 			const stepConfig: StepConfig = {
 				name: "bash",
 				tool: "bash",
@@ -119,30 +143,74 @@ export function createWorkflowTools(
 				env: options?.env,
 			};
 
-			const result = await bashTool.execute(
-				stepConfig,
-				toolsContext.executionContext,
-				tmux,
-			);
+			try {
+				const result = await bashTool.execute(
+					stepConfig,
+					toolsContext.executionContext,
+					tmux,
+				);
 
-			return {
-				success: result.success,
-				output: result.output ?? "",
-				error: result.error,
-			};
+				// Emit complete event
+				events?.bashComplete({
+					command,
+					label,
+					success: result.success,
+					output: result.output,
+					duration: timer.elapsed(),
+				});
+
+				return {
+					success: result.success,
+					output: result.output ?? "",
+					error: result.error,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit error event
+				events?.bashError({
+					command,
+					label,
+					error: message,
+				});
+
+				return {
+					success: false,
+					output: "",
+					error: message,
+				};
+			}
 		},
 
 		async claude(
 			prompt: string,
 			options?: ClaudeOptions,
 		): Promise<ClaudeResult> {
+			const timer = createTimer();
+			const label = options?.label;
+
 			if (!tmuxManager) {
+				const errorMessage = "Claude tool requires tmux manager (interactive mode)";
+
+				events?.claudeError({
+					prompt,
+					label,
+					error: errorMessage,
+				});
+
 				return {
 					success: false,
 					output: "",
-					error: "Claude tool requires tmux manager (interactive mode)",
+					error: errorMessage,
 				};
 			}
+
+			// Emit start event
+			events?.claudeStart({
+				prompt,
+				label,
+				paneId: tmuxManager.currentPane ?? undefined,
+			});
 
 			const stepConfig: StepConfig = {
 				name: "claude",
@@ -151,23 +219,64 @@ export function createWorkflowTools(
 				model: options?.model,
 			};
 
-			const result = await claudeTool.execute(
-				stepConfig,
-				toolsContext.executionContext,
-				tmuxManager,
-			);
+			try {
+				const result = await claudeTool.execute(
+					stepConfig,
+					toolsContext.executionContext,
+					tmuxManager,
+				);
 
-			return {
-				success: result.success,
-				output: result.output ?? "",
-				error: result.error,
-			};
+				// Emit complete event
+				events?.claudeComplete({
+					prompt,
+					label,
+					success: result.success,
+					output: result.output,
+					duration: timer.elapsed(),
+					paneId: tmuxManager.currentPane ?? undefined,
+				});
+
+				return {
+					success: result.success,
+					output: result.output ?? "",
+					error: result.error,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit error event
+				events?.claudeError({
+					prompt,
+					label,
+					error: message,
+					paneId: tmuxManager.currentPane ?? undefined,
+				});
+
+				return {
+					success: false,
+					output: "",
+					error: message,
+				};
+			}
 		},
 
 		async claudeSdk<T = unknown>(
 			prompt: string,
 			options?: ClaudeSdkOptions,
 		): Promise<ClaudeSdkResult<T>> {
+			const timer = createTimer();
+			const label = options?.label;
+			const model = options?.model ?? "sonnet";
+			const outputType = options?.outputType ?? "schema";
+
+			// Emit start event
+			events?.claudeSdkStart({
+				prompt,
+				label,
+				model,
+				outputType,
+			});
+
 			const stepConfig: StepConfig = {
 				name: "claude_sdk",
 				tool: "claude_sdk",
@@ -179,33 +288,67 @@ export function createWorkflowTools(
 				maxRetries: options?.maxRetries,
 			};
 
-			const result = await claudeSdkTool.execute(
-				stepConfig,
-				toolsContext.executionContext,
-				tmux,
-			);
+			try {
+				const result = await claudeSdkTool.execute(
+					stepConfig,
+					toolsContext.executionContext,
+					tmux,
+				);
 
-			// Parse data from output if successful
-			let data: T | undefined;
-			if (result.success && result.output) {
-				try {
-					data = JSON.parse(result.output) as T;
-				} catch {
-					// Output might not be JSON, that's fine
-					data = result.output as unknown as T;
+				// Parse data from output if successful
+				let data: T | undefined;
+				if (result.success && result.output) {
+					try {
+						data = JSON.parse(result.output) as T;
+					} catch {
+						// Output might not be JSON, that's fine
+						data = result.output as unknown as T;
+					}
 				}
-			}
 
-			return {
-				success: result.success,
-				output: result.output ?? "",
-				data,
-				error: result.error,
-				gotoStep: result.gotoStep,
-			};
+				// Emit complete event
+				events?.claudeSdkComplete({
+					prompt,
+					label,
+					success: result.success,
+					result: data,
+					duration: timer.elapsed(),
+					attempts: 1, // Note: actual retry count would need to come from the tool
+				});
+
+				return {
+					success: result.success,
+					output: result.output ?? "",
+					data,
+					error: result.error,
+					gotoStep: result.gotoStep,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit error event
+				events?.claudeSdkError({
+					prompt,
+					label,
+					error: message,
+					attempts: 1,
+				});
+
+				return {
+					success: false,
+					output: "",
+					data: undefined,
+					error: message,
+				};
+			}
 		},
 
 		json(action: JsonAction, options?: JsonOptions): JsonResult {
+			const label = options?.label;
+
+			// Emit start event
+			events?.jsonStart(action, label);
+
 			const stepConfig: StepConfig = {
 				name: "json",
 				tool: "json",
@@ -235,13 +378,20 @@ export function createWorkflowTools(
 							output: result.output ?? "",
 							error: result.error,
 						};
+
+						// Emit complete event
+						events?.jsonComplete(action, result.success, result.output, label);
 					})
 					.catch((error) => {
+						const message = error instanceof Error ? error.message : String(error);
 						syncResult = {
 							success: false,
 							output: "",
-							error: error instanceof Error ? error.message : String(error),
+							error: message,
 						};
+
+						// Emit complete event with failure
+						events?.jsonComplete(action, false, undefined, label);
 					});
 
 				// Since JsonTool doesn't actually do async operations,
@@ -256,6 +406,15 @@ export function createWorkflowTools(
 			items: ChecklistItem[],
 			options?: ChecklistOptions,
 		): Promise<ChecklistResult> {
+			const timer = createTimer();
+			const label = options?.label;
+
+			// Emit start event
+			events?.checklistStart({
+				label,
+				itemCount: items.length,
+			});
+
 			const stepConfig: StepConfig = {
 				name: "checklist",
 				tool: "checklist",
@@ -265,49 +424,127 @@ export function createWorkflowTools(
 				onFail: options?.onFail,
 			};
 
-			const result = await checklistTool.execute(
-				stepConfig,
-				toolsContext.executionContext,
-				tmux,
-			);
+			try {
+				const result = await checklistTool.execute(
+					stepConfig,
+					toolsContext.executionContext,
+					tmux,
+				);
 
-			// Parse output for statistics
-			const passedMatch = result.output?.match(/(\d+)\/(\d+) checks passed/);
-			const passedCount = passedMatch ? parseInt(passedMatch[1], 10) : 0;
-			const totalCount = passedMatch
-				? parseInt(passedMatch[2], 10)
-				: items.length;
-			const hasErrors = result.output?.includes("Errors:") ?? false;
-			const hasWarnings = result.output?.includes("Warnings:") ?? false;
+				// Parse output for statistics
+				const passedMatch = result.output?.match(/(\d+)\/(\d+) checks passed/);
+				const passedCount = passedMatch ? parseInt(passedMatch[1], 10) : 0;
+				const totalCount = passedMatch
+					? parseInt(passedMatch[2], 10)
+					: items.length;
+				const hasErrors = result.output?.includes("Errors:") ?? false;
+				const hasWarnings = result.output?.includes("Warnings:") ?? false;
 
-			return {
-				success: result.success,
-				output: result.output ?? "",
-				passedCount,
-				totalCount,
-				hasErrors,
-				hasWarnings,
-			};
+				// Emit complete event
+				events?.checklistComplete({
+					label,
+					passed: passedCount,
+					failed: totalCount - passedCount,
+					total: totalCount,
+					success: result.success,
+					duration: timer.elapsed(),
+				});
+
+				return {
+					success: result.success,
+					output: result.output ?? "",
+					passedCount,
+					totalCount,
+					hasErrors,
+					hasWarnings,
+				};
+			} catch (_error) {
+				// Emit complete event with failure
+				events?.checklistComplete({
+					label,
+					passed: 0,
+					failed: items.length,
+					total: items.length,
+					success: false,
+					duration: timer.elapsed(),
+				});
+
+				return {
+					success: false,
+					output: "",
+					passedCount: 0,
+					totalCount: items.length,
+					hasErrors: true,
+					hasWarnings: false,
+				};
+			}
 		},
 
-		async hook(name: string): Promise<HookResult> {
+		async hook(name: string, options?: HookOptions): Promise<HookResult> {
+			const timer = createTimer();
+			const label = options?.label;
+
+			// Emit start event
+			events?.hookStart({
+				hookName: name,
+				label,
+			});
+
 			const stepConfig: StepConfig = {
 				name: "hook",
 				tool: "hook",
 				hookName: name,
 			};
 
-			const result = await hookTool.execute(
-				stepConfig,
-				toolsContext.executionContext,
-				tmux,
-			);
+			try {
+				const result = await hookTool.execute(
+					stepConfig,
+					toolsContext.executionContext,
+					tmux,
+				);
 
-			return {
-				success: result.success,
-				output: result.output ?? "",
-				error: result.error,
-			};
+				// Emit complete event
+				events?.hookComplete({
+					hookName: name,
+					label,
+					success: result.success,
+					result: result.output,
+					duration: timer.elapsed(),
+					hookExists: result.success || !result.error?.includes("not found"),
+				});
+
+				return {
+					success: result.success,
+					output: result.output ?? "",
+					error: result.error,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit complete event with failure
+				events?.hookComplete({
+					hookName: name,
+					label,
+					success: false,
+					duration: timer.elapsed(),
+					hookExists: !message.includes("not found"),
+				});
+
+				return {
+					success: false,
+					output: "",
+					error: message,
+				};
+			}
+		},
+
+		// --- Logging ---
+		log(message: string, level: LogLevel = 'info', data?: Record<string, unknown>): void {
+			events?.emit('log', { message, level, data });
+		},
+
+		emit(name: string, data: Record<string, unknown>): void {
+			events?.custom(name, data);
 		},
 
 		// --- Context properties ---

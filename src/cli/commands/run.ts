@@ -21,6 +21,12 @@ import {
 	hasGlobalHooks,
 	cleanupGlobalHooks,
 } from "./hooks.ts";
+import {
+	createEmitter,
+	ConsoleRenderer,
+	JsonRenderer,
+	type WorkflowRenderer,
+} from "../../core/events/index.ts";
 
 /**
  * Options for the run command.
@@ -28,6 +34,10 @@ import {
 export interface RunOptions {
 	workflow?: string;
 	verbose?: boolean;
+	/** Force color output even in non-TTY environments */
+	color?: boolean;
+	/** Use JSON renderer for structured output */
+	json?: boolean;
 }
 
 /**
@@ -38,8 +48,6 @@ export async function runWorkflow(
 	options: RunOptions,
 ): Promise<void> {
 	const absoluteProjectPath = resolve(projectPath);
-
-	console.log(`Project: ${absoluteProjectPath}`);
 
 	// Check hooks before workflow execution
 	const hooksInstalled = checkHooksQuiet(absoluteProjectPath);
@@ -117,8 +125,6 @@ export async function runWorkflow(
 		}
 	}
 
-	console.log(`\nLoading workflow: ${selectedWorkflow.name}`);
-
 	// Handle based on workflow format
 	if (selectedWorkflow.format === "langgraph") {
 		await runLangGraphWorkflow(
@@ -171,6 +177,39 @@ async function runLegacyWorkflow(
 }
 
 /**
+ * Create the appropriate renderer based on environment.
+ */
+interface RendererOptions {
+	verbose: boolean;
+	forceColor?: boolean;
+	useJson?: boolean;
+}
+
+function createRenderer(options: RendererOptions): WorkflowRenderer {
+	const { verbose, forceColor, useJson } = options;
+
+	// Use JSON renderer if explicitly requested or in CI environments
+	const isCI = Boolean(process.env.CI);
+	if (useJson || (isCI && !forceColor)) {
+		return new JsonRenderer({
+			verbose,
+			includePayload: true,
+			includeMetadata: verbose,
+		});
+	}
+
+	// Check for FORCE_COLOR environment variable (common convention)
+	const envForceColor = Boolean(process.env.FORCE_COLOR);
+	const noColor = forceColor || envForceColor ? false : undefined;
+
+	return new ConsoleRenderer({
+		verbose,
+		showNodeSeparators: true,
+		noColor,
+	});
+}
+
+/**
  * Run a LangGraph-based workflow.
  */
 async function runLangGraphWorkflow(
@@ -182,13 +221,16 @@ async function runLangGraphWorkflow(
 	// Load workflow definition
 	const definition = await loadLangGraphWorkflow(workflowPath);
 
-	console.log(`Workflow: ${definition.name}`);
-	if (definition.description) {
-		console.log(`Description: ${definition.description}`);
-	}
-	console.log(`Format: LangGraph`);
+	// Create event emitter and connect renderer
+	const emitter = createEmitter({ asyncByDefault: true });
+	const renderer = createRenderer({
+		verbose: options.verbose ?? false,
+		forceColor: options.color,
+		useJson: options.json,
+	});
+	const rendererSubscription = renderer.connect(emitter);
 
-	// Create WorkflowGraph
+	// Create WorkflowGraph with emitter
 	const graph = new WorkflowGraph({
 		projectPath,
 		tempDir,
@@ -196,6 +238,8 @@ async function runLangGraphWorkflow(
 		claudeSdkConfig: definition.claudeSdk,
 		tmuxConfig: definition.tmux,
 		verbose: options.verbose,
+		emitter,
+		workflowName: definition.name,
 	});
 
 	try {
@@ -206,21 +250,19 @@ async function runLangGraphWorkflow(
 		const result = await graph.run(definition.vars);
 
 		if (result.error) {
-			console.error(`\nWorkflow failed: ${result.error}`);
+			// Error already displayed via workflow:error event
 			process.exit(1);
 		}
 
-		// Display final variables if verbose
-		if (options.verbose) {
-			console.log(
-				"\nFinal variables:",
-				JSON.stringify(result.variables, null, 2),
-			);
-		}
-
-		console.log("\nWorkflow completed successfully!");
 	} finally {
-		// Always cleanup
+		// Flush any pending events before cleanup
+		await emitter.flush();
+
+		// Cleanup renderer subscription
+		rendererSubscription.unsubscribe();
+		renderer.dispose();
+
+		// Always cleanup graph resources
 		await graph.cleanup();
 	}
 }

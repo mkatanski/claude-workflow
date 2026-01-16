@@ -69,11 +69,8 @@ export class HookTool extends BaseTool {
 		// Check if hook file exists
 		if (!existsSync(hookPath)) {
 			// Hook doesn't exist - this is fine, silently succeed
-			console.log(`Hook "${hookName}" not found at ${hookPath}, skipping`);
 			return successResult(`Hook "${hookName}" skipped (not found)`);
 		}
-
-		console.log(`Executing hook: ${hookName}`);
 
 		try {
 			// Import the hook module
@@ -109,7 +106,6 @@ export class HookTool extends BaseTool {
 			return successResult(output);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			console.error(`Hook "${hookName}" failed:`, message);
 			return errorResult(`Hook "${hookName}" failed: ${message}`);
 		}
 	}

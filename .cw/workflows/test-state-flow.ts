@@ -19,11 +19,11 @@ const workflow: LangGraphWorkflowDefinition = {
   build(graph) {
     // Node 1: Initialize
     graph.addNode("init", async (state, tools) => {
-      console.log("Initializing workflow...");
+      tools.log("Initializing workflow...");
       const counter = tools.getVar<number>("counter", 0);
       const max = tools.getVar<number>("maxIterations", 3);
 
-      console.log(`Starting with counter=${counter}, max=${max}`);
+      tools.log(`Starting with counter=${counter}, max=${max}`, "debug");
 
       return {
         variables: {
@@ -39,7 +39,7 @@ const workflow: LangGraphWorkflowDefinition = {
       const history = tools.getVar<number[]>("history", []);
 
       const newCounter = counter + 1;
-      console.log(`Incrementing counter: ${counter} -> ${newCounter}`);
+      tools.log(`Incrementing counter: ${counter} -> ${newCounter}`, "debug");
 
       return {
         variables: {
@@ -54,7 +54,7 @@ const workflow: LangGraphWorkflowDefinition = {
       const counter = tools.getVar<number>("counter", 0);
       const max = tools.getVar<number>("maxIterations", 3);
 
-      console.log(`Checking: counter=${counter}, max=${max}`);
+      tools.log(`Checking: counter=${counter}, max=${max}`, "debug");
 
       return {
         variables: {
@@ -68,14 +68,22 @@ const workflow: LangGraphWorkflowDefinition = {
       const counter = tools.getVar<number>("counter", 0);
       const history = tools.getVar<number[]>("history", []);
 
-      console.log("\n=== Test Results ===");
-      console.log(`Final counter: ${counter}`);
-      console.log(`History: ${JSON.stringify(history)}`);
-      console.log(`Expected: counter=3, history=[1,2,3]`);
-
       const passed = counter === 3 && history.length === 3;
-      console.log(`Test passed: ${passed}`);
-      console.log("====================\n");
+
+      tools.log("Test Results", "info", {
+        finalCounter: counter,
+        history,
+        expected: { counter: 3, history: [1, 2, 3] },
+        passed,
+      });
+
+      // Emit custom event for test summary
+      tools.emit("test:summary", {
+        name: "test-state-flow",
+        passed,
+        counter,
+        history,
+      });
 
       return {
         variables: { testPassed: passed },

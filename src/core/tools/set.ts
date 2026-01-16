@@ -41,8 +41,6 @@ export class SetTool extends BaseTool {
 		// Set the variable in context
 		context.set(varName, value);
 
-		console.log(`Set ${varName} = ${value}`);
-
 		return successResult(value);
 	}
 }

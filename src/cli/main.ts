@@ -25,11 +25,15 @@ program
 	.argument("[project-path]", "Path to project", ".")
 	.option("-w, --workflow <name>", "Workflow name to run")
 	.option("-v, --verbose", "Verbose output")
+	.option("-c, --color", "Force color output (even in non-TTY)")
+	.option("--json", "Use JSON renderer for structured output")
 	.description("Run a workflow in the specified project")
 	.action(async (projectPath: string, options) => {
 		await runWorkflow(projectPath, {
 			workflow: options.workflow,
 			verbose: options.verbose,
+			color: options.color,
+			json: options.json,
 		});
 	});
 

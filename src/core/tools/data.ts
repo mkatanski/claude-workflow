@@ -54,8 +54,6 @@ export class DataTool extends BaseTool {
 			writeFileSync(filePath, content);
 
 			const absolutePath = resolve(filePath);
-			console.log(`Data written to: ${absolutePath}`);
-
 			return successResult(absolutePath);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);

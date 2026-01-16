@@ -65,8 +65,6 @@ export class ClaudeTool extends BaseTool {
 			// Wait for completion via server signal
 			const output = await this.waitForCompletion(tmuxManager);
 
-			console.log(`Claude output: ${output.slice(0, 500)}...`);
-
 			return successResult(output);
 		} finally {
 			await tmuxManager.closePane();
@@ -92,9 +90,8 @@ export class ClaudeTool extends BaseTool {
 		while (true) {
 			const elapsed = Date.now() - startTime;
 
-			// Update elapsed time display periodically
+			// Track elapsed time for timeout detection
 			if (Date.now() - lastUpdateTime > updateInterval) {
-				console.log(`Waiting for Claude... ${Math.floor(elapsed / 1000)}s`);
 				lastUpdateTime = Date.now();
 			}
 
@@ -169,7 +166,6 @@ export class ClaudeTool extends BaseTool {
 		}
 
 		if (this.isPlanApprovalPrompt(content)) {
-			console.log("Auto-approving plan...");
 			// Just press Enter - the default option "Yes" is already selected
 			await tmuxManager.sendKeys("Enter");
 			return true;

@@ -4,6 +4,12 @@
  * This class wraps LangGraph's StateGraph and provides a simpler API
  * for building workflows. It handles tool injection into node functions
  * via the closure pattern at compile time.
+ *
+ * Features:
+ * - Simplified API for node and edge registration
+ * - Automatic tool injection into node functions
+ * - TmuxManager lifecycle management
+ * - Event emission for workflow observability (via WorkflowEmitter)
  */
 
 import { StateGraph, START, END } from "@langchain/langgraph";
@@ -25,6 +31,13 @@ import type {
 } from "../../types/index.ts";
 import { ServerManager } from "../server/manager.ts";
 import { TmuxManager as TmuxManagerImpl } from "../tmux/manager.ts";
+import {
+	WorkflowEmitter,
+	createEmitter,
+	createEventHelpers,
+	createTimer,
+	type EventHelpers,
+} from "../events/index.ts";
 
 /**
  * Type for compiled workflow graph.
@@ -71,6 +84,10 @@ export interface WorkflowGraphConfig {
 	tmuxConfig?: TmuxConfig;
 	/** Whether to run in verbose mode */
 	verbose?: boolean;
+	/** Optional event emitter for workflow observability */
+	emitter?: WorkflowEmitter;
+	/** Workflow name (used for event context) */
+	workflowName?: string;
 }
 
 /**
@@ -103,6 +120,7 @@ interface ConditionalEdgeRegistration {
  * - Simplified API for node and edge registration
  * - Automatic tool injection into node functions
  * - TmuxManager lifecycle management
+ * - Event emission for workflow observability
  */
 export class WorkflowGraph {
 	private config: WorkflowGraphConfig;
@@ -113,6 +131,9 @@ export class WorkflowGraph {
 	private serverManager: ServerManager | null = null;
 	private tmuxManager: TmuxManager | null = null;
 	private compiled: CompiledWorkflowGraph | null = null;
+	private emitter: WorkflowEmitter;
+	private events: EventHelpers;
+	private workflowName: string;
 
 	constructor(config: WorkflowGraphConfig) {
 		this.config = config;
@@ -125,6 +146,20 @@ export class WorkflowGraph {
 		this.nodes = new Map();
 		this.edges = [];
 		this.conditionalEdges = [];
+
+		// Initialize emitter (use provided or create new)
+		this.emitter = config.emitter ?? createEmitter();
+		this.events = createEventHelpers(this.emitter);
+		this.workflowName = config.workflowName ?? 'unnamed-workflow';
+		this.emitter.setContext({ workflowName: this.workflowName });
+	}
+
+	/**
+	 * Get the event emitter for this workflow.
+	 * Used to subscribe to events or connect renderers.
+	 */
+	getEmitter(): WorkflowEmitter {
+		return this.emitter;
 	}
 
 	/**
@@ -143,6 +178,13 @@ export class WorkflowGraph {
 		}
 
 		this.nodes.set(name, { name, fn });
+
+		// Emit node registered event
+		this.events.graphNodeRegistered({
+			nodeName: name,
+			nodeIndex: this.nodes.size - 1,
+		});
+
 		return this;
 	}
 
@@ -158,6 +200,14 @@ export class WorkflowGraph {
 		}
 
 		this.edges.push({ from, to });
+
+		// Emit edge registered event
+		this.events.graphEdgeRegistered({
+			from,
+			to,
+			isConditional: false,
+		});
+
 		return this;
 	}
 
@@ -178,6 +228,25 @@ export class WorkflowGraph {
 		}
 
 		this.conditionalEdges.push({ source, router, paths });
+
+		// Emit edge registered event for each potential path
+		if (paths) {
+			for (const target of Object.values(paths)) {
+				this.events.graphEdgeRegistered({
+					from: source,
+					to: target,
+					isConditional: true,
+				});
+			}
+		} else {
+			// When paths are not specified, emit a generic conditional edge event
+			this.events.graphEdgeRegistered({
+				from: source,
+				to: '*', // Indicates dynamic routing
+				isConditional: true,
+			});
+		}
+
 		return this;
 	}
 
@@ -209,15 +278,35 @@ export class WorkflowGraph {
 	}
 
 	/**
-	 * Wrap a node function with tools injection.
+	 * Wrap a node function with tools injection and event emission.
 	 */
 	private wrapNode(registration: NodeRegistration) {
 		return async (state: WorkflowStateType): Promise<WorkflowStateUpdate> => {
+			const timer = createTimer();
+			const nodeName = registration.name;
+
+			// Emit node start event
+			this.events.nodeStart({
+				nodeName,
+				variables: state.variables,
+			});
+
 			const { tools, getVariableUpdates } = createWorkflowTools(
 				state,
 				this.toolsConfig,
 				this.tmuxManager ?? undefined,
+				this.emitter,
 			);
+
+			// Emit tools created event
+			this.events.nodeToolsCreated(nodeName, [
+				'bash',
+				'claude',
+				'claudeSdk',
+				'json',
+				'checklist',
+				'hook',
+			]);
 
 			try {
 				// Execute the node function with tools
@@ -225,6 +314,18 @@ export class WorkflowGraph {
 
 				// Merge any variable updates made via tools.setVar
 				const varUpdates = getVariableUpdates();
+				const variableUpdates =
+					Object.keys(varUpdates).length > 0
+						? { ...result.variables, ...varUpdates }
+						: result.variables ?? {};
+
+				// Emit node complete event
+				this.events.nodeComplete({
+					nodeName,
+					duration: timer.elapsed(),
+					variableUpdates,
+				});
+
 				if (Object.keys(varUpdates).length > 0) {
 					const existingVars = result.variables ?? {};
 					return {
@@ -236,7 +337,16 @@ export class WorkflowGraph {
 				return result;
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Node "${registration.name}" failed:`, message);
+				const stack = error instanceof Error ? error.stack : undefined;
+
+				// Emit node error event
+				this.events.nodeError({
+					nodeName,
+					error: message,
+					stack,
+				});
+
+				console.error(`Node "${nodeName}" failed:`, message);
 				return {
 					error: message,
 				};
@@ -245,17 +355,50 @@ export class WorkflowGraph {
 	}
 
 	/**
-	 * Wrap a routing function with tools injection.
+	 * Wrap a routing function with tools injection and event emission.
 	 */
-	private wrapRouter(router: RoutingFunction) {
+	private wrapRouter(router: RoutingFunction, sourceNode: string) {
 		return async (state: WorkflowStateType): Promise<string> => {
+			const timer = createTimer();
+
+			// Emit router start event
+			this.events.routerStart({
+				nodeName: `${sourceNode}_router`,
+				sourceNode,
+			});
+
 			const { tools } = createWorkflowTools(
 				state,
 				this.toolsConfig,
 				this.tmuxManager ?? undefined,
+				this.emitter,
 			);
 
-			return router(state, tools);
+			try {
+				const decision = await router(state, tools);
+
+				// Emit router decision event
+				this.events.routerDecision({
+					nodeName: `${sourceNode}_router`,
+					sourceNode,
+					decision,
+					targetNode: decision,
+					duration: timer.elapsed(),
+				});
+
+				return decision;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit router error event
+				this.events.routerError({
+					nodeName: `${sourceNode}_router`,
+					sourceNode,
+					error: message,
+				});
+
+				throw error;
+			}
 		};
 	}
 
@@ -287,6 +430,14 @@ export class WorkflowGraph {
 			return this.compiled;
 		}
 
+		const timer = createTimer();
+
+		// Emit compile start event
+		this.events.graphCompileStart({
+			workflowName: this.workflowName,
+			nodeCount: this.nodes.size,
+		});
+
 		// Note: tmux initialization is now lazy - it will be initialized
 		// when a tool that needs it is first called
 
@@ -314,7 +465,7 @@ export class WorkflowGraph {
 
 		// Add all conditional edges
 		for (const condEdge of this.conditionalEdges) {
-			const wrappedRouter = this.wrapRouter(condEdge.router);
+			const wrappedRouter = this.wrapRouter(condEdge.router, condEdge.source);
 			if (condEdge.paths) {
 				graph.addConditionalEdges(
 					condEdge.source,
@@ -328,6 +479,16 @@ export class WorkflowGraph {
 
 		// Compile the graph
 		this.compiled = graph.compile() as CompiledWorkflowGraph;
+
+		// Emit compile complete event
+		const edgeCount = this.edges.length + this.conditionalEdges.length;
+		this.events.graphCompileComplete({
+			workflowName: this.workflowName,
+			nodeCount: this.nodes.size,
+			edgeCount,
+			duration: timer.elapsed(),
+		});
+
 		return this.compiled;
 	}
 
@@ -338,6 +499,7 @@ export class WorkflowGraph {
 	 * @returns Final workflow state
 	 */
 	async run(initialVars?: Record<string, unknown>): Promise<WorkflowStateType> {
+		const timer = createTimer();
 		const compiled = await this.compile();
 
 		const initialState: WorkflowStateType = {
@@ -346,15 +508,44 @@ export class WorkflowGraph {
 			completed: false,
 		};
 
+		// Emit workflow start event
+		this.events.workflowStart({
+			workflowName: this.workflowName,
+			initialVariables: initialVars ?? {},
+		});
+
+		// Emit state initialized event
+		this.events.workflowStateInitialized(this.workflowName, initialVars ?? {});
+
 		try {
 			const result = (await compiled.invoke(initialState)) as WorkflowStateType;
-			return {
+
+			const finalState = {
 				variables: result.variables,
 				error: result.error,
 				completed: true,
 			};
+
+			// Emit workflow complete event
+			this.events.workflowComplete({
+				workflowName: this.workflowName,
+				finalVariables: result.variables,
+				duration: timer.elapsed(),
+				success: !result.error,
+			});
+
+			return finalState;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
+			const stack = error instanceof Error ? error.stack : undefined;
+
+			// Emit workflow error event
+			this.events.workflowError({
+				workflowName: this.workflowName,
+				error: message,
+				stack,
+			});
+
 			return {
 				variables: initialVars ?? {},
 				error: message,
@@ -367,8 +558,20 @@ export class WorkflowGraph {
 	 * Clean up resources (server, tmux, etc.).
 	 */
 	async cleanup(): Promise<void> {
+		const timer = createTimer();
+		let closedPanes = 0;
+
+		// Emit cleanup start event
+		const resourceCount =
+			(this.tmuxManager?.currentPane ? 1 : 0) + (this.serverManager ? 1 : 0);
+		this.events.cleanupStart({
+			workflowName: this.workflowName,
+			resourceCount,
+		});
+
 		if (this.tmuxManager?.currentPane) {
 			await this.tmuxManager.closePane();
+			closedPanes++;
 		}
 
 		if (this.serverManager) {
@@ -378,6 +581,14 @@ export class WorkflowGraph {
 
 		this.tmuxManager = null;
 		this.compiled = null;
+
+		// Emit cleanup complete event
+		this.events.cleanupComplete({
+			workflowName: this.workflowName,
+			closedPanes,
+			cleanedFiles: 0, // Future: track cleaned temp files
+			duration: timer.elapsed(),
+		});
 	}
 }
 

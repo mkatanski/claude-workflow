@@ -18,6 +18,8 @@ export interface BashOptions {
 	stripOutput?: boolean;
 	/** Environment variables to set */
 	env?: Record<string, string>;
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -35,6 +37,8 @@ export interface BashResult {
 export interface ClaudeOptions {
 	/** Model override for this specific call */
 	model?: string;
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -65,6 +69,8 @@ export interface ClaudeSdkOptions {
 	model?: string;
 	/** Maximum retry attempts for validation failures */
 	maxRetries?: number;
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -104,6 +110,8 @@ export interface JsonOptions {
 	path?: string;
 	/** New value to set or merge */
 	value?: string;
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -143,6 +151,8 @@ export interface ChecklistItem {
 export interface ChecklistOptions {
 	/** Behavior when checks fail: stop, warn, or continue */
 	onFail?: "stop" | "warn" | "continue";
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -155,6 +165,14 @@ export interface ChecklistResult {
 	totalCount: number;
 	hasErrors: boolean;
 	hasWarnings: boolean;
+}
+
+/**
+ * Options for hook execution.
+ */
+export interface HookOptions {
+	/** Human-readable label for event display */
+	label?: string;
 }
 
 /**
@@ -228,7 +246,28 @@ export interface WorkflowTools {
 	/**
 	 * Execute a project hook by name.
 	 */
-	hook(name: string): Promise<HookResult>;
+	hook(name: string, options?: HookOptions): Promise<HookResult>;
+
+	// --- Logging ---
+
+	/**
+	 * Log a message at the specified level.
+	 * Messages are emitted as events and rendered by the active renderer.
+	 *
+	 * @param message - Message to log
+	 * @param level - Log level (default: 'info')
+	 * @param data - Optional structured data to include
+	 */
+	log(message: string, level?: LogLevel, data?: Record<string, unknown>): void;
+
+	/**
+	 * Emit a custom event with arbitrary data.
+	 * Useful for workflow-specific events that renderers can handle.
+	 *
+	 * @param name - Event name (e.g., 'story:complete', 'milestone:summary')
+	 * @param data - Event data
+	 */
+	emit(name: string, data: Record<string, unknown>): void;
 
 	// --- Context properties ---
 
@@ -238,3 +277,6 @@ export interface WorkflowTools {
 	/** Temporary directory for workflow files */
 	readonly tempDir: string;
 }
+
+/** Log level type */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
