@@ -1,0 +1,40 @@
+name: milestone-planning
+description: Checks before starting milestone implementation
+on_fail: warn
+
+items:
+  - name: "Architecture document exists"
+    type: bash
+    command: "test -f .claude/generated/architecture.md && echo '1' || echo '0'"
+    expect: "1"
+    severity: error
+
+  - name: "Milestone definition valid"
+    type: bash
+    command: "test -f .claude/generated/milestones.json && cat .claude/generated/milestones.json | python3 -c 'import json,sys; json.load(sys.stdin); print(1)' 2>/dev/null || echo '0'"
+    expect: "1"
+    severity: error
+
+  - name: "Stories generated for milestone"
+    type: bash
+    command: "ls .claude/generated/stories*.json 2>/dev/null | wc -l | tr -d ' '"
+    expect_not: "0"
+    severity: warning
+
+  - name: "No uncommitted changes from previous milestone"
+    type: bash
+    command: "git status --porcelain | wc -l | tr -d ' '"
+    expect: "0"
+    severity: warning
+
+  - name: "Previous milestone committed"
+    type: bash
+    command: "git log --oneline -1 2>/dev/null | grep -c 'milestone\\|M[0-9]' || echo '0'"
+    expect_not: "0"
+    severity: info
+
+  - name: "Dependencies installed"
+    type: bash
+    command: "pip check 2>&1 | grep -c 'No broken requirements' || echo '0'"
+    expect: "1"
+    severity: error

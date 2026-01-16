@@ -13,6 +13,7 @@ Break down an epic and architecture document into implementable stories with cle
 - When breaking down a large feature into smaller tasks
 - When planning sprint work
 - When you need ordered, dependency-aware task breakdown
+- When generating stories for a specific milestone (milestone-aware mode)
 
 ## Instructions
 
@@ -22,6 +23,35 @@ Before generating stories, ensure you have:
 
 1. **Epic Description**: Requirements, acceptance criteria, goals
 2. **Architecture Document**: File structure, implementation order, patterns
+3. **Milestone Context** (optional): If generating for a specific milestone
+
+### Step 1b: Milestone-Aware Mode (Optional)
+
+When generating stories for a specific milestone:
+
+**Use milestone ID prefix for story IDs**:
+- Format: `{milestone_id}-STORY-XXX`
+- Example: `M1-STORY-001`, `M2-STORY-003`
+
+**Focus only on milestone scope**:
+- Only generate stories for the current milestone's goals
+- Reference previous milestone work where relevant
+- Don't include stories for future milestones
+
+**Adjust story count target**:
+- Target 8-15 stories per milestone (instead of 10-12 for full epic)
+- Respect natural breakpoints over arbitrary counts
+
+**Example milestone context**:
+```json
+{
+  "id": "M2",
+  "title": "Core Services",
+  "phase": "core",
+  "goals": ["Implement AuthService", "Build data access layer"],
+  "architecture_focus": ["src/services/", "src/repositories/"]
+}
+```
 
 ### Step 2: Identify Story Boundaries
 
@@ -246,5 +276,24 @@ Dedicated testing tasks
 2. **Minimize dependencies**: More independent stories = more parallelization
 3. **Be specific about files**: Exact paths, not vague references
 4. **Include testing notes**: Each story should mention testing approach
-5. **Maximum 10-12 stories**: If more, the epic may be too large
+5. **Story count guidelines**:
+   - Full epic mode: Maximum 10-12 stories (if more, consider milestones)
+   - Milestone mode: Target 8-15 stories per milestone
 6. **Order matters**: Dependencies determine implementation sequence
+7. **Milestone boundaries**: Never split tightly coupled stories across milestones
+8. **Use milestone prefixes**: When in milestone mode, use `{milestone_id}-STORY-XXX` format
+
+## Milestone Integration
+
+When used with milestones, this skill is called once per milestone:
+
+1. `/generate-milestones` creates milestone definitions
+2. For each milestone:
+   - **`/generate-stories`** generates 8-15 stories (THIS SKILL)
+   - Stories are implemented
+   - Drift check and architecture update
+3. Next milestone uses updated architecture
+
+**Milestone story ID format**: `M1-STORY-001`, `M2-STORY-001`, etc.
+
+This ensures stories from different milestones are clearly distinguishable.

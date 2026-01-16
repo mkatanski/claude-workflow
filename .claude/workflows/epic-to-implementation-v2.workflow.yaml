@@ -1,0 +1,1502 @@
+type: claude-workflow
+version: 2
+name: "Epic to Implementation Pipeline V2"
+description: |
+  Enhanced workflow for implementing large features from epic prompts.
+
+  KEY IMPROVEMENTS OVER V1:
+  - Phase 0: Epic scope analysis to determine if milestones are needed
+  - Milestone-based execution for large epics (15+ stories)
+  - Living architecture that evolves between milestones
+  - Bidirectional drift checking (code improvements update architecture)
+  - Context reset between milestones to manage window limits
+  - Decision logging throughout the process
+
+  USAGE:
+  1. Create .claude/epic-prompt.md with your feature/epic description
+  2. Run this workflow
+  3. The workflow will:
+     - Analyze epic scope and complexity
+     - If simple (<15 stories): Run v1-style single-pass execution
+     - If complex: Split into milestones with fresh context per milestone
+
+  OUTPUT:
+  - .claude/generated/epic-description.md
+  - .claude/generated/architecture.md (living document)
+  - .claude/generated/milestones.json (if applicable)
+  - .claude/generated/stories.json (or stories-M1.json, stories-M2.json, etc.)
+  - .claude/generated/decisions.md (decision log)
+  - Feature branch with all changes committed
+
+vars:
+  # Input configuration
+  prompt_file: ".claude/epic-prompt.md"
+  output_dir: ".claude/generated"
+
+  # Limits and configuration
+  max_test_retries: "3"
+  max_drift_fix_attempts: "5"
+  simple_epic_threshold: "15"
+
+  # Epic scope analysis results
+  needs_milestones: "false"
+  estimated_story_count: "0"
+  complexity_score: "0"
+
+  # Milestone tracking
+  milestones_json: ""
+  milestones_count: "0"
+  current_milestone_index: "0"
+  current_milestone: ""
+  milestone_id: ""
+  milestone_title: ""
+  milestone_goals: ""
+
+  # Story loop state
+  stories_json: ""
+  stories_count: "0"
+  current_story_index: "0"
+  current_story: ""
+  story_id: ""
+  story_title: ""
+  test_retry_count: "0"
+  drift_fix_count: "0"
+
+  # Workflow phase tracking
+  workflow_phase: "init"
+  workflow_mode: "unknown"
+
+  # Results
+  epic_title: ""
+  branch_name: ""
+  architecture_document: ""
+  architecture_version: "1"
+  original_branch: ""
+  has_uncommitted_changes: "false"
+
+  # Cross-milestone state
+  cumulative_implementation_summary: ""
+
+  # Learning tracking
+  test_failure_occurred: "false"
+  deps_before: ""
+
+  # Temp file management
+  workflow_id: ""
+  temp_dir: ""
+
+claude:
+  model: sonnet
+  interactive: true
+  dangerously_skip_permissions: true
+
+tmux:
+  split: vertical
+  idle_time: 5.0
+
+# ============================================================
+# PHASE 0: EPIC SCOPE ANALYSIS
+# ============================================================
+
+steps:
+  - name: "phase_0_start"
+    tool: set
+    var: workflow_phase
+    value: "scope_analysis"
+
+  - name: "Log phase 0"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "PHASE 0: EPIC SCOPE ANALYSIS"
+      echo "========================================"
+      echo ""
+    visible: true
+
+  - name: "Ensure output directory exists"
+    tool: bash
+    command: "mkdir -p {output_dir}"
+
+  - name: "Setup temp directory"
+    tool: bash
+    command: |
+      WORKFLOW_ID=$(date +%Y%m%d%H%M%S)-$$
+      mkdir -p /tmp/orchestrator-${WORKFLOW_ID}
+      echo "${WORKFLOW_ID}"
+    output_var: workflow_id
+
+  - name: "Set temp dir path"
+    tool: set
+    var: temp_dir
+    value: "/tmp/orchestrator-{workflow_id}"
+
+  - name: "Read epic prompt file"
+    tool: bash
+    command: "cat {prompt_file} 2>/dev/null || echo ''"
+    output_var: epic_prompt_content
+
+  - name: "Validate prompt file exists"
+    tool: bash
+    command: |
+      if [ ! -s "{prompt_file}" ]; then
+        echo "ERROR: Epic prompt file is empty or missing: {prompt_file}"
+        echo "Please create the file with your feature/epic description and run again."
+        exit 1
+      fi
+      echo "Prompt file loaded successfully ({prompt_file})"
+    on_error: stop
+
+  - name: "Capture initial dependencies"
+    tool: bash
+    command: "cat pyproject.toml 2>/dev/null || cat requirements.txt 2>/dev/null || echo ''"
+    output_var: deps_before
+
+  - name: "Analyze codebase structure"
+    tool: bash
+    command: |
+      echo "=== Project Files ==="
+      find . -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" \) \
+        ! -path "*/node_modules/*" ! -path "*/.venv/*" ! -path "*/dist/*" ! -path "*/build/*" ! -path "*/__pycache__/*" ! -path "*/.git/*" \
+        2>/dev/null | head -100
+      echo ""
+      echo "=== Directory Structure ==="
+      find . -type d ! -path "*/node_modules/*" ! -path "*/.venv/*" ! -path "*/.git/*" ! -path "*/dist/*" ! -path "*/__pycache__/*" -maxdepth 4 2>/dev/null | head -60
+    output_var: codebase_structure
+
+  - name: "Run epic scope analysis"
+    model: opus
+    prompt: |
+      Use the /epic-scope-analyzer skill to analyze this epic prompt and determine its scope.
+
+      ## Epic Prompt
+      {epic_prompt_content}
+
+      ## Codebase Structure
+      {codebase_structure}
+
+      Save the analysis result as JSON to: {temp_dir}/scope-analysis.json
+
+      Output only "SAVED" when done.
+    output_var: scope_analysis_result
+
+  - name: "Read scope analysis"
+    tool: bash
+    command: "cat {temp_dir}/scope-analysis.json"
+    output_var: scope_analysis_json
+
+  - name: "Parse needs_milestones"
+    tool: json
+    action: query
+    source: scope_analysis_json
+    query: "needs_milestones"
+    output_var: needs_milestones
+
+  - name: "Parse estimated story count"
+    tool: json
+    action: query
+    source: scope_analysis_json
+    query: "estimated_story_count"
+    output_var: estimated_story_count
+
+  - name: "Parse complexity score"
+    tool: json
+    action: query
+    source: scope_analysis_json
+    query: "complexity_score"
+    output_var: complexity_score
+
+  - name: "Initialize decisions log"
+    tool: bash
+    command: |
+      cat > {output_dir}/decisions.md << 'EOF'
+      # Epic Implementation Decisions Log
+
+      This document records key decisions made during epic implementation.
+
+      ## Scope Analysis Decision
+
+      - **Date**: $(date +%Y-%m-%d\ %H:%M)
+      - **Estimated Stories**: {estimated_story_count}
+      - **Complexity Score**: {complexity_score}
+      - **Milestones Needed**: {needs_milestones}
+
+      ---
+
+      EOF
+      echo "Decisions log initialized"
+
+  - name: "Determine workflow mode"
+    tool: bash
+    command: |
+      if [ "{needs_milestones}" = "true" ]; then
+        echo "milestone"
+      else
+        echo "simple"
+      fi
+    output_var: workflow_mode
+
+  - name: "Log scope analysis results"
+    tool: bash
+    command: |
+      echo ""
+      echo "=== Scope Analysis Results ==="
+      echo "Estimated stories: {estimated_story_count}"
+      echo "Complexity: {complexity_score}"
+      echo "Needs milestones: {needs_milestones}"
+      echo "Workflow mode: {workflow_mode}"
+      echo ""
+    visible: true
+
+  # Branch based on mode
+  - name: "Check if milestone mode"
+    tool: goto
+    target: "milestone_mode_start"
+    when: "{workflow_mode} == milestone"
+
+  # ============================================================
+  # SIMPLE MODE (V1-STYLE)
+  # ============================================================
+
+  - name: "simple_mode_start"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "SIMPLE MODE: Single-pass execution"
+      echo "========================================"
+    visible: true
+
+  - name: "Analyze epic (simple mode)"
+    model: opus
+    prompt: |
+      Use the /analyze-epic skill to analyze this feature request and create a structured epic description.
+
+      ## Input Prompt
+      {epic_prompt_content}
+
+      Save the FULL markdown document to: {temp_dir}/epic-description.md
+      Output only "SAVED" when done.
+
+  - name: "Read epic description (simple)"
+    tool: bash
+    command: "cat {temp_dir}/epic-description.md"
+    output_var: epic_description
+
+  - name: "Save epic description"
+    tool: bash
+    command: |
+      cat > {output_dir}/epic-description.md << 'EPIC_EOF'
+      {epic_description}
+      EPIC_EOF
+      echo "Epic description saved"
+
+  - name: "Extract epic title (simple)"
+    model: haiku
+    prompt: |
+      Extract ONLY a short title from this epic description for use in a git branch name.
+
+      Epic:
+      {epic_description}
+
+      Rules:
+      - Maximum 25 characters
+      - Lowercase only
+      - Use hyphens instead of spaces
+      - No special characters except hyphens
+
+      Output ONLY the branch-safe title, nothing else.
+    output_var: epic_title
+
+  - name: "Generate branch name"
+    tool: bash
+    command: |
+      TITLE=$(echo "{epic_title}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-25)
+      TIMESTAMP=$(date +%Y%m%d)
+      echo "feature/${TIMESTAMP}-${TITLE}"
+    output_var: branch_name
+    strip_output: true
+
+  - name: "Check git status"
+    uses: builtin:git-status
+    outputs:
+      branch: original_branch
+      has_changes: has_uncommitted_changes
+
+  - name: "Stash uncommitted changes"
+    tool: bash
+    command: |
+      git stash push -m "epic-workflow-auto-stash-$(date +%Y%m%d-%H%M%S)"
+      echo "Changes stashed"
+    when: "{has_uncommitted_changes} == true"
+
+  - name: "Create feature branch"
+    tool: bash
+    command: |
+      git checkout -b {branch_name}
+      echo "Created and switched to branch: {branch_name}"
+    visible: true
+
+  - name: "Create architecture (simple mode)"
+    model: opus
+    prompt: |
+      Use the /create-architecture skill to create an architectural document for this epic.
+
+      ## Epic Description
+      {epic_description}
+
+      ## Codebase Structure
+      {codebase_structure}
+
+      Save the FULL markdown document to: {temp_dir}/architecture.md
+      Output only "SAVED" when done.
+
+  - name: "Read architecture (simple)"
+    tool: bash
+    command: "cat {temp_dir}/architecture.md"
+    output_var: architecture_document
+
+  - name: "Save architecture document"
+    tool: bash
+    command: |
+      cat > {output_dir}/architecture.md << 'ARCH_EOF'
+      {architecture_document}
+      ARCH_EOF
+      echo "Architecture document saved"
+
+  - name: "Generate stories (simple mode)"
+    model: opus
+    prompt: |
+      Use the /generate-stories skill to create implementation stories.
+
+      ## Epic Description
+      {epic_description}
+
+      ## Architecture Document
+      {architecture_document}
+
+      Save the FULL JSON array to: {temp_dir}/stories.json
+      Output only "SAVED" when done.
+
+  - name: "Read stories (simple)"
+    tool: bash
+    command: "cat {temp_dir}/stories.json"
+    output_var: stories_raw
+
+  - name: "Save stories to file"
+    tool: bash
+    command: |
+      cat > {output_dir}/stories.json << 'STORIES_EOF'
+      {stories_raw}
+      STORIES_EOF
+      echo "Stories saved"
+
+  - name: "Parse stories count (simple)"
+    tool: json
+    action: query
+    source: stories_raw
+    query: "length(@)"
+    output_var: stories_count
+
+  - name: "Store stories for iteration (simple)"
+    tool: set
+    var: stories_json
+    value: "{stories_raw}"
+
+  - name: "Log simple mode ready"
+    tool: bash
+    command: |
+      echo ""
+      echo "Simple mode ready"
+      echo "Stories to implement: {stories_count}"
+      echo ""
+    visible: true
+
+  - name: "Jump to story loop"
+    tool: goto
+    target: "story_loop_init"
+
+  # ============================================================
+  # MILESTONE MODE
+  # ============================================================
+
+  - name: "milestone_mode_start"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "MILESTONE MODE: Multi-pass execution"
+      echo "========================================"
+    visible: true
+
+  - name: "Log decision: Using milestones"
+    tool: bash
+    command: |
+      cat >> {output_dir}/decisions.md << EOF
+
+      ## Decision: Using Milestone-Based Execution
+
+      **Reason**: Epic scope requires milestone-based execution due to:
+      - Estimated {estimated_story_count} stories
+      - Complexity score: {complexity_score}
+      - Need for context management between phases
+
+      EOF
+
+  - name: "phase_1_milestone_planning"
+    tool: set
+    var: workflow_phase
+    value: "milestone_planning"
+
+  - name: "Log phase 1"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "PHASE 1: MILESTONE PLANNING"
+      echo "========================================"
+    visible: true
+
+  - name: "Analyze epic for milestones"
+    model: opus
+    prompt: |
+      First, use the /analyze-epic skill to create the full epic description.
+      Then, use the /generate-milestones skill to split it into milestones.
+
+      ## Input Prompt
+      {epic_prompt_content}
+
+      ## Codebase Structure
+      {codebase_structure}
+
+      ## Tasks
+      1. Save epic description to: {temp_dir}/epic-description.md
+      2. Save milestones JSON to: {temp_dir}/milestones.json
+
+      Milestones should follow risk-based phasing:
+      - Foundation (types, models, config)
+      - Core (services, business logic)
+      - Features (UI, endpoints, integrations)
+      - Integration (tests, docs, edge cases)
+
+      Output "SAVED" when done.
+
+  - name: "Read epic description"
+    tool: bash
+    command: "cat {temp_dir}/epic-description.md"
+    output_var: epic_description
+
+  - name: "Save epic description"
+    tool: bash
+    command: |
+      cat > {output_dir}/epic-description.md << 'EPIC_EOF'
+      {epic_description}
+      EPIC_EOF
+
+  - name: "Read milestones"
+    tool: bash
+    command: "cat {temp_dir}/milestones.json"
+    output_var: milestones_json
+
+  - name: "Save milestones file"
+    tool: bash
+    command: |
+      cat > {output_dir}/milestones.json << 'MILES_EOF'
+      {milestones_json}
+      MILES_EOF
+
+  - name: "Parse milestones count"
+    tool: json
+    action: query
+    source: milestones_json
+    query: "length(milestones)"
+    output_var: milestones_count
+
+  - name: "Extract epic title"
+    model: haiku
+    prompt: |
+      Extract ONLY a short title from this epic description for use in a git branch name.
+
+      Epic:
+      {epic_description}
+
+      Rules: Maximum 25 chars, lowercase, hyphens only.
+      Output ONLY the branch-safe title.
+    output_var: epic_title
+
+  - name: "Generate branch name (milestone)"
+    tool: bash
+    command: |
+      TITLE=$(echo "{epic_title}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-' | tr -cd 'a-z0-9-' | sed 's/--*/-/g' | cut -c1-25)
+      TIMESTAMP=$(date +%Y%m%d)
+      echo "feature/${TIMESTAMP}-${TITLE}"
+    output_var: branch_name
+    strip_output: true
+
+  - name: "Check git status (milestone)"
+    uses: builtin:git-status
+    outputs:
+      branch: original_branch
+      has_changes: has_uncommitted_changes
+
+  - name: "Stash changes if needed"
+    tool: bash
+    command: "git stash push -m 'epic-workflow-auto-stash-$(date +%Y%m%d-%H%M%S)'"
+    when: "{has_uncommitted_changes} == true"
+
+  - name: "Create feature branch"
+    tool: bash
+    command: |
+      git checkout -b {branch_name}
+      echo "Created branch: {branch_name}"
+    visible: true
+
+  - name: "Create high-level architecture"
+    model: opus
+    prompt: |
+      Use the /create-architecture skill to create a HIGH-LEVEL architectural document.
+
+      This is the initial architecture - it will be refined per milestone.
+
+      ## Epic Description
+      {epic_description}
+
+      ## Milestones Overview
+      {milestones_json}
+
+      ## Codebase Structure
+      {codebase_structure}
+
+      Focus on overall design, component boundaries, patterns.
+      Leave milestone-specific details for refinement.
+
+      Save to: {temp_dir}/architecture.md
+      Output "SAVED" when done.
+
+  - name: "Read architecture"
+    tool: bash
+    command: "cat {temp_dir}/architecture.md"
+    output_var: architecture_document
+
+  - name: "Save architecture v1"
+    tool: bash
+    command: |
+      cat > {output_dir}/architecture.md << 'ARCH_EOF'
+      {architecture_document}
+      ARCH_EOF
+
+  - name: "Log milestone planning complete"
+    tool: bash
+    command: |
+      echo ""
+      echo "Milestone planning complete"
+      echo "Milestones to execute: {milestones_count}"
+      echo "Architecture version: 1"
+      echo ""
+    visible: true
+
+  # === MILESTONE LOOP ===
+
+  - name: "milestone_loop_start"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "MILESTONE LOOP: Index {current_milestone_index} of {milestones_count}"
+      echo "========================================"
+    visible: true
+
+  - name: "Check if all milestones done"
+    tool: bash
+    command: |
+      if [ "{current_milestone_index}" -ge "{milestones_count}" ]; then
+        echo "all_done"
+      else
+        echo "continue"
+      fi
+    output_var: milestone_loop_status
+
+  - name: "Jump to finalization if done"
+    tool: goto
+    target: "finalization_start"
+    when: "{milestone_loop_status} == all_done"
+
+  - name: "Get current milestone"
+    tool: json
+    action: query
+    source: milestones_json
+    query: "milestones[{current_milestone_index}]"
+    output_var: current_milestone
+
+  - name: "Get milestone ID"
+    tool: json
+    action: query
+    source: current_milestone
+    query: "id"
+    output_var: milestone_id
+
+  - name: "Get milestone title"
+    tool: json
+    action: query
+    source: current_milestone
+    query: "title"
+    output_var: milestone_title
+
+  - name: "Get milestone goals"
+    tool: json
+    action: query
+    source: current_milestone
+    query: "goals"
+    output_var: milestone_goals
+
+  - name: "Log milestone start"
+    tool: bash
+    command: |
+      echo ""
+      echo "=========================================="
+      echo "MILESTONE: {milestone_id} - {milestone_title}"
+      echo "=========================================="
+      echo "Goals: {milestone_goals}"
+      echo ""
+    visible: true
+
+  - name: "Log decision: Starting milestone"
+    tool: bash
+    command: |
+      cat >> {output_dir}/decisions.md << EOF
+
+      ---
+
+      ## Milestone {milestone_id}: {milestone_title}
+
+      **Started**: $(date +%Y-%m-%d\ %H:%M)
+      **Goals**: {milestone_goals}
+
+      EOF
+
+  - name: "Milestone planning checklist"
+    tool: checklist
+    checklist: milestone-planning
+    on_error: continue
+
+  - name: "Refine architecture for milestone"
+    model: opus
+    prompt: |
+      Refine the architecture document for milestone {milestone_id}: {milestone_title}
+
+      ## Current Architecture
+      {architecture_document}
+
+      ## Current Milestone
+      {current_milestone}
+
+      ## Previous Milestones Summary
+      {cumulative_implementation_summary}
+
+      ## Task
+      1. Review the current architecture
+      2. Add detailed design for this milestone's scope
+      3. Update any sections based on learnings from previous milestones
+
+      Save updated architecture to: {temp_dir}/architecture-{milestone_id}.md
+      Output "SAVED" when done.
+
+  - name: "Read refined architecture"
+    tool: bash
+    command: "cat {temp_dir}/architecture-{milestone_id}.md"
+    output_var: architecture_document
+
+  - name: "Save refined architecture"
+    tool: bash
+    command: |
+      cat > {output_dir}/architecture.md << 'ARCH_EOF'
+      {architecture_document}
+      ARCH_EOF
+
+  - name: "Increment architecture version"
+    tool: bash
+    command: "echo $(( {architecture_version} + 1 ))"
+    output_var: architecture_version
+
+  - name: "Generate milestone stories"
+    model: opus
+    prompt: |
+      Use the /generate-stories skill to create stories for milestone {milestone_id}: {milestone_title}
+
+      ## Milestone
+      {current_milestone}
+
+      ## Architecture
+      {architecture_document}
+
+      ## Previous Work Summary
+      {cumulative_implementation_summary}
+
+      ## Guidelines
+      - Generate 8-15 stories for this milestone
+      - Use milestone prefix: {milestone_id}-STORY-001
+      - Focus ONLY on this milestone's goals
+
+      Save to: {temp_dir}/stories-{milestone_id}.json
+      Output "SAVED" when done.
+
+  - name: "Read milestone stories"
+    tool: bash
+    command: "cat {temp_dir}/stories-{milestone_id}.json"
+    output_var: stories_raw
+
+  - name: "Save milestone stories"
+    tool: bash
+    command: |
+      cat > {output_dir}/stories-{milestone_id}.json << 'STORIES_EOF'
+      {stories_raw}
+      STORIES_EOF
+
+  - name: "Parse milestone stories count"
+    tool: json
+    action: query
+    source: stories_raw
+    query: "length(@)"
+    output_var: stories_count
+
+  - name: "Store stories for iteration"
+    tool: set
+    var: stories_json
+    value: "{stories_raw}"
+
+  - name: "Log milestone stories ready"
+    tool: bash
+    command: |
+      echo "Milestone {milestone_id} stories generated: {stories_count}"
+    visible: true
+
+  # === STORY IMPLEMENTATION LOOP ===
+
+  - name: "story_loop_init"
+    tool: set
+    var: current_story_index
+    value: "0"
+
+  - name: "story_loop_start"
+    tool: bash
+    command: |
+      echo ""
+      echo "----------------------------------------"
+      echo "Story Loop: {current_story_index} of {stories_count}"
+      echo "----------------------------------------"
+    visible: true
+
+  - name: "Check if all stories done"
+    tool: bash
+    command: |
+      if [ "{current_story_index}" -ge "{stories_count}" ]; then
+        echo "all_done"
+      else
+        echo "continue"
+      fi
+    output_var: stories_loop_status
+
+  - name: "Jump to post-stories phase"
+    tool: goto
+    target: "post_stories_phase"
+    when: "{stories_loop_status} == all_done"
+
+  - name: "Get current story"
+    tool: json
+    action: query
+    source: stories_json
+    query: "[{current_story_index}]"
+    output_var: current_story
+
+  - name: "Get story ID"
+    tool: json
+    action: query
+    source: current_story
+    query: "id"
+    output_var: story_id
+
+  - name: "Get story title"
+    tool: json
+    action: query
+    source: current_story
+    query: "title"
+    output_var: story_title
+
+  - name: "Log story start"
+    tool: bash
+    command: |
+      echo ""
+      echo "=========================================="
+      echo "IMPLEMENTING: {story_id}"
+      echo "{story_title}"
+      echo "=========================================="
+    visible: true
+
+  - name: "Pre-implementation checks"
+    tool: checklist
+    checklist: pre-implementation
+    on_error: continue
+
+  - name: "Plan and implement story"
+    model: opus
+    prompt: |
+      Implement story {story_id}: {story_title}
+
+      ## Story Details
+      {current_story}
+
+      ## Architecture Context
+      {architecture_document}
+
+      ## Known Antipatterns
+      Before implementing, use the /antipatterns skill to review known mistakes to avoid.
+
+      ## Instructions
+      1. First, use /antipatterns to check for relevant patterns
+      2. Use /plan to create an implementation plan
+      3. After the plan is accepted, implement following /implement-story skill
+      4. Write tests for all new functionality
+      5. Run lint and fix any issues
+
+      Start by reviewing antipatterns, then use /plan.
+    output_var: implementation_result
+
+  - name: "Code review implementation"
+    model: opus
+    prompt: |
+      Use the /code-review skill to review changes for story {story_id}: {story_title}
+
+      ## Implementation Summary
+      {implementation_result}
+
+      FIX any issues found immediately. Do not just report issues.
+    output_var: review_result
+
+  - name: "Code quality checks"
+    tool: checklist
+    checklist: code-quality
+    on_error: continue
+
+  - name: "Reset test retry count"
+    tool: set
+    var: test_retry_count
+    value: "0"
+
+  - name: "test_loop_start"
+    tool: bash
+    command: "echo '--- Test Run (attempt {test_retry_count}) ---'"
+    visible: true
+
+  - name: "Run lint"
+    uses: builtin:lint-fix
+    with:
+      fix: true
+    outputs:
+      success: lint_passed
+      output: lint_output
+    on_error: continue
+
+  - name: "Run tests"
+    uses: builtin:run-tests
+    outputs:
+      success: tests_passed
+      output: test_output
+    on_error: continue
+
+  - name: "Evaluate test results"
+    tool: bash
+    command: |
+      if [ "{tests_passed}" = "true" ]; then
+        echo "passed"
+      else
+        echo "failed"
+      fi
+    output_var: test_status
+
+  - name: "Mark test failure"
+    tool: set
+    var: test_failure_occurred
+    value: "true"
+    when: "{test_status} == failed"
+
+  - name: "Tests passed - continue"
+    tool: goto
+    target: "story_complete"
+    when: "{test_status} == passed"
+
+  - name: "Increment test retry"
+    tool: bash
+    command: "echo $(( {test_retry_count} + 1 ))"
+    output_var: test_retry_count
+
+  - name: "Check max test retries"
+    tool: bash
+    command: |
+      if [ "{test_retry_count}" -ge "{max_test_retries}" ]; then
+        echo "exceeded"
+      else
+        echo "retry"
+      fi
+    output_var: retry_status
+
+  - name: "Max retries exceeded"
+    tool: goto
+    target: "story_complete"
+    when: "{retry_status} == exceeded"
+
+  - name: "Fix failing tests"
+    model: opus
+    prompt: |
+      Fix the failing tests for story {story_id}: {story_title}
+
+      ## Test Output
+      {test_output}
+
+      ## Lint Output
+      {lint_output}
+
+      ## Instructions
+      1. Use /plan to analyze failures
+      2. Apply fixes following /fix-tests skill
+      3. Do NOT disable tests
+    output_var: test_fix_result
+
+  - name: "Learn from test failure"
+    when: "{test_failure_occurred} == true"
+    model: haiku
+    prompt: |
+      Use the /learn-from-failure skill to extract learnings from this test failure.
+
+      ## Original Error
+      {test_output}
+
+      ## Fix Applied
+      {test_fix_result}
+
+      Update the appropriate antipatterns file with curated learnings.
+    output_var: learning_summary
+
+  - name: "Reset test failure flag"
+    tool: set
+    var: test_failure_occurred
+    value: "false"
+
+  - name: "Retry tests"
+    tool: goto
+    target: "test_loop_start"
+
+  - name: "story_complete"
+    tool: bash
+    command: |
+      echo ""
+      echo "Story {story_id} complete"
+      echo "Tests: {test_status}"
+    visible: true
+
+  - name: "Test quality checks"
+    tool: checklist
+    checklist: test-quality
+    on_error: continue
+
+  - name: "increment_story_index"
+    tool: bash
+    command: "echo $(( {current_story_index} + 1 ))"
+    output_var: current_story_index
+
+  - name: "Continue story loop"
+    tool: goto
+    target: "story_loop_start"
+
+  # === POST-STORIES PHASE ===
+
+  - name: "post_stories_phase"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "POST-STORIES: Alignment & Finalization"
+      echo "========================================"
+    visible: true
+
+  - name: "Architecture checklist"
+    tool: checklist
+    checklist: architecture
+    on_error: continue
+    output_var: architecture_check_result
+
+  - name: "Reset drift fix count"
+    tool: set
+    var: drift_fix_count
+    value: "0"
+
+  - name: "drift_check_start"
+    tool: bash
+    command: "echo 'Running drift check...'"
+    visible: true
+
+  - name: "Bidirectional drift check"
+    model: opus
+    prompt: |
+      Use the /check-drift skill with bidirectional checking.
+
+      ## Architecture Document
+      {architecture_document}
+
+      ## Stories Completed
+      {stories_count} stories
+
+      ## Task
+      1. Check if implementation matches architecture
+      2. Identify improvements to UPDATE the architecture (type: keep)
+      3. Identify violations to FIX in code (type: fix)
+      4. Note items for future milestones (type: defer)
+
+      Include architecture_updates list for any "keep" items.
+
+      Save to: {temp_dir}/drift-check.json
+      Output "SAVED" when done.
+    output_var: drift_check_raw
+
+  - name: "Read drift check"
+    tool: bash
+    command: "cat {temp_dir}/drift-check.json"
+    output_var: drift_check_result
+
+  - name: "Parse drift aligned"
+    tool: json
+    action: query
+    source: drift_check_result
+    query: "aligned"
+    output_var: architecture_aligned
+    on_error: continue
+
+  - name: "Default alignment"
+    tool: set
+    var: architecture_aligned
+    value: "true"
+    when: "{architecture_aligned} is empty"
+
+  - name: "Get architecture updates"
+    tool: json
+    action: query
+    source: drift_check_result
+    query: "architecture_updates"
+    output_var: architecture_updates
+    on_error: continue
+
+  - name: "Get drift issues to fix"
+    tool: json
+    action: query
+    source: drift_check_result
+    query: "issues[?type=='fix']"
+    output_var: drift_fix_issues
+    on_error: continue
+
+  - name: "Count drift fix issues"
+    tool: json
+    action: query
+    source: drift_fix_issues
+    query: "length(@)"
+    output_var: drift_fix_issues_count
+    on_error: continue
+
+  - name: "Default drift count"
+    tool: set
+    var: drift_fix_issues_count
+    value: "0"
+    when: "{drift_fix_issues_count} is empty"
+
+  - name: "Log drift status"
+    tool: bash
+    command: |
+      echo "Aligned: {architecture_aligned}"
+      echo "Fix issues: {drift_fix_issues_count}"
+    visible: true
+
+  - name: "Skip drift fix if aligned"
+    tool: goto
+    target: "update_architecture_step"
+    when: "{drift_fix_issues_count} == 0"
+
+  - name: "Check max drift fixes"
+    tool: bash
+    command: |
+      if [ "{drift_fix_count}" -ge "{max_drift_fix_attempts}" ]; then
+        echo "exceeded"
+      else
+        echo "continue"
+      fi
+    output_var: drift_fix_status
+
+  - name: "Skip if max drift fixes exceeded"
+    tool: goto
+    target: "update_architecture_step"
+    when: "{drift_fix_status} == exceeded"
+
+  - name: "Fix drift issues"
+    model: opus
+    prompt: |
+      Use the /fix-drift skill to fix architectural drift issues.
+
+      ## Issues to Fix
+      {drift_fix_issues}
+
+      ## Architecture Document
+      {architecture_document}
+
+      ## Instructions
+      1. Use /plan to plan the fixes for each drift issue
+      2. Apply fixes following the /fix-drift skill
+      3. Fix all issues of type "fix"
+
+      Start by using /plan to plan your fixes.
+    output_var: drift_fix_result
+
+  - name: "Increment drift fix count"
+    tool: bash
+    command: "echo $(( {drift_fix_count} + 1 ))"
+    output_var: drift_fix_count
+
+  - name: "Run tests after drift fix"
+    uses: builtin:run-tests
+    outputs:
+      success: post_drift_tests_passed
+    on_error: continue
+
+  - name: "Re-check drift after fix"
+    tool: goto
+    target: "drift_check_start"
+
+  - name: "update_architecture_step"
+    tool: bash
+    command: "echo 'Updating architecture with learnings...'"
+    visible: true
+
+  - name: "Update architecture with learnings"
+    when: "{architecture_updates} is not empty"
+    model: opus
+    prompt: |
+      Use the /update-architecture skill to incorporate learnings.
+
+      ## Current Architecture
+      {architecture_document}
+
+      ## Updates to Make
+      {architecture_updates}
+
+      Save to: {temp_dir}/architecture-updated.md
+      Output "SAVED" when done.
+
+  - name: "Read updated architecture"
+    tool: bash
+    command: "cat {temp_dir}/architecture-updated.md 2>/dev/null || echo ''"
+    output_var: updated_architecture
+    when: "{architecture_updates} is not empty"
+
+  - name: "Apply architecture update"
+    tool: bash
+    command: |
+      if [ -n "{updated_architecture}" ]; then
+        cat > {output_dir}/architecture.md << 'ARCH_EOF'
+        {updated_architecture}
+        ARCH_EOF
+        echo "Architecture updated"
+      fi
+    when: "{updated_architecture} is not empty"
+
+  - name: "Store updated architecture"
+    tool: set
+    var: architecture_document
+    value: "{updated_architecture}"
+    when: "{updated_architecture} is not empty"
+
+  - name: "Check workflow mode for routing"
+    tool: bash
+    command: |
+      if [ "{workflow_mode}" = "milestone" ]; then
+        echo "milestone"
+      else
+        echo "simple"
+      fi
+    output_var: mode_check
+
+  - name: "Route based on mode"
+    tool: goto
+    target: "milestone_commit"
+    when: "{mode_check} == milestone"
+
+  - name: "Simple mode finalization"
+    tool: goto
+    target: "finalization_start"
+
+  # === MILESTONE COMMIT ===
+
+  - name: "milestone_commit"
+    tool: bash
+    command: |
+      echo ""
+      echo "=== Committing Milestone {milestone_id} ==="
+    visible: true
+
+  - name: "Milestone completion checklist"
+    tool: checklist
+    checklist: milestone-completion
+    on_error: continue
+
+  - name: "Stage milestone changes"
+    tool: bash
+    command: "git add -A"
+
+  - name: "Generate milestone commit message"
+    model: haiku
+    prompt: |
+      Generate a commit message for milestone {milestone_id}: {milestone_title}
+
+      Stories completed: {stories_count}
+
+      Format:
+      feat({milestone_id}): Brief description
+
+      - Change 1
+      - Change 2
+
+      Output ONLY the commit message.
+    output_var: milestone_commit_message
+
+  - name: "Commit milestone"
+    tool: bash
+    command: |
+      git commit -m "{milestone_commit_message}" || echo "Nothing to commit"
+    on_error: continue
+
+  - name: "Create milestone tag"
+    tool: bash
+    command: |
+      git tag -a "milestone-{milestone_id}" -m "Milestone {milestone_id}: {milestone_title}" 2>/dev/null || echo "Tag exists"
+    on_error: continue
+
+  - name: "Log decision: Milestone complete"
+    tool: bash
+    command: |
+      cat >> {output_dir}/decisions.md << EOF
+
+      **Completed**: $(date +%Y-%m-%d\ %H:%M)
+      **Stories Implemented**: {stories_count}
+      **Architecture Updated**: Yes
+      **Git Tag**: milestone-{milestone_id}
+
+      EOF
+
+  - name: "Generate milestone summary"
+    model: haiku
+    prompt: |
+      Summarize what was built in milestone {milestone_id}: {milestone_title}
+
+      Stories completed: {stories_count}
+
+      Provide a 2-3 sentence summary. Focus on WHAT was built.
+      Output ONLY the summary text.
+    output_var: milestone_summary
+
+  - name: "Update cumulative summary"
+    tool: bash
+    command: |
+      CURRENT="{cumulative_implementation_summary}"
+      NEW="## Milestone {milestone_id}: {milestone_title}
+      {milestone_summary}
+
+      "
+      echo "${CURRENT}${NEW}"
+    output_var: cumulative_implementation_summary
+
+  - name: "Increment milestone index"
+    tool: bash
+    command: "echo $(( {current_milestone_index} + 1 ))"
+    output_var: current_milestone_index
+
+  - name: "Continue milestone loop"
+    tool: goto
+    target: "milestone_loop_start"
+
+  # ============================================================
+  # FINALIZATION PHASE
+  # ============================================================
+
+  - name: "finalization_start"
+    tool: set
+    var: workflow_phase
+    value: "finalization"
+
+  - name: "Log finalization"
+    tool: bash
+    command: |
+      echo ""
+      echo "========================================"
+      echo "FINALIZATION PHASE"
+      echo "========================================"
+    visible: true
+
+  - name: "Final lint"
+    uses: builtin:lint-fix
+    with:
+      fix: true
+    outputs:
+      success: final_lint_passed
+    on_error: continue
+
+  - name: "Final tests"
+    uses: builtin:run-tests
+    outputs:
+      success: final_tests_passed
+    on_error: continue
+
+  - name: "Log final status"
+    tool: bash
+    command: |
+      echo "Final lint: {final_lint_passed}"
+      echo "Final tests: {final_tests_passed}"
+    visible: true
+
+  - name: "Consolidate antipatterns"
+    model: haiku
+    prompt: |
+      Use the /consolidate-antipatterns skill to curate and deduplicate
+      all antipattern entries from this epic.
+
+      Output a brief summary.
+    output_var: consolidation_summary
+
+  - name: "Check for new dependencies"
+    tool: bash
+    command: "cat pyproject.toml 2>/dev/null || cat requirements.txt 2>/dev/null || echo ''"
+    output_var: deps_after
+
+  - name: "Learn new dependencies"
+    model: sonnet
+    prompt: |
+      Use the /learn-new-dependencies skill to create skills for new dependencies.
+
+      ## Before
+      {deps_before}
+
+      ## After
+      {deps_after}
+
+      Output summary of skills created.
+    output_var: deps_learning_summary
+
+  - name: "Check workflow file changes"
+    tool: bash
+    command: "git diff --name-only HEAD~10 -- '.claude/workflows/' 2>/dev/null || echo ''"
+    output_var: workflow_changes
+
+  - name: "Update workflow-builder skill"
+    when: "{workflow_changes} is not empty"
+    model: haiku
+    prompt: |
+      Use the /update-workflow-builder skill to update the workflow-builder
+      skill with any new patterns discovered.
+
+      ## Changed Workflow Files
+      {workflow_changes}
+
+      Review the changes and update .claude/skills/workflow-builder/SKILL.md
+      if new patterns or features were used.
+
+      Output a summary of updates made (or "No updates needed").
+    output_var: workflow_builder_update_summary
+
+  - name: "Pre-commit checks"
+    tool: checklist
+    checklist: pre-commit
+    on_error: continue
+
+  - name: "Generate final commit message"
+    model: haiku
+    prompt: |
+      Generate a final commit message for epic: {epic_title}
+
+      Mode: {workflow_mode}
+      Milestones: {milestones_count}
+
+      Format:
+      feat(scope): Brief description
+
+      - Major change 1
+      - Major change 2
+
+      Output ONLY the commit message.
+    output_var: commit_message
+
+  - name: "Stage final changes"
+    tool: bash
+    command: "git add -A"
+
+  - name: "Final commit"
+    tool: bash
+    command: |
+      git commit -m "{commit_message}" || echo "Nothing to commit"
+    on_error: continue
+
+  - name: "Get final commit SHA"
+    tool: bash
+    command: "git rev-parse --short HEAD 2>/dev/null || echo 'unknown'"
+    output_var: final_commit_sha
+
+  - name: "Log decision: Epic complete"
+    tool: bash
+    command: |
+      cat >> {output_dir}/decisions.md << EOF
+
+      ---
+
+      ## Epic Complete
+
+      **Completed**: $(date +%Y-%m-%d\ %H:%M)
+      **Mode**: {workflow_mode}
+      **Branch**: {branch_name}
+      **Final Commit**: {final_commit_sha}
+      **Tests Passed**: {final_tests_passed}
+
+      EOF
+
+  - name: "Log completion"
+    tool: bash
+    command: |
+      echo ""
+      echo "=========================================="
+      echo "WORKFLOW COMPLETE"
+      echo "=========================================="
+      echo ""
+      echo "Epic: {epic_title}"
+      echo "Mode: {workflow_mode}"
+      echo "Branch: {branch_name}"
+      echo "Milestones: {milestones_count}"
+      echo "Final tests: {final_tests_passed}"
+      echo "Commit: {final_commit_sha}"
+      echo ""
+      echo "Generated artifacts:"
+      echo "  - {output_dir}/epic-description.md"
+      echo "  - {output_dir}/architecture.md"
+      echo "  - {output_dir}/decisions.md"
+      echo "  - {output_dir}/stories*.json"
+      if [ "{workflow_mode}" = "milestone" ]; then
+        echo "  - {output_dir}/milestones.json"
+      fi
+      echo ""
+      echo "Next steps:"
+      echo "  1. Review changes: git log --oneline -10"
+      echo "  2. Push branch: git push -u origin {branch_name}"
+      echo "  3. Create pull request"
+      echo ""
+      echo "=========================================="
+    visible: true
+
+  - name: "Cleanup"
+    tool: bash
+    command: "rm -rf {temp_dir}"
+    on_error: continue
+
+  - name: "workflow_end"
+    tool: bash
+    command: "echo 'Epic implementation workflow v2 finished!'"

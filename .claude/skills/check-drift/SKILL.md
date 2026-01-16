@@ -1,6 +1,6 @@
 ---
 name: check-drift
-description: Check implementation against architecture document to detect drift. Categorizes deviations as keep (improvements), remove (unnecessary), or fix (violations). Use after implementing stories to ensure architectural alignment.
+description: Check implementation against architecture document to detect drift. Categorizes deviations as keep (improvements), remove (unnecessary), fix (violations), or defer (future milestone). Use after implementing stories to ensure architectural alignment.
 ---
 
 # Check Drift
@@ -81,7 +81,27 @@ These are deviations that break the architecture:
 
 **Action**: Refactor to match architecture
 
-### Step 4: Output Results
+#### "defer" - Future Milestone Work
+These are items planned for a future milestone:
+- Functionality specified in architecture but scheduled for later
+- Integration points not yet needed
+- Features explicitly deferred to reduce scope
+- Placeholder implementations awaiting dependencies
+
+**Action**: Note for future milestone, no action needed now
+
+### Step 4: Identify Architecture Updates
+
+For items categorized as `keep`, determine what architecture updates are needed:
+
+1. **File structure updates**: New directories/files to add
+2. **Pattern documentation**: New patterns to document
+3. **Interface changes**: Refined interfaces to record
+4. **Integration updates**: New integration points to note
+
+Collect these as a list of specific updates for `/update-architecture`.
+
+### Step 5: Output Results
 
 Provide findings in JSON format for processing.
 
@@ -92,7 +112,8 @@ Output a JSON object with this structure:
 ```json
 {
   "aligned": true,
-  "issues": []
+  "issues": [],
+  "architecture_updates": []
 }
 ```
 
@@ -119,7 +140,18 @@ Or if there are issues:
       "description": "Used Repository pattern instead of specified Service pattern",
       "file": "src/data/UserRepository.ts",
       "action": "Refactor to UserService following service pattern in architecture"
+    },
+    {
+      "type": "defer",
+      "description": "OAuth integration not implemented - planned for M3",
+      "file": "src/services/AuthService.ts",
+      "action": "No action - scheduled for milestone M3"
     }
+  ],
+  "architecture_updates": [
+    "Add src/middleware/validate.ts to file structure",
+    "Document input validation pattern with Zod schemas",
+    "Add error handling middleware to integration points"
   ]
 }
 ```
@@ -129,10 +161,11 @@ Or if there are issues:
 | Field | Description |
 |-------|-------------|
 | `aligned` | `true` if no issues, `false` if issues exist |
-| `type` | `keep`, `remove`, or `fix` |
+| `type` | `keep`, `remove`, `fix`, or `defer` |
 | `description` | What the deviation is |
 | `file` | File path where deviation exists |
 | `action` | Specific action to take |
+| `architecture_updates` | List of updates needed for architecture document (from `keep` items) |
 
 ## Examples
 
@@ -141,7 +174,8 @@ Or if there are issues:
 ```json
 {
   "aligned": true,
-  "issues": []
+  "issues": [],
+  "architecture_updates": []
 }
 ```
 
@@ -186,7 +220,18 @@ Or if there are issues:
       "description": "JWT secret hardcoded instead of from environment",
       "file": "src/services/AuthService.ts",
       "action": "Read JWT_SECRET from process.env"
+    },
+    {
+      "type": "defer",
+      "description": "MFA setup endpoint not implemented",
+      "file": "src/routes/auth.ts",
+      "action": "No action - scheduled for milestone M3"
     }
+  ],
+  "architecture_updates": [
+    "Add src/middleware/ directory to file structure",
+    "Add rate limiting middleware to security patterns",
+    "Document request validation pattern with middleware"
   ]
 }
 ```
@@ -215,6 +260,13 @@ Or if there are issues:
 - Wrong interface implementations
 - Incorrect naming conventions
 - Integration points don't match plan
+
+### Defer If:
+- Functionality is in architecture but scheduled for later milestone
+- Dependencies required for the feature aren't yet available
+- Integration points that will be connected in future milestone
+- Placeholder code explicitly marked for future implementation
+- Features outside current milestone scope but in epic scope
 
 ## Best Practices
 
