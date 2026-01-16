@@ -41,21 +41,25 @@ class WorkflowRunner:
         self.server = server
         self.persist_temp_on_error = persist_temp_on_error
         self._workflow_failed = False
+
+        # Workflow temp directory (set up before TmuxManager for prompt externalization)
+        self.session_id = f"{int(time.time())}_{uuid4().hex[:8]}"
+        self.temp_dir = project_path / ".claude" / "workflow_temp" / self.session_id
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+
         self.tmux_manager = TmuxManager(
             config.tmux,
             config.claude,
             project_path,
             server,
+            temp_dir=self.temp_dir,
         )
         self.context = ExecutionContext(project_path=project_path)
 
         # Load workflow variables from config
         self.context.update(config.vars)
 
-        # Workflow temp directory
-        self.session_id = f"{int(time.time())}_{uuid4().hex[:8]}"
-        self.temp_dir = project_path / ".claude" / "workflow_temp" / self.session_id
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        # Set temp_dir in context for variable externalization
         self.context.set("_temp_dir", str(self.temp_dir))
 
         # Shared step executor
