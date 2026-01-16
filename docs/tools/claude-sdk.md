@@ -1,24 +1,24 @@
 # Claude SDK Tool
 
-The `claude_sdk` tool provides direct integration with the Claude API for AI-powered decision making in workflows. It uses the Claude Agent SDK to analyze context and return structured outputs.
+The `claude_sdk` tool provides direct integration with the Anthropic API for AI-powered decision making in workflows. Unlike the `claude` tool which runs Claude Code CLI in a tmux pane, `claude_sdk` makes direct API calls for faster, structured responses.
 
 ## Overview
 
-Unlike the standard `claude` tool which runs Claude Code in a tmux pane, `claude_sdk` makes direct API calls to Claude. This gives you:
+The Claude SDK tool is ideal for:
 
 - **Structured outputs**: Boolean, enum, decision, or custom JSON schema responses
-- **Read-only tools**: Can use Read, Glob, Grep, WebFetch, WebSearch for context gathering
 - **Faster execution**: No tmux overhead, direct API communication
-- **Better for decisions**: Ideal for branching logic and conditional workflows
+- **Decision making**: Ideal for branching logic and conditional workflows
+- **Analysis tasks**: Read-only analysis without file modifications
 
-## When to Use SDK vs tmux-based Claude
+## When to Use SDK vs Claude Code
 
 | Use Case | Recommended Tool |
 |----------|------------------|
-| Make a yes/no decision | `claude_sdk` with `output_type: boolean` |
-| Choose between options | `claude_sdk` with `output_type: enum` |
-| Dynamic workflow routing | `claude_sdk` with `output_type: decision` |
-| Generate structured data | `claude_sdk` with `output_type: schema` |
+| Make a yes/no decision | `claude_sdk` with boolean schema |
+| Choose between options | `claude_sdk` with enum values |
+| Dynamic workflow routing | `claude_sdk` with decision schema |
+| Generate structured data | `claude_sdk` with custom schema |
 | Write/modify code | `claude` (tmux-based) |
 | Run commands interactively | `claude` (tmux-based) |
 | Complex multi-step coding | `claude` (tmux-based) |
@@ -26,395 +26,465 @@ Unlike the standard `claude` tool which runs Claude Code in a tmux pane, `claude
 
 **Rule of thumb**: Use `claude_sdk` for decisions and analysis, use `claude` for actions that modify files.
 
-## Required Environment Variables
+## Basic Usage
 
-```bash
-# Required: Your Anthropic API key
-export ANTHROPIC_API_KEY="sk-ant-..."
+```typescript
+import type { WorkflowFactory } from "claude-workflow";
+
+const workflow: WorkflowFactory = (t) => ({
+  name: "analyze-project",
+  steps: [
+    t.step("Check tests exist", t.claudeSdk({
+      prompt: "Does this project have a test suite?",
+      schema: { type: "boolean" },
+    }), {
+      output: "has_tests",
+    }),
+  ],
+});
+
+export default workflow;
 ```
 
-The SDK requires `claude-agent-sdk` to be installed:
+## Builder API
 
-```bash
-pip install claude-agent-sdk
+### `t.claudeSdk(config: ClaudeSdkToolConfig)`
+
+Creates a Claude SDK tool definition with the specified configuration.
+
+```typescript
+interface ClaudeSdkToolConfig {
+  prompt: string;                    // Required: The prompt to send
+  schema?: Record<string, unknown>;  // JSON schema for structured output
+  systemPrompt?: string;             // Custom system prompt
+  model?: string;                    // Model alias or full ID
+  maxRetries?: number;               // Retries for validation (default: 3)
+  timeout?: number;                  // Timeout in milliseconds
+}
 ```
 
-## Configuration Options
-
-### Step-Level Options
+### Step Options
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `prompt` | string | **required** | The prompt to send to Claude |
-| `model` | string | `"sonnet"` | Model alias: `sonnet`, `opus`, or `haiku` |
-| `system_prompt` | string | built-in | Custom system prompt for this step |
-| `output_type` | string | none | Expected output format (see below) |
-| `values` | list | none | Allowed values for `enum` output type |
-| `schema` | object | none | JSON schema for `schema` output type |
-| `max_retries` | int | `3` | Retries for schema validation failures |
-| `max_turns` | int | `10` | Max agentic turns (tool calls) |
-| `timeout` | int | `60000` | Timeout in milliseconds |
-| `verbose` | bool | `false` | Include full transcript in output |
-| `output_var` | string | none | Store result in this variable |
+| `output` | string | - | Variable name to store the result |
+| `when` | string | - | Conditional expression for step execution |
+| `onError` | "stop" \| "continue" | "stop" | Error handling behavior |
 
-### Workflow-Level Defaults
-
-Set defaults for all `claude_sdk` steps at the workflow level:
-
-```yaml
-type: claude-workflow
-version: 2
-name: My Workflow
-
-claude_sdk:
-  model: opus
-  system_prompt: |
-    You are a code reviewer. Be concise and precise.
-
-steps:
-  - name: analyze
-    tool: claude_sdk
-    prompt: Analyze this code quality
-    # Inherits model and system_prompt from workflow level
-```
-
-### Model Aliases
+## Model Aliases
 
 | Alias | Model ID |
 |-------|----------|
-| `sonnet` | claude-sonnet-4-20250514 |
-| `opus` | claude-opus-4-5-20251101 |
-| `haiku` | claude-haiku-3-5-20241022 |
+| `sonnet` | claude-sonnet-4-5-20250514 |
+| `opus` | claude-opus-4-5-20250514 |
+| `haiku` | claude-haiku-4-5-20250514 |
 
-You can also use full model IDs directly.
+You can use either aliases or full model IDs:
 
-## Output Types
+```typescript
+t.claudeSdk({
+  prompt: "Analyze this code",
+  model: "opus", // Using alias
+})
+
+t.claudeSdk({
+  prompt: "Quick check",
+  model: "claude-haiku-4-5-20250514", // Using full ID
+})
+```
+
+## Structured Output with JSON Schema
+
+The `schema` field defines the expected output format. The SDK validates responses and retries automatically if validation fails.
 
 ### Boolean Output
 
 Returns `true` or `false`:
 
-```yaml
-- name: check_tests_exist
-  tool: claude_sdk
-  prompt: Does this project have a test suite?
-  output_type: boolean
-  output_var: has_tests
-```
+```typescript
+t.step("Check tests exist", t.claudeSdk({
+  prompt: "Does this project have a test suite?",
+  schema: {
+    type: "boolean",
+  },
+}), {
+  output: "has_tests",
+})
 
-Result stored in variable: `"true"` or `"false"`
+// Result stored in variable: "true" or "false"
+```
 
 ### Enum Output
 
 Returns one of the specified values:
 
-```yaml
-- name: detect_language
-  tool: claude_sdk
-  prompt: What is the primary programming language?
-  output_type: enum
-  values:
-    - python
-    - javascript
-    - typescript
-    - go
-    - rust
-    - other
-  output_var: language
-```
+```typescript
+t.step("Detect language", t.claudeSdk({
+  prompt: "What is the primary programming language in this project?",
+  schema: {
+    type: "enum",
+    values: ["python", "javascript", "typescript", "go", "rust", "other"],
+  },
+}), {
+  output: "language",
+})
 
-Result stored in variable: e.g., `"python"`
+// Result stored in variable: e.g., "typescript"
+```
 
 ### Decision Output
 
 Returns a step name and reason for workflow routing:
 
-```yaml
-- name: route_task
-  tool: claude_sdk
-  prompt: |
+```typescript
+t.step("Route task", t.claudeSdk({
+  prompt: `
     Based on the issue description, which step should handle this?
     - fix_bug: For bug fixes
     - add_feature: For new features
     - refactor: For code cleanup
-  output_type: decision
-  output_var: routing_decision
+  `,
+  schema: {
+    type: "decision",
+  },
+}), {
+  output: "routing_decision",
+})
+
+// Result: JSON with "goto" and "reason" fields
+// The workflow automatically jumps to the target step
 ```
 
-Result: JSON with `goto` and `reason` fields. The workflow automatically jumps to the target step.
-
-### Schema Output
+### Custom Schema Output
 
 Returns structured data matching a JSON schema:
 
-```yaml
-- name: extract_info
-  tool: claude_sdk
-  prompt: Extract key information from this file
-  output_type: schema
-  schema:
-    type: object
-    properties:
-      title:
-        type: string
-      version:
-        type: string
-      dependencies:
-        type: array
-        items:
-          type: string
-    required:
-      - title
-      - version
-  output_var: package_info
+```typescript
+t.step("Extract info", t.claudeSdk({
+  prompt: "Extract key information from this project's package.json",
+  schema: {
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      version: { type: "string" },
+      dependencies: {
+        type: "array",
+        items: { type: "string" },
+      },
+      hasTests: { type: "boolean" },
+    },
+    required: ["name", "version"],
+  },
+}), {
+  output: "package_info",
+})
+
+// Result: JSON string matching the schema
 ```
 
-Result: JSON string matching the schema.
+## Workflow-Level Configuration
+
+Set defaults for all `claude_sdk` steps at the workflow level:
+
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "code-review",
+  claudeSdk: {
+    model: "opus",
+    systemPrompt: `
+      You are a senior code reviewer. Focus on:
+      - Security issues
+      - Performance problems
+      - Code clarity
+    `,
+  },
+  steps: [
+    t.step("Analyze", t.claudeSdk({
+      prompt: "Review the changes in the current branch",
+      // Inherits model and systemPrompt from workflow level
+    })),
+  ],
+});
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `model` | string | "sonnet" | Default model for SDK steps |
+| `systemPrompt` | string | built-in | Default system prompt for SDK steps |
 
 ## Example Workflows
 
 ### Conditional Test Running
 
-```yaml
-type: claude-workflow
-version: 2
-name: Smart Test Runner
-
-steps:
-  - name: check_changes
-    tool: claude_sdk
-    prompt: |
-      Look at the recent git changes. Are there any changes
-      that require running the full test suite?
-    output_type: boolean
-    output_var: needs_full_tests
-
-  - name: run_full_tests
-    tool: bash
-    command: npm run test
-    when: "{{ needs_full_tests }} == true"
-
-  - name: run_quick_tests
-    tool: bash
-    command: npm run test:quick
-    when: "{{ needs_full_tests }} == false"
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "smart-test-runner",
+  steps: [
+    t.step("Check changes", t.claudeSdk({
+      prompt: `
+        Look at the recent git changes. Are there any changes
+        that require running the full test suite?
+      `,
+      schema: { type: "boolean" },
+    }), {
+      output: "needs_full_tests",
+    }),
+    t.step("Run full tests", t.bash("npm run test"), {
+      when: "{needs_full_tests} == true",
+    }),
+    t.step("Run quick tests", t.bash("npm run test:quick"), {
+      when: "{needs_full_tests} == false",
+    }),
+  ],
+});
 ```
 
 ### Dynamic Workflow Routing
 
-```yaml
-type: claude-workflow
-version: 2
-name: Issue Handler
-
-steps:
-  - name: analyze_issue
-    tool: claude_sdk
-    prompt: |
-      Read the issue description in {{ issue_file }}.
-      Determine the type of work needed:
-      - step: implement_feature (new functionality)
-      - step: fix_bug (something is broken)
-      - step: update_docs (documentation only)
-    output_type: decision
-
-  - name: implement_feature
-    tool: claude
-    prompt: Implement the feature described in {{ issue_file }}
-
-  - name: fix_bug
-    tool: claude
-    prompt: Fix the bug described in {{ issue_file }}
-
-  - name: update_docs
-    tool: claude
-    prompt: Update documentation as described in {{ issue_file }}
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "issue-handler",
+  steps: [
+    t.step("Analyze issue", t.claudeSdk({
+      prompt: `
+        Read the issue description. Determine the type of work needed:
+        - step: implement_feature (new functionality)
+        - step: fix_bug (something is broken)
+        - step: update_docs (documentation only)
+      `,
+      schema: { type: "decision" },
+    })),
+    t.step("implement_feature", t.claude("Implement the new feature")),
+    t.step("fix_bug", t.claude("Fix the bug")),
+    t.step("update_docs", t.claude("Update the documentation")),
+  ],
+});
 ```
 
 ### Code Quality Analysis
 
-```yaml
-type: claude-workflow
-version: 2
-name: Code Review
-
-claude_sdk:
-  model: opus
-  system_prompt: |
-    You are a senior code reviewer. Focus on:
-    - Security issues
-    - Performance problems
-    - Code clarity
-
-steps:
-  - name: analyze
-    tool: claude_sdk
-    prompt: Review the changes in the current branch
-    output_type: schema
-    schema:
-      type: object
-      properties:
-        score:
-          type: integer
-          minimum: 1
-          maximum: 10
-        issues:
-          type: array
-          items:
-            type: object
-            properties:
-              severity:
-                type: string
-                enum: [critical, warning, info]
-              description:
-                type: string
-        recommendation:
-          type: string
-          enum: [approve, request_changes, needs_discussion]
-      required: [score, issues, recommendation]
-    output_var: review_result
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "code-review",
+  claudeSdk: {
+    model: "opus",
+    systemPrompt: `
+      You are a senior code reviewer. Focus on:
+      - Security issues
+      - Performance problems
+      - Code clarity
+    `,
+  },
+  steps: [
+    t.step("Analyze", t.claudeSdk({
+      prompt: "Review the changes in the current branch",
+      schema: {
+        type: "object",
+        properties: {
+          score: {
+            type: "integer",
+            minimum: 1,
+            maximum: 10,
+          },
+          issues: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                severity: {
+                  type: "string",
+                  enum: ["critical", "warning", "info"],
+                },
+                description: { type: "string" },
+              },
+            },
+          },
+          recommendation: {
+            type: "string",
+            enum: ["approve", "request_changes", "needs_discussion"],
+          },
+        },
+        required: ["score", "issues", "recommendation"],
+      },
+    }), {
+      output: "review_result",
+    }),
+  ],
+});
 ```
 
-## Available Tools
+### Security Review
 
-The `claude_sdk` tool has access to read-only tools for context gathering:
-
-- **Read**: Read file contents
-- **Glob**: Find files by pattern
-- **Grep**: Search file contents
-- **WebFetch**: Fetch web pages
-- **WebSearch**: Search the web
-
-These run with `bypassPermissions` mode for seamless execution.
-
-## Tips and Patterns
-
-### Large Variables Are Handled Automatically
-
-Variables exceeding 10,000 characters are **automatically externalized** to temp files. The system:
-- Writes large content to `{temp_dir}/{variable_name}.txt`
-- Replaces `{var}` with `@/path/to/file.txt` in the prompt
-- Claude reads the file via its `@filepath` syntax
-
-This prevents prompt size errors and works transparently:
-```yaml
-steps:
-  - name: "Get logs"
-    tool: bash
-    command: "cat large_logfile.txt"  # Could be 100KB+
-    output_var: logs
-
-  - name: "Analyze"
-    tool: claude_sdk
-    prompt: "Find critical errors in: {logs}"
-    output_type: boolean
-    # Automatically becomes: Find critical errors in: @/path/to/logs.txt
-```
-
-### Use Variables for Context
-
-```yaml
-- name: get_readme
-  tool: bash
-  command: cat README.md
-  output_var: readme_content
-
-- name: analyze
-  tool: claude_sdk
-  prompt: |
-    Based on this README:
-    {{ readme_content }}
-
-    Is this a library or an application?
-  output_type: enum
-  values: [library, application]
-```
-
-### Chain Decisions
-
-```yaml
-- name: check_tests
-  tool: claude_sdk
-  prompt: Does this project have tests?
-  output_type: boolean
-  output_var: has_tests
-
-- name: check_coverage
-  tool: claude_sdk
-  prompt: Is test coverage above 80%?
-  output_type: boolean
-  output_var: good_coverage
-  when: "{{ has_tests }} == true"
-```
-
-### Use Verbose Mode for Debugging
-
-```yaml
-- name: debug_analysis
-  tool: claude_sdk
-  prompt: Analyze the project structure
-  verbose: true  # Full transcript in output
-  output_var: analysis
-```
-
-### Custom System Prompts for Specialized Tasks
-
-```yaml
-- name: security_review
-  tool: claude_sdk
-  system_prompt: |
+```typescript
+t.step("Security review", t.claudeSdk({
+  prompt: "Review src/ for security issues",
+  systemPrompt: `
     You are a security expert. Look for:
     - SQL injection
     - XSS vulnerabilities
     - Hardcoded secrets
     - Insecure dependencies
-  prompt: Review src/ for security issues
-  output_type: schema
-  schema:
-    type: object
-    properties:
-      vulnerabilities:
-        type: array
-        items:
-          type: string
-      risk_level:
-        type: string
-        enum: [none, low, medium, high, critical]
+  `,
+  schema: {
+    type: "object",
+    properties: {
+      vulnerabilities: {
+        type: "array",
+        items: { type: "string" },
+      },
+      riskLevel: {
+        type: "string",
+        enum: ["none", "low", "medium", "high", "critical"],
+      },
+    },
+    required: ["vulnerabilities", "riskLevel"],
+  },
+}), {
+  output: "security_result",
+})
 ```
 
-### Retry on Validation Failure
+## Retry on Validation Failure
 
 The SDK automatically retries when output validation fails. Each retry includes the previous error message to help Claude correct its output:
 
-```yaml
-- name: extract_data
-  tool: claude_sdk
-  prompt: Extract structured data
-  output_type: schema
-  schema: { ... }
-  max_retries: 5  # Try up to 5 times on validation failure
+```typescript
+t.step("Extract data", t.claudeSdk({
+  prompt: "Extract structured data from the README",
+  schema: {
+    type: "object",
+    properties: {
+      title: { type: "string" },
+      description: { type: "string" },
+    },
+    required: ["title", "description"],
+  },
+  maxRetries: 5, // Try up to 5 times on validation failure
+}))
+```
+
+## Variable Interpolation
+
+Use variables from previous steps in prompts:
+
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "analyze-readme",
+  steps: [
+    t.step("Get README", t.bash("cat README.md"), {
+      output: "readme_content",
+    }),
+    t.step("Analyze", t.claudeSdk({
+      prompt: `
+        Based on this README:
+        {readme_content}
+
+        Is this a library or an application?
+      `,
+      schema: {
+        type: "enum",
+        values: ["library", "application"],
+      },
+    })),
+  ],
+});
+```
+
+## Large Variables
+
+Variables exceeding 10,000 characters are automatically externalized to temp files:
+
+```typescript
+const workflow: WorkflowFactory = (t) => ({
+  name: "analyze-logs",
+  steps: [
+    t.step("Get logs", t.bash("cat large_logfile.txt"), {
+      output: "logs", // Could be 100KB+
+    }),
+    t.step("Analyze", t.claudeSdk({
+      prompt: "Find critical errors in: {logs}",
+      schema: { type: "boolean" },
+    })),
+    // Automatically becomes: Find critical errors in: @/path/to/logs.txt
+  ],
+});
+```
+
+## Environment Requirements
+
+### Required
+
+- **ANTHROPIC_API_KEY**: Your Anthropic API key must be set as an environment variable
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 ## Error Handling
 
-If the SDK is not installed:
+Use `onError: "continue"` to proceed despite failures:
 
-```
-claude-agent-sdk not installed. Run: pip install claude-agent-sdk
+```typescript
+t.step("Optional check", t.claudeSdk({
+  prompt: "Check if feature exists",
+  schema: { type: "boolean" },
+}), {
+  onError: "continue",
+})
 ```
 
-If output validation fails after all retries:
+If output validation fails after all retries, the step fails with an error message:
 
 ```
 Output validation failed after 3 attempts: Expected boolean result, got: string
 ```
 
-Use `on_error: continue` to proceed despite failures:
+## Tips and Patterns
 
-```yaml
-- name: optional_check
-  tool: claude_sdk
-  prompt: Check if feature exists
-  output_type: boolean
-  on_error: continue
+### Chain Decisions
+
+```typescript
+steps: [
+  t.step("Check tests", t.claudeSdk({
+    prompt: "Does this project have tests?",
+    schema: { type: "boolean" },
+  }), {
+    output: "has_tests",
+  }),
+  t.step("Check coverage", t.claudeSdk({
+    prompt: "Is test coverage above 80%?",
+    schema: { type: "boolean" },
+  }), {
+    output: "good_coverage",
+    when: "{has_tests} == true",
+  }),
+]
 ```
+
+### Custom System Prompts for Specialized Tasks
+
+Different tasks may benefit from different personas:
+
+```typescript
+// Security focus
+t.claudeSdk({
+  systemPrompt: "You are a security expert. Look for vulnerabilities.",
+  prompt: "Review auth.ts",
+  // ...
+})
+
+// Performance focus
+t.claudeSdk({
+  systemPrompt: "You are a performance engineer. Identify bottlenecks.",
+  prompt: "Review database queries",
+  // ...
+})
+```
+
+### Use Appropriate Models
+
+- **haiku**: Fast, cheap - simple yes/no decisions
+- **sonnet**: Balanced - most analysis tasks
+- **opus**: Powerful - complex reasoning, detailed analysis

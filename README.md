@@ -1,387 +1,474 @@
-# claude-workflow
+# Claude Workflow - TypeScript Implementation
 
-**Automate Claude Code like a boss.** Define multi-step workflows in YAML, run them through tmux, and let Claude handle the heavy lifting.
+A TypeScript/LangChain-based implementation of claude-workflow, providing type-safe workflow automation with Claude Code.
 
----
+## Overview
 
-## Quick Install
+This is the TypeScript implementation of claude-workflow, designed to orchestrate complex automation tasks using Claude Code. It provides a fluent builder API for defining workflows as TypeScript files with full type safety and IDE support.
 
-```bash
-# Zero-install run with uv (recommended)
-uvx claude-workflow /path/to/project
+## Features
 
-# Or install globally
-uv tool install claude-workflow
-
-# Or with pip
-pip install claude-workflow
-```
+- **TypeScript-first** with full type safety and IDE autocompletion
+- **LangChain state graphs** for workflow execution
+- **Builder API** for programmatic workflow definition
+- **Dual runtime support** - works with both Bun (recommended) and Node.js (via tsx)
+- **8 built-in tools** for shell commands, Claude integration, data manipulation, and external services
+- **Variable interpolation** with automatic externalization for large content
+- **Conditional execution** with natural language conditions
+- **tmux integration** for visible Claude Code execution
 
 ## Requirements
 
-- Python 3.11+
-- tmux (workflows run in a tmux pane)
-- Claude Code CLI installed and authenticated
-- Claude hooks (auto-installed on first run)
+- [Bun](https://bun.sh/) (recommended) or Node.js 18+
+- [tmux](https://github.com/tmux/tmux) (required for the `claude` tool)
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and configured
+- `ANTHROPIC_API_KEY` environment variable (for `claude_sdk` and `checklist` model checks)
+- `LINEAR_API_KEY` environment variable (for Linear tools, optional)
 
----
-
-## Quick Start
-
-**1. Start a tmux session:**
+## Installation
 
 ```bash
-tmux new -s workflow
+cd ts
+bun install
 ```
 
-**2. Create a workflow file** in the `.claude/` directory (or any subdirectory):
-
-```yaml
-type: claude-workflow
-version: 2
-name: Build and Ship
-
-steps:
-  - name: Install deps
-    prompt: Install all project dependencies
-
-  - name: Run tests
-    prompt: Run the test suite and fix any failures
-
-  - name: Deploy
-    prompt: Build for production and deploy
-```
-
-**3. Run it:**
+Or with npm:
 
 ```bash
-claude-workflow .
+cd ts
+npm install
 ```
 
-That's it. Claude takes over.
+## CLI Commands
 
----
-
-## CLI Options
-
-```
-claude-workflow [project_path] [options]
-```
-
-| Option | Description |
-|--------|-------------|
-| `project_path` | Path to your project (default: current directory) |
-| `-w, --workflow NAME` | Run a specific workflow by name |
-| `-f, --file PATH` | Run a workflow from a specific file path |
-| `-p, --port PORT` | Port for completion signal server (default: 7432) |
-
-### Examples
+### Development Scripts
 
 ```bash
-# Interactive picker (shows all workflows in .claude/ and subdirectories)
-claude-workflow .
+# Run with tsx (Node.js)
+bun run dev
 
-# Run specific workflow by name
-claude-workflow . -w "Build and Test"
+# Run with Bun runtime
+bun run dev:bun
 
-# Run workflow from custom file location
-claude-workflow . -f ~/workflows/deploy.yml
+# Build standalone binary
+bun run build
 
-# Use a specific port (useful for avoiding conflicts)
-claude-workflow . -p 8000
+# Run tests
+bun test
+
+# TypeScript type checking
+bun run typecheck
+
+# Lint with Biome
+bun run lint
+
+# Format code
+bun run format
 ```
 
----
+### CLI Usage
 
-## Workflow File Structure
+The CLI is available as `cw` or `claude-workflow`:
 
-Workflows live in your project's `.claude/` directory and any subdirectories. Any `.yml` or `.yaml` file with the proper header (`type: claude-workflow`, `version: 2`) is auto-discovered recursively.
+```bash
+# Run a workflow in current directory
+cw run
 
-### Minimal Example
+# Run a workflow in a specific project
+cw run /path/to/project
 
-```yaml
-type: claude-workflow
-version: 2
-name: My Workflow
+# Run a specific workflow by name
+cw run -w my-workflow /path/to/project
 
-steps:
-  - name: Do the thing
-    prompt: Make it happen
+# Verbose output
+cw run -v /path/to/project
 ```
 
-### Full Example with Tools
+### Hook Management
 
-```yaml
-type: claude-workflow
-version: 2
-name: Build Pipeline
+Hooks enable completion detection when running Claude Code:
 
-# Claude Code settings
-claude:
-  interactive: true
-  model: sonnet
-  dangerously_skip_permissions: true  # Use with caution!
+```bash
+# Install workflow hooks to a project
+cw hooks install <project-path>
 
-# Tmux settings
-tmux:
-  split: vertical
-  idle_time: 5.0
+# Check if hooks are installed
+cw hooks check <project-path>
 
-steps:
-  # Use a shared step
-  - name: Check git status
-    uses: builtin:git-status
-    outputs:
-      branch: current_branch
+# Uninstall hooks from a project
+cw hooks uninstall <project-path>
 
-  # Run bash commands
-  - name: Get files to process
-    tool: bash
-    command: "find src -name '*.ts' | head -10"
-    output_var: files_list
-
-  # Loop over a range of numbers
-  - name: Process batches
-    tool: range
-    from: 1
-    to: 3
-    var: batch_num
-    steps:
-      - name: Process batch
-        prompt: "Process batch {batch_num}"
-
-  # Loop with foreach
-  - name: Process files
-    tool: foreach
-    source: files_list
-    item_var: current_file
-    steps:
-      - name: Process file
-        prompt: "Process {current_file}"
-
-  # Retry with condition
-  - name: Run tests with retry
-    tool: retry
-    max_attempts: 3
-    until: "{test_result} == passed"
-    delay: 2
-    steps:
-      - name: Run tests
-        tool: bash
-        command: "npm test && echo passed || echo failed"
-        output_var: test_result
-
-  # Batch variable operations
-  - name: Set summary variables
-    tool: context
-    action: set
-    values:
-      branch: "{current_branch}"
-      status: "complete"
+# Clean up legacy global hooks
+cw hooks cleanup-global
 ```
 
----
+## Workflow Files
 
-## Available Tools
+Workflows are defined in `.cw/workflows/` as `.workflow.ts` files using the builder API.
 
-### Core Tools
+### Basic Structure
 
-| Tool | Description |
-|------|-------------|
-| `claude` | Run Claude Code with a prompt (default) |
-| `claude_sdk` | Use Claude SDK for structured output |
-| `bash` | Execute shell commands |
-| `set` | Set a variable value |
+```typescript
+import type { WorkflowBuilder } from "../../../src/types/index.ts";
 
-### Control Flow
+export default (t: WorkflowBuilder) => ({
+  name: "Example Workflow",
 
-| Tool | Description |
-|------|-------------|
-| `goto` | Jump to another step (for loops/branching) |
-| `foreach` | Iterate over arrays |
-| `range` | Iterate over a range of numbers (counting loops) |
-| `while` | Loop while a condition is true |
-| `retry` | Retry steps until success or max attempts |
-| `break` | Break out of a loop |
-| `continue` | Skip to next loop iteration |
+  // Variables available via {var_name} interpolation
+  vars: {
+    greeting: "Hello",
+    target: "World",
+  },
 
-### Data Manipulation
+  // Claude Code configuration
+  claude: {
+    model: "sonnet",
+    dangerouslySkipPermissions: true,
+  },
 
-| Tool | Description |
-|------|-------------|
-| `context` | Batch variable operations (set, copy, clear, export) |
-| `data` | Write data to temp files (JSON, text, markdown) |
-| `json` | Native JSON/YAML manipulation with [JMESPath](https://jmespath.org/) queries |
-
-### Integrations
-
-| Tool | Description |
-|------|-------------|
-| `linear_tasks` | Fetch tasks from Linear |
-| `linear_manage` | Create/update Linear issues |
-
----
-
-## Shared Steps
-
-Shared steps are reusable workflow components with defined inputs and outputs, similar to GitHub Actions composite actions.
-
-### Using Shared Steps
-
-```yaml
-steps:
-  - name: Check git status
-    uses: builtin:git-status
-    outputs:
-      branch: current_branch
-      has_changes: repo_has_changes
-
-  - name: Commit changes
-    uses: builtin:git-commit
-    with:
-      message: "Auto-commit from workflow"
-    when: "{repo_has_changes} == true"
+  // Workflow steps
+  steps: [
+    t.step("Get current date", t.bash("date"), { output: "currentDate" }),
+    t.step("Show message", t.bash("echo '{greeting}, {target}!'")),
+  ],
+});
 ```
 
-### Resolution Strategies
+### Configuration Options
 
-| Prefix | Location |
-|--------|----------|
-| `builtin:` | Built-in steps shipped with claude-workflow |
-| `project:` | Steps in `.claude/workflows/steps/` |
-| `path:` | Relative path from the workflow file |
+#### Top-Level Configuration
 
-### Built-in Shared Steps
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Workflow display name |
+| `vars` | `Record<string, unknown>` | Initial variables |
+| `claude` | `ClaudeConfig` | Claude Code settings |
+| `claudeSdk` | `ClaudeSdkConfig` | Claude SDK settings |
+| `tmux` | `TmuxConfig` | Tmux pane settings |
+| `onError` | `OnErrorConfig` | Error handling behavior |
 
-- `builtin:git-status` - Get repository status (branch, changes, staged files)
-- `builtin:git-commit` - Stage and commit changes
-- `builtin:lint-fix` - Run linter and fix issues
-- `builtin:run-tests` - Execute test suite
+#### Claude Configuration
 
----
-
-## Key Features
-
-- **Multi-workflow support** - Keep multiple workflows in `.claude/`, pick interactively or by name
-- **Variable interpolation** - Use `{var_name}` anywhere in prompts and commands
-- **Conditional steps** - Skip steps with `when:` conditions
-- **Control flow** - Loops with `foreach`, `range`, `while`; branching with `goto`; error recovery with `retry`
-- **Shared steps** - Reusable step definitions with inputs/outputs (like GitHub Actions)
-- **Data tools** - Native JSON manipulation, batch context operations, temp file management
-- **Output capture** - Store step output in variables with `output_var`
-- **Error handling** - `on_error: stop | continue` per step
-- **Beautiful TUI** - Rich terminal output with progress tracking
-- **Multi-instance support** - Run multiple workflows concurrently with automatic port allocation
-
----
-
-## How It Works
-
-### Completion Detection
-
-claude-workflow uses an HTTP server to detect when Claude Code finishes a task. When Claude completes a step or ends a session, it signals the orchestrator via HTTP requests.
-
-**Architecture:**
-1. The orchestrator starts a local HTTP server (default port: 7432)
-2. Claude Code hooks send HTTP requests when tasks complete
-3. The orchestrator receives signals and advances to the next step
-
-**Multi-instance Support:**
-
-Each workflow instance uses its own port via the `ORCHESTRATOR_PORT` environment variable:
-- If the default port (7432) is busy, the next available port is used automatically (7433, 7434, etc.)
-- Each Claude Code process receives its assigned port through environment variables
-- This allows running multiple workflows simultaneously in different tmux sessions
-
----
-
-## Hooks
-
-Hooks are **required** for the orchestrator to function. They enable Claude Code to signal task completion back to the orchestrator.
-
-### Auto-Installation
-
-On first run, if hooks are not configured, you'll be prompted to install them:
-
-```
-⚠ Claude hooks not configured!
-
-Hooks are required for reliable completion detection.
-
-Where should hooks be installed?
-❯ Global (~/.claude/settings.json)
-  Project (.claude/settings.json)
-  Cancel
-```
-
-### Auto-Update
-
-If your hooks are outdated (e.g., after a claude-workflow update), you'll be prompted to update them. Your other custom hooks are preserved during updates.
-
-### Manual Installation
-
-If you prefer manual installation, add the following to your Claude settings.json:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/complete\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/exited\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
-          }
-        ]
-      }
-    ]
-  }
+```typescript
+claude: {
+  model: "sonnet",              // "opus", "sonnet", "haiku"
+  dangerouslySkipPermissions: true,
+  permissionMode: "auto",
+  allowedTools: ["bash", "write"],
+  autoApprovePlan: true,
+  appendSystemPrompt: "Additional context...",
+  cwd: "/custom/working/dir",
 }
 ```
 
-**Settings file locations:**
-- Global: `~/.claude/settings.json`
-- Project: `<project>/.claude/settings.json`
+### Step Options
 
-**Note:** After installing or updating hooks, restart Claude Code for changes to take effect
+```typescript
+t.step("Step name", t.bash("command"), {
+  output: "varName",       // Store output in variable
+  when: "{var} is not empty", // Conditional execution
+  onError: "continue",     // "stop" (default) or "continue"
+  visible: true,           // Show in tmux pane
+  cwd: "/custom/path",     // Working directory override
+  model: "opus",           // Model override for this step
+})
+```
 
----
+### Variable Interpolation
+
+Use `{var_name}` syntax in prompts and commands:
+
+```typescript
+// Simple variable
+t.bash("echo '{greeting}'")
+
+// Nested access
+t.bash("echo '{user.name}'")
+
+// Array index
+t.bash("echo '{items.0.title}'")
+
+// Complex interpolation
+t.claude("Fix the error in {filePath}: {errorMessage}")
+```
+
+Variables larger than 10KB are automatically externalized to temp files and referenced with `@filepath`.
+
+## Available Tools
+
+### 1. bash
+
+Execute shell commands:
+
+```typescript
+t.step("Run tests", t.bash("npm test"), { output: "testResult" })
+t.step("Build", t.bash("npm run build"))
+```
+
+### 2. claude
+
+Run Claude Code prompts in tmux with full IDE capabilities:
+
+```typescript
+t.step("Analyze code", t.claude("Analyze the error in {file} and suggest fixes"), {
+  output: "analysis",
+  model: "opus",
+})
+```
+
+### 3. claude_sdk
+
+Direct Claude SDK calls with structured output (JSON schema validation):
+
+```typescript
+t.step("Extract data", t.claudeSdk({
+  prompt: "Extract the title and author from: {content}",
+  schema: {
+    type: "object",
+    properties: {
+      title: { type: "string" },
+      author: { type: "string" },
+    },
+    required: ["title", "author"],
+  },
+  systemPrompt: "You are a data extraction assistant.",
+  model: "haiku",
+  maxRetries: 3,
+  timeout: 30000,
+}), { output: "extracted" })
+```
+
+### 4. data
+
+Write content to temporary files (useful for large data):
+
+```typescript
+t.step("Save data", t.data("{largeContent}", "json"), { output: "dataFilePath" })
+```
+
+### 5. json
+
+JSON/YAML manipulation with JMESPath queries:
+
+```typescript
+// Parse JSON string
+t.step("Parse", t.json("parse", { input: "{jsonString}" }), { output: "parsed" })
+
+// Query with JMESPath
+t.step("Query", t.json("query", {
+  input: "{data}",
+  query: "items[?status=='active'].name",
+}), { output: "activeNames" })
+
+// Stringify object
+t.step("Stringify", t.json("stringify", { input: "{object}" }), { output: "jsonStr" })
+
+// Set value at path
+t.step("Update", t.json("set", {
+  input: "{data}",
+  path: "config.enabled",
+  value: "true",
+}), { output: "updated" })
+```
+
+### 6. checklist
+
+Run validation checks with three check types:
+
+```typescript
+t.step("Validate", t.checklist([
+  // Bash check - run command and verify output
+  {
+    name: "TypeScript compiles",
+    type: "bash",
+    command: "tsc --noEmit",
+    severity: "error",
+  },
+  // Regex check - pattern matching in files
+  {
+    name: "No console.log in production",
+    type: "regex",
+    pattern: "console\\.log",
+    files: "src/**/*.ts",
+    exclude: "**/*.test.ts",
+    expect: 0,
+    severity: "warning",
+  },
+  // Model check - LLM-based judgment
+  {
+    name: "Code quality check",
+    type: "model",
+    prompt: "Does this code follow best practices? {codeSnippet}",
+    passPattern: "yes|pass|good",
+    contextVars: ["codeSnippet"],
+    severity: "info",
+  },
+]))
+```
+
+### 7. linear_tasks
+
+Query Linear issues for workflow automation:
+
+```typescript
+// Get next available issue
+t.step("Get task", t.linear("get_next", {
+  team: "ENG",
+  project: "Backend",
+  status: "Todo",
+  priority: 1,
+  labels: ["bug"],
+}), { output: "issueId" })
+
+// Get full issue details
+t.step("Get details", t.linear("get", {
+  issueId: "{issueId}",
+}), { output: "issueDetails" })
+
+// Assign issue
+t.step("Assign", t.linear("assign", {
+  issueId: "{issueId}",
+  assignee: "me",
+}))
+```
+
+### 8. linear_manage
+
+Create and update Linear issues:
+
+```typescript
+// Create new issue
+t.step("Create issue", t.linear("create", {
+  team: "ENG",
+  title: "Fix bug in {component}",
+  description: "{bugDescription}",
+  priority: 2,
+  labels: ["bug", "urgent"],
+}), { output: "newIssueId" })
+
+// Update issue status
+t.step("Update status", t.linear("update", {
+  issueId: "{issueId}",
+  status: "In Progress",
+}))
+
+// Add comment
+t.step("Add comment", t.linear("comment", {
+  issueId: "{issueId}",
+  body: "Started implementation. See PR: {prUrl}",
+}))
+```
+
+## Control Flow
+
+### Loops
+
+```typescript
+// ForEach loop
+t.forEach("{items}", "item", [
+  t.step("Process", t.bash("echo 'Processing {item}'")),
+])
+
+// While loop
+t.while("{counter} < 10", [
+  t.step("Increment", t.bash("echo $((counter + 1))")),
+])
+
+// Range loop
+t.range(1, 5, [
+  t.step("Iterate", t.bash("echo 'Iteration {i}'")),
+])
+
+// Retry with backoff
+t.retry({ maxAttempts: 3, until: "{success} == true", backoff: 1000 }, [
+  t.step("Try operation", t.bash("./flaky-command")),
+])
+```
+
+### Conditions
+
+Use natural language conditions with `when`:
+
+```typescript
+t.step("Deploy", t.bash("./deploy.sh"), {
+  when: "{environment} == production",
+})
+
+t.step("Notify", t.bash("./notify.sh"), {
+  when: "{result} is not empty",
+})
+
+t.step("Rollback", t.bash("./rollback.sh"), {
+  when: "{exitCode} != 0",
+})
+```
+
+## Project Structure
+
+```
+ts/
+├── src/
+│   ├── cli/                    # CLI entry point and commands
+│   │   ├── main.ts            # Commander CLI setup
+│   │   ├── commands/          # Command implementations
+│   │   │   ├── run.ts         # Workflow runner command
+│   │   │   └── hooks.ts       # Hook management commands
+│   │   └── discovery.ts       # Workflow file discovery
+│   ├── core/
+│   │   ├── context/           # Execution context and variables
+│   │   │   ├── execution.ts   # Variable storage and interpolation
+│   │   │   └── index.ts
+│   │   ├── tools/             # Tool implementations
+│   │   │   ├── bash.ts        # Shell command execution
+│   │   │   ├── claude.ts      # Claude Code in tmux
+│   │   │   ├── claudeSdk.ts   # Direct Claude SDK calls
+│   │   │   ├── data.ts        # Temp file writing
+│   │   │   ├── json.ts        # JSON manipulation
+│   │   │   ├── checklist.ts   # Validation checks
+│   │   │   ├── linearTasks.ts # Linear issue queries
+│   │   │   ├── linearManage.ts # Linear issue management
+│   │   │   ├── registry.ts    # Tool registry
+│   │   │   └── types.ts       # Tool base class and types
+│   │   ├── workflow/          # Workflow execution
+│   │   │   ├── builder.ts     # Fluent builder API
+│   │   │   ├── runner.ts      # Step execution engine
+│   │   │   └── state.ts       # LangChain state management
+│   │   ├── tmux/              # Tmux integration
+│   │   │   ├── manager.ts     # Pane management
+│   │   │   └── index.ts
+│   │   ├── linear/            # Linear API client
+│   │   │   ├── client.ts      # API wrapper
+│   │   │   ├── queries.ts     # GraphQL queries
+│   │   │   └── types.ts       # Linear types
+│   │   ├── server/            # Completion signal server
+│   │   │   └── manager.ts     # HTTP server for hooks
+│   │   └── conditions/        # Condition evaluation
+│   │       └── evaluator.ts   # Natural language conditions
+│   └── types/                 # TypeScript type definitions
+│       └── index.ts           # All exported types
+├── examples/                   # Example workflows
+│   └── .cw/workflows/
+│       └── example.workflow.ts
+├── package.json
+├── tsconfig.json
+└── biome.json                 # Linter/formatter config
+```
 
 ## Documentation
 
-For detailed documentation on all features, tools, and configuration options, see the [docs/](docs/) folder:
+For detailed documentation on individual tools and advanced usage, see the `docs/` folder (coming soon).
 
-- [Workflow Specification](docs/workflow-spec.md) - Complete YAML schema reference
-- [Tools Reference](docs/tools.md) - Detailed docs for each tool
-- [Examples](docs/examples/) - Real-world workflow examples
+## Examples
 
----
+See the `examples/` directory for complete workflow examples:
 
-## Development
+- `examples/.cw/workflows/example.workflow.ts` - Basic workflow demonstrating all core features
+
+Run the example:
 
 ```bash
-# Clone and install dev dependencies
-git clone https://github.com/michalkatanski/claude-workflow
-cd claude-workflow
-uv sync
-
-# Run locally
-uv run claude-workflow /path/to/project
+bun run dev examples
 ```
-
----
 
 ## License
 

@@ -1,51 +1,167 @@
-# JSON/YAML Tool
+# JSON Tool
 
-The `json` tool provides native JSON and YAML manipulation capabilities using JMESPath query syntax. It supports querying, setting, updating, and deleting values in JSON/YAML files or in-memory variables.
+The `json` tool provides native JSON manipulation capabilities using JMESPath query syntax. It supports querying, setting, merging, and transforming JSON data within workflow variables.
 
 ## Overview
 
-The JSON/YAML tool enables workflows to:
+The JSON tool enables workflows to:
 
-1. **Query** - Extract values from JSON/YAML data using JMESPath expressions
+1. **Query** - Extract values from JSON data using JMESPath expressions
 2. **Set** - Set or replace values at specific paths
-3. **Update** - Modify existing values with operations (append, prepend, increment, merge)
-4. **Delete** - Remove keys or elements from data structures
+3. **Parse** - Parse JSON strings into objects
+4. **Stringify** - Convert objects to JSON strings
+5. **Merge** - Combine two objects
+6. **Keys/Values/Length** - Get object keys, values, or length
 
-All operations can work on either files (JSON or YAML) or variables stored in the workflow context.
+All operations work on JSON data stored in workflow variables.
 
-## File Format Support
+## Basic Usage
 
-| Extension | Format | Read | Write |
-|-----------|--------|------|-------|
-| `.json` | JSON | Yes | Yes |
-| `.yaml` | YAML | Yes | Yes |
-| `.yml` | YAML | Yes | Yes |
+```typescript
+import { createBuilder, WorkflowDefinition } from "claude-workflow";
 
-File format is auto-detected by extension. All formats are queried using JMESPath syntax.
+export default function (t: ReturnType<typeof createBuilder>): WorkflowDefinition {
+  return {
+    name: "JSON Example",
+    steps: [
+      t.step("Query name", t.json("query", {
+        input: "{packageJson}",
+        query: "name"
+      }), {
+        output: "packageName"
+      })
+    ]
+  };
+}
+```
 
-## Configuration
+## API Reference
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `tool` | string | Yes | - | Must be `"json"` |
-| `name` | string | Yes | - | Step name for display and goto refs |
-| `action` | string | Yes | - | One of: `query`, `set`, `update`, `delete` |
-| `file` | string | Conditional | - | Path to JSON/YAML file (required if `source` not provided) |
-| `source` | string | Conditional | - | Variable name containing JSON (required if `file` not provided) |
-| `create_if_missing` | boolean | No | `false` | Create empty object if file/source doesn't exist |
-| `output_var` | string | No | - | Variable name to store query result |
+### `t.json(action, config)`
 
-### Action-Specific Fields
+Creates a JSON tool definition.
 
-| Action | Field | Required | Description |
-|--------|-------|----------|-------------|
-| `query` | `query` | Yes | JMESPath expression to extract value |
-| `set` | `path` | Yes | Path where to set the value |
-| `set` | `value` | Yes | Value to set (supports interpolation) |
-| `update` | `path` | Yes | Path to the value to update |
-| `update` | `operation` | Yes | One of: `append`, `prepend`, `increment`, `merge` |
-| `update` | `value` | Yes | Value to use in the operation |
-| `delete` | `path` | Yes | Path to the key/element to delete |
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | Action to perform (see Actions below) |
+| `config` | JsonToolConfig | Yes | Action-specific configuration |
+
+### JsonToolConfig
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `input` | string | Yes* | JSON data to operate on (supports interpolation) |
+| `query` | string | No | JMESPath expression for query action |
+| `path` | string | No | Dot-notation path for set action |
+| `value` | string | No | Value to set or merge |
+
+*Required for most actions
+
+## Actions
+
+### query
+
+Extract values from JSON data using JMESPath expressions.
+
+```typescript
+t.step("Get user name", t.json("query", {
+  input: "{apiResponse}",
+  query: "data.user.name"
+}), {
+  output: "userName"
+})
+```
+
+**Output:** Returns the queried value as a string. Objects and arrays are JSON-stringified.
+
+### set
+
+Set or replace a value at a specific path. Intermediate objects are created automatically.
+
+```typescript
+t.step("Update version", t.json("set", {
+  input: "{config}",
+  path: "version",
+  value: "2.0.0"
+}), {
+  output: "updatedConfig"
+})
+```
+
+**Note:** The `path` field uses dot notation (e.g., `version`, `scripts.test`, `user.profile.name`).
+
+### parse
+
+Parse a JSON string into an object.
+
+```typescript
+t.step("Parse response", t.json("parse", {
+  input: "{rawJsonString}"
+}), {
+  output: "parsedData"
+})
+```
+
+### stringify
+
+Convert an object to a JSON string.
+
+```typescript
+t.step("Stringify data", t.json("stringify", {
+  input: "{dataObject}"
+}), {
+  output: "jsonString"
+})
+```
+
+### merge
+
+Shallow merge two objects together.
+
+```typescript
+t.step("Merge configs", t.json("merge", {
+  input: "{baseConfig}",
+  value: '{"debug": true, "logLevel": "verbose"}'
+}), {
+  output: "mergedConfig"
+})
+```
+
+### keys
+
+Get all keys from an object.
+
+```typescript
+t.step("Get keys", t.json("keys", {
+  input: "{config}"
+}), {
+  output: "configKeys"
+})
+```
+
+### values
+
+Get all values from an object.
+
+```typescript
+t.step("Get values", t.json("values", {
+  input: "{config}"
+}), {
+  output: "configValues"
+})
+```
+
+### length
+
+Get the length of an array, object (number of keys), or string.
+
+```typescript
+t.step("Count items", t.json("length", {
+  input: "{items}"
+}), {
+  output: "itemCount"
+})
+```
 
 ## JMESPath Query Syntax
 
@@ -62,7 +178,7 @@ The JSON tool uses [JMESPath](https://jmespath.org/) for queries - a powerful qu
 | `items[-1]` | Negative index | `items[-1]` returns last element |
 | `items[*]` | All elements | `items[*].name` returns all names |
 
-**Note**: JMESPath does NOT use leading dots. Use `name` instead of `.name`.
+**Important:** JMESPath does NOT use leading dots. Use `name` instead of `.name`.
 
 ### Built-in Functions
 
@@ -81,395 +197,204 @@ The JSON tool uses [JMESPath](https://jmespath.org/) for queries - a powerful qu
 | `starts_with(str, prefix)` | String prefix check | `starts_with(name, 'test')` |
 | `ends_with(str, suffix)` | String suffix check | `ends_with(file, '.js')` |
 | `type(val)` | Get type name | `type(config)` |
-| `not_null(...)` | First non-null value | `not_null(a, b, c)` |
-| `merge(obj1, obj2)` | Merge objects | `merge(defaults, config)` |
-
-### Custom Functions
-
-Additional functions extending JMESPath:
-
-| Function | Description | Example |
-|----------|-------------|---------|
-| `to_entries(obj)` | Convert to `[{key, value}]` | `to_entries(config)` |
-| `from_entries(arr)` | Convert from `[{key, value}]` | `from_entries(pairs)` |
-| `unique(arr)` | Remove duplicates | `unique(tags)` |
-| `flatten(arr)` | Flatten one level | `flatten(nested)` |
-| `add(arr)` | Sum numbers or concat arrays/strings | `add(values)` |
 
 ### Filter Expressions
 
 Filter arrays using `[?condition]`:
 
-```yaml
-# Filter by equality (strings use single quotes)
-query: "items[?status == 'active']"
+```typescript
+// Filter by equality (strings use single quotes)
+t.step("Get active", t.json("query", {
+  input: "{users}",
+  query: "users[?status == 'active']"
+}), { output: "activeUsers" })
 
-# Filter by comparison (numbers use backticks)
-query: "items[?priority >= `3`]"
+// Filter by comparison (numbers use backticks)
+t.step("High priority", t.json("query", {
+  input: "{tasks}",
+  query: "items[?priority >= `3`]"
+}), { output: "highPriority" })
 
-# Filter with and/or
-query: "items[?status == 'active' && priority > `2`]"
+// Filter with and/or
+t.step("Active high priority", t.json("query", {
+  input: "{tasks}",
+  query: "items[?status == 'active' && priority > `2`]"
+}), { output: "filtered" })
 
-# Extract field from filtered results
-query: "items[?active == `true`].name"
+// Extract field from filtered results
+t.step("Active names", t.json("query", {
+  input: "{users}",
+  query: "users[?active == `true`].name"
+}), { output: "names" })
 ```
 
-**Important**: In JMESPath filters:
+**Important:** In JMESPath filters:
 - Strings use single quotes: `'active'`
 - Numbers use backticks: `` `3` ``
 - Booleans use backticks: `` `true` ``, `` `false` ``
 
 ### Multi-Select and Projections
 
-```yaml
-# Select multiple fields
-query: "{name: name, count: length(items)}"
+```typescript
+// Select multiple fields
+t.step("Select fields", t.json("query", {
+  input: "{data}",
+  query: "{name: name, count: length(items)}"
+}), { output: "selected" })
 
-# Project specific fields from array
-query: "items[*].{id: id, title: title}"
+// Project specific fields from array
+t.step("Project items", t.json("query", {
+  input: "{data}",
+  query: "items[*].{id: id, title: title}"
+}), { output: "projected" })
 
-# Flatten nested arrays
-query: "items[*].tags[]"
-```
-
-## Query Examples
-
-### Simple Queries
-
-```yaml
-steps:
-  # Get a field value
-  - name: "Get name"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "name"
-    output_var: package_name
-
-  # Get nested value
-  - name: "Get test script"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "scripts.test"
-    output_var: test_cmd
-
-  # Get array element
-  - name: "Get first keyword"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "keywords[0]"
-    output_var: first_kw
-```
-
-### Using Functions
-
-```yaml
-steps:
-  # Count items
-  - name: "Count dependencies"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "length(keys(dependencies))"
-    output_var: dep_count
-
-  # Get all keys
-  - name: "List scripts"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "keys(scripts)"
-    output_var: script_names
-
-  # Sort values
-  - name: "Sorted keywords"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "sort(keywords)"
-    output_var: sorted_kw
-```
-
-### Filtering
-
-```yaml
-steps:
-  # Filter by status
-  - name: "Get active users"
-    tool: json
-    action: query
-    file: "users.json"
-    query: "users[?active == `true`]"
-    output_var: active_users
-
-  # Filter and extract names
-  - name: "Active user names"
-    tool: json
-    action: query
-    file: "users.json"
-    query: "users[?active == `true`].name"
-    output_var: names
-
-  # Numeric filter
-  - name: "High priority tasks"
-    tool: json
-    action: query
-    file: "tasks.json"
-    query: "tasks[?priority >= `3`]"
-    output_var: high_priority
-```
-
-### Array Projections
-
-```yaml
-steps:
-  # Get all IDs from array
-  - name: "All user IDs"
-    tool: json
-    action: query
-    file: "users.json"
-    query: "users[*].id"
-    output_var: user_ids
-
-  # Flatten nested arrays
-  - name: "All tags"
-    tool: json
-    action: query
-    file: "items.json"
-    query: "items[*].tags[]"
-    output_var: all_tags
-```
-
-## Actions
-
-### Query Action
-
-Extract values from JSON/YAML data using JMESPath expressions.
-
-```yaml
-steps:
-  - name: "Get Package Name"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "name"
-    output_var: package_name
-
-  - name: "Display Name"
-    tool: bash
-    command: "echo Package: {package_name}"
-```
-
-**Query Output Types:**
-- Objects and arrays are returned as JSON strings
-- Strings, numbers, and booleans are returned as their string representation
-- `null` returns an empty string
-
-### Set Action
-
-Set or replace values at specific paths. Intermediate objects/arrays are created automatically.
-
-```yaml
-steps:
-  - name: "Update Version"
-    tool: json
-    action: set
-    file: "package.json"
-    path: ".version"
-    value: "2.0.0"
-```
-
-**Note**: The `path` field uses dot-notation with leading dot (e.g., `.version`, `.scripts.test`).
-
-### Update Action
-
-Modify existing values with specific operations.
-
-| Operation | Description | Target Type |
-|-----------|-------------|-------------|
-| `append` | Add element to end of array | Array |
-| `prepend` | Add element to beginning of array | Array |
-| `increment` | Add numeric value | Number |
-| `merge` | Merge objects (shallow) | Object |
-
-```yaml
-steps:
-  - name: "Add Dependency"
-    tool: json
-    action: update
-    file: "package.json"
-    path: ".dependencies"
-    operation: merge
-    value:
-      lodash: "^4.17.21"
-```
-
-### Delete Action
-
-Remove keys from objects or elements from arrays.
-
-```yaml
-steps:
-  - name: "Remove Dev Dependency"
-    tool: json
-    action: delete
-    file: "package.json"
-    path: ".devDependencies.eslint"
-```
-
-## YAML File Examples
-
-The JSON tool works seamlessly with YAML files:
-
-```yaml
-steps:
-  # Query YAML config
-  - name: "Get DB host"
-    tool: json
-    action: query
-    file: "config.yaml"
-    query: "database.host"
-    output_var: db_host
-
-  # Update YAML value
-  - name: "Update version"
-    tool: json
-    action: set
-    file: "config.yaml"
-    path: ".version"
-    value: "2.0.0"
-
-  # Filter YAML array
-  - name: "Get web servers"
-    tool: json
-    action: query
-    file: "config.yaml"
-    query: "servers[?type == 'web'].name"
-    output_var: web_servers
-```
-
-## Working with Variables
-
-### Reading from Variables
-
-```yaml
-steps:
-  - name: "Get API Response"
-    tool: bash
-    command: "curl -s https://api.example.com/data"
-    output_var: api_response
-
-  - name: "Extract User"
-    tool: json
-    action: query
-    source: api_response
-    query: "data.user.name"
-    output_var: user_name
-```
-
-### Creating In-Memory JSON
-
-```yaml
-steps:
-  - name: "Initialize State"
-    tool: json
-    action: set
-    source: state
-    create_if_missing: true
-    path: ".status"
-    value: "pending"
+// Flatten nested arrays
+t.step("Flatten tags", t.json("query", {
+  input: "{data}",
+  query: "items[*].tags[]"
+}), { output: "allTags" })
 ```
 
 ## Example Workflows
 
-### Package.json Manipulation
-
-```yaml
-type: claude-workflow
-version: 2
-name: Update Package Version
-
-steps:
-  - name: "Get Current Version"
-    tool: json
-    action: query
-    file: "package.json"
-    query: "version"
-    output_var: current_version
-
-  - name: "Display Current"
-    tool: bash
-    command: "echo Current version: {current_version}"
-
-  - name: "Bump Version"
-    tool: json
-    action: set
-    file: "package.json"
-    path: ".version"
-    value: "2.0.0"
-```
-
-### YAML Configuration Management
-
-```yaml
-type: claude-workflow
-version: 2
-name: Update Config
-
-steps:
-  - name: "Get current DB host"
-    tool: json
-    action: query
-    file: "config.yml"
-    query: "database.host"
-    output_var: db_host
-
-  - name: "Update to production"
-    tool: json
-    action: set
-    file: "config.yml"
-    path: ".database.host"
-    value: "prod-db.example.com"
-
-  - name: "Add feature flag"
-    tool: json
-    action: update
-    file: "config.yml"
-    path: ".features"
-    operation: merge
-    value:
-      caching: true
-      logging: true
-```
-
 ### API Response Processing
 
-```yaml
-type: claude-workflow
-version: 2
-name: Process API Data
+```typescript
+import { createBuilder, WorkflowDefinition } from "claude-workflow";
 
-steps:
-  - name: "Fetch Users"
-    tool: bash
-    command: "curl -s https://api.example.com/users"
-    output_var: response
+export default function (t: ReturnType<typeof createBuilder>): WorkflowDefinition {
+  return {
+    name: "Process API Data",
+    steps: [
+      t.step("Fetch users", t.bash("curl -s https://api.example.com/users"), {
+        output: "response"
+      }),
 
-  - name: "Get active user names"
-    tool: json
-    action: query
-    source: response
-    query: "data[?active == `true`].name"
-    output_var: active_names
+      t.step("Get active user names", t.json("query", {
+        input: "{response}",
+        query: "data[?active == `true`].name"
+      }), {
+        output: "activeNames"
+      }),
 
-  - name: "Count active users"
-    tool: json
-    action: query
-    source: response
-    query: "length(data[?active == `true`])"
-    output_var: active_count
+      t.step("Count active users", t.json("query", {
+        input: "{response}",
+        query: "length(data[?active == `true`])"
+      }), {
+        output: "activeCount"
+      }),
+
+      t.step("Report", t.claude("Found {activeCount} active users: {activeNames}"))
+    ]
+  };
+}
+```
+
+### Package.json Manipulation
+
+```typescript
+import { createBuilder, WorkflowDefinition } from "claude-workflow";
+
+export default function (t: ReturnType<typeof createBuilder>): WorkflowDefinition {
+  return {
+    name: "Update Package",
+    steps: [
+      t.step("Read package", t.bash("cat package.json"), {
+        output: "pkg"
+      }),
+
+      t.step("Get current version", t.json("query", {
+        input: "{pkg}",
+        query: "version"
+      }), {
+        output: "currentVersion"
+      }),
+
+      t.step("Display", t.bash("echo 'Current version: {currentVersion}'")),
+
+      t.step("Bump version", t.json("set", {
+        input: "{pkg}",
+        path: "version",
+        value: "2.0.0"
+      }), {
+        output: "updatedPkg"
+      }),
+
+      t.step("Count dependencies", t.json("query", {
+        input: "{pkg}",
+        query: "length(keys(dependencies))"
+      }), {
+        output: "depCount"
+      })
+    ]
+  };
+}
+```
+
+### Configuration Management
+
+```typescript
+import { createBuilder, WorkflowDefinition } from "claude-workflow";
+
+export default function (t: ReturnType<typeof createBuilder>): WorkflowDefinition {
+  return {
+    name: "Config Management",
+    steps: [
+      t.step("Get base config", t.bash("cat config.json"), {
+        output: "baseConfig"
+      }),
+
+      t.step("Merge with overrides", t.json("merge", {
+        input: "{baseConfig}",
+        value: '{"debug": true, "logLevel": "verbose"}'
+      }), {
+        output: "mergedConfig"
+      }),
+
+      t.step("Set environment", t.json("set", {
+        input: "{mergedConfig}",
+        path: "environment",
+        value: "production"
+      }), {
+        output: "finalConfig"
+      }),
+
+      t.step("Get all keys", t.json("keys", {
+        input: "{finalConfig}"
+      }), {
+        output: "configKeys"
+      })
+    ]
+  };
+}
+```
+
+### Working with Nested Data
+
+```typescript
+import { createBuilder, WorkflowDefinition } from "claude-workflow";
+
+export default function (t: ReturnType<typeof createBuilder>): WorkflowDefinition {
+  return {
+    name: "Nested Data",
+    steps: [
+      t.step("Set nested value", t.json("set", {
+        input: "{}",
+        path: "user.profile.settings.theme",
+        value: "dark"
+      }), {
+        output: "config"
+      }),
+
+      t.step("Query nested", t.json("query", {
+        input: "{config}",
+        query: "user.profile.settings"
+      }), {
+        output: "settings"
+      })
+    ]
+  };
+}
 ```
 
 ## Error Handling
@@ -478,98 +403,83 @@ steps:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| `File not found` | File doesn't exist | Use `create_if_missing: true` or ensure file exists |
-| `Variable not found` | Source variable not set | Initialize variable first or use `create_if_missing: true` |
 | `JMESPath error` | Invalid query syntax | Check JMESPath syntax (no leading dots in queries) |
-| `Cannot append to non-array` | Append operation on non-array | Ensure target is an array |
+| `Cannot set path on non-object` | Input is not an object | Ensure input is valid JSON object |
+| `Failed to parse JSON` | Invalid JSON in input | Verify JSON syntax in input |
+| `Cannot get keys of non-object` | Keys action on non-object | Ensure input is an object |
+| `Cannot get length of this value type` | Length on incompatible type | Use length with arrays, objects, or strings |
 
 ### Error Handling in Workflows
 
-```yaml
-steps:
-  - name: "Try Query"
-    tool: json
-    action: query
-    file: "config.json"
-    query: "optional.setting"
-    output_var: setting
-    on_error: continue
-
-  - name: "Use Default"
-    tool: set
-    var: setting
-    value: "default_value"
-    when: "{setting} is empty"
+```typescript
+t.step("Try query", t.json("query", {
+  input: "{maybeInvalid}",
+  query: "optional.setting"
+}), {
+  output: "setting",
+  onError: "continue"
+})
 ```
-
-## Migration from jq-style Syntax
-
-If upgrading from the previous jq-style syntax:
-
-| Old (jq-style) | New (JMESPath) |
-|----------------|----------------|
-| `.name` | `name` |
-| `.a.b.c` | `a.b.c` |
-| `.items[]` | `items[*]` |
-| `.items[0]` | `items[0]` |
-| `.items \| length` | `length(items)` |
-| `.items \| keys` | `keys(items)` |
-| `.items \| first` | `items[0]` |
-| `.items \| last` | `items[-1]` |
-| `select(.x >= 3)` | `[?x >= \`3\`]` |
-| `select(.s == "a")` | `[?s == 'a']` |
-| `.items \| to_entries` | `to_entries(items)` |
 
 ## Tips and Best Practices
 
 ### 1. No Leading Dots in Queries
 
 JMESPath queries don't use leading dots:
-```yaml
-# Correct
+
+```typescript
+// Correct
 query: "name"
 query: "scripts.test"
 
-# Incorrect (old jq-style)
+// Incorrect (old jq-style)
 query: ".name"
 query: ".scripts.test"
 ```
 
 ### 2. Use Backticks for Literals in Filters
 
-```yaml
-# Numbers need backticks
+```typescript
+// Numbers need backticks
 query: "items[?count > `5`]"
 
-# Booleans need backticks
+// Booleans need backticks
 query: "items[?active == `true`]"
 
-# Strings use single quotes
+// Strings use single quotes
 query: "items[?status == 'active']"
 ```
 
-### 3. Path Expressions Support Interpolation
+### 3. Variable Interpolation in Queries
 
-Use variables in path expressions:
+Use variables in queries:
 
-```yaml
-steps:
-  - name: "Set Field Index"
-    tool: set
-    var: index
-    value: "0"
-
-  - name: "Get Item by Index"
-    tool: json
-    action: query
-    file: "data.json"
-    query: "items[{index}]"
-    output_var: item
+```typescript
+t.step("Get by index", t.json("query", {
+  input: "{data}",
+  query: "items[{index}]"
+}), {
+  output: "item"
+})
 ```
 
-### 4. YAML Files Preserve Format
+### 4. Chain Operations
 
-When writing to YAML files, the tool preserves YAML formatting. When writing to JSON files, output is formatted with 2-space indentation.
+Build up complex transformations:
+
+```typescript
+// Step 1: Parse raw JSON
+t.step("Parse", t.json("parse", { input: "{raw}" }), { output: "parsed" })
+
+// Step 2: Query specific data
+t.step("Query", t.json("query", {
+  input: "{parsed}",
+  query: "users[?active == `true`]"
+}), { output: "active" })
+
+// Step 3: Get count
+t.step("Count", t.json("length", { input: "{active}" }), { output: "count" })
+```
 
 ## Further Reading
 
@@ -582,6 +492,5 @@ When writing to YAML files, the tool preserves YAML formatting. When writing to 
 
 ### Related Tools
 
-- [data Tool Reference](./data.md) - Writing temp files for Claude
-- [bash Tool Reference](./bash.md) - Shell command execution
-- [set Tool Reference](./set.md) - Simple variable assignment
+- [data Tool Reference](./data.md) - Writing temp files
+- [checklist Tool Reference](./checklist.md) - Validation checks
