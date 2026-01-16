@@ -117,6 +117,27 @@ export interface StepConfig {
   query?: string;
   path?: string;
   newValue?: string;
+
+  // Checklist tool
+  checklist?: string;
+  items?: ChecklistCheckItem[];
+  onFail?: "stop" | "warn" | "continue";
+
+  // Linear tools
+  team?: string;
+  project?: string;
+  issueId?: string;
+  title?: string;
+  description?: string;
+  priority?: number;
+  labels?: string | string[];
+  status?: string;
+  assignee?: string;
+  body?: string;
+  parentId?: string;
+  apiKey?: string;
+  skipBlocked?: boolean;
+  filter?: Record<string, unknown>;
 }
 
 /**
@@ -207,6 +228,28 @@ export interface ChecklistItem {
   name: string;
   command: string;
   expectedPattern?: string;
+}
+
+/**
+ * Check item for checklist tool.
+ */
+export interface ChecklistCheckItem {
+  name: string;
+  type: "bash" | "regex" | "model";
+  severity?: "error" | "warning" | "info";
+  // bash type
+  command?: string;
+  expect?: string | number;
+  expectNot?: string;
+  expectRegex?: string;
+  // regex type
+  pattern?: string;
+  files?: string;
+  exclude?: string;
+  // model type
+  prompt?: string;
+  passPattern?: string;
+  contextVars?: string[];
 }
 
 export interface LinearToolConfig {
