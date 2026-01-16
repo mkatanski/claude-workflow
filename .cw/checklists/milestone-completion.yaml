@@ -1,0 +1,50 @@
+name: milestone-completion
+description: Checks after completing milestone implementation
+on_fail: warn
+
+items:
+  - name: "All tests pass"
+    type: bash
+    command: "COUNT=$(pytest -q 2>&1 | tail -1 | grep -c 'passed' || true); echo \"$COUNT\""
+    expect_not: "0"
+    severity: error
+
+  - name: "No lint errors"
+    type: bash
+    command: "COUNT=$(ruff check . 2>&1 | grep -c 'error' || true); echo \"$COUNT\""
+    expect: "0"
+    severity: warning
+
+  - name: "Architecture document updated"
+    type: bash
+    command: "COUNT=$(git diff --name-only HEAD~1 2>/dev/null | grep -c 'architecture.md' || true); echo \"$COUNT\""
+    expect_not: "0"
+    severity: info
+
+  - name: "Decisions logged"
+    type: bash
+    command: "test -f .claude/generated/decisions.md && echo '1' || echo '0'"
+    expect: "1"
+    severity: warning
+
+  - name: "No debug imports"
+    type: regex
+    pattern: "^(import pdb|from pdb|import ipdb|from ipdb)"
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: error
+
+  - name: "No breakpoints"
+    type: regex
+    pattern: "(breakpoint\\(\\)|pdb\\.set_trace\\(\\)|ipdb\\.set_trace\\(\\))"
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: error
+
+  - name: "Changes staged"
+    type: bash
+    command: "git diff --cached --name-only | wc -l | tr -d ' '"
+    expect_not: "0"
+    severity: info

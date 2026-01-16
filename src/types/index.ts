@@ -6,153 +6,160 @@
  * Signal for loop control flow.
  */
 export enum LoopSignal {
-  NONE = "none",
-  BREAK = "break",
-  CONTINUE = "continue",
+	NONE = "none",
+	BREAK = "break",
+	CONTINUE = "continue",
 }
 
 /**
  * Result of tool execution.
  */
 export interface ToolResult {
-  success: boolean;
-  output?: string;
-  error?: string;
-  gotoStep?: string;
-  loopSignal: LoopSignal;
+	success: boolean;
+	output?: string;
+	error?: string;
+	gotoStep?: string;
+	loopSignal: LoopSignal;
 }
 
 /**
  * Result of condition evaluation.
  */
 export interface ConditionResult {
-  satisfied: boolean;
-  reason: string;
+	satisfied: boolean;
+	reason: string;
 }
 
 /**
  * Claude Code configuration.
  */
 export interface ClaudeConfig {
-  interactive?: boolean;
-  cwd?: string;
-  model?: string;
-  dangerouslySkipPermissions?: boolean;
-  permissionMode?: string;
-  allowedTools?: string[];
-  autoApprovePlan?: boolean;
-  appendSystemPrompt?: string;
+	interactive?: boolean;
+	cwd?: string;
+	model?: string;
+	dangerouslySkipPermissions?: boolean;
+	permissionMode?: string;
+	allowedTools?: string[];
+	autoApprovePlan?: boolean;
+	appendSystemPrompt?: string;
 }
 
 /**
  * Tmux configuration.
  */
 export interface TmuxConfig {
-  newWindow?: boolean;
-  split?: "vertical" | "horizontal";
-  idleTime?: number;
+	newWindow?: boolean;
+	split?: "vertical" | "horizontal";
+	idleTime?: number;
 }
 
 /**
  * Claude SDK configuration.
  */
 export interface ClaudeSdkConfig {
-  systemPrompt?: string;
-  model?: string;
+	systemPrompt?: string;
+	model?: string;
 }
 
 /**
  * Error handling configuration.
  */
 export interface OnErrorConfig {
-  captureContext?: boolean;
-  saveTo?: string;
+	captureContext?: boolean;
+	saveTo?: string;
 }
 
 /**
  * Step configuration for workflow steps.
  */
 export interface StepConfig {
-  name: string;
-  tool: string;
-  outputVar?: string;
-  onError?: "stop" | "continue";
-  visible?: boolean;
-  cwd?: string;
-  when?: string;
+	name: string;
+	tool: string;
+	outputVar?: string;
+	onError?: "stop" | "continue";
+	visible?: boolean;
+	cwd?: string;
+	when?: string;
 
-  // Claude tool
-  prompt?: string;
-  model?: string;
+	// Claude tool
+	prompt?: string;
+	model?: string;
 
-  // Bash tool
-  command?: string;
-  stripOutput?: boolean;
-  env?: Record<string, string>;
+	// Bash tool
+	command?: string;
+	stripOutput?: boolean;
+	env?: Record<string, string>;
 
-  // Claude SDK tool
-  systemPrompt?: string;
-  outputType?: string;
-  schema?: Record<string, unknown>;
-  maxRetries?: number;
-  timeout?: number;
+	// Claude SDK tool
+	systemPrompt?: string;
+	outputType?: string;
+	schema?: Record<string, unknown>;
+	maxRetries?: number;
+	timeout?: number;
 
-  // Loop tools
-  source?: string;
-  itemVar?: string;
-  indexVar?: string;
-  steps?: StepConfig[];
-  foreachFilter?: string;
-  orderBy?: string;
-  breakWhen?: string;
+	// Loop tools
+	source?: string;
+	itemVar?: string;
+	indexVar?: string;
+	steps?: StepConfig[];
+	foreachFilter?: string;
+	orderBy?: string;
+	breakWhen?: string;
 
-  // Control flow
-  target?: string;
-  condition?: string;
-  maxAttempts?: number;
+	// Control flow
+	target?: string;
+	condition?: string;
+	maxAttempts?: number;
 
-  // JSON tool
-  action?: string;
-  input?: string;
-  query?: string;
-  path?: string;
-  newValue?: string;
+	// Set tool
+	var?: string;
+	value?: string;
 
-  // Checklist tool
-  checklist?: string;
-  items?: ChecklistCheckItem[];
-  onFail?: "stop" | "warn" | "continue";
+	// JSON tool
+	action?: string;
+	input?: string;
+	query?: string;
+	path?: string;
+	newValue?: string;
 
-  // Linear tools
-  team?: string;
-  project?: string;
-  issueId?: string;
-  title?: string;
-  description?: string;
-  priority?: number;
-  labels?: string | string[];
-  status?: string;
-  assignee?: string;
-  body?: string;
-  parentId?: string;
-  apiKey?: string;
-  skipBlocked?: boolean;
-  filter?: Record<string, unknown>;
+	// Checklist tool
+	checklist?: string;
+	items?: ChecklistCheckItem[];
+	onFail?: "stop" | "warn" | "continue";
+
+	// Hook tool
+	hookName?: string;
+
+	// Linear tools
+	team?: string;
+	project?: string;
+	issueId?: string;
+	title?: string;
+	description?: string;
+	priority?: number;
+	labels?: string | string[];
+	status?: string;
+	assignee?: string;
+	body?: string;
+	parentId?: string;
+	apiKey?: string;
+	skipBlocked?: boolean;
+	filter?: Record<string, unknown>;
 }
 
 /**
  * Workflow configuration.
  */
 export interface WorkflowConfig {
-  type: "claude-workflow";
-  version: number;
-  name: string;
-  vars?: Record<string, unknown>;
-  tmux?: TmuxConfig;
-  claude?: ClaudeConfig;
-  claudeSdk?: ClaudeSdkConfig;
-  onError?: OnErrorConfig;
-  steps: StepConfig[];
+	type: "claude-workflow";
+	version: number;
+	name: string;
+	vars?: Record<string, unknown>;
+	tmux?: TmuxConfig;
+	claude?: ClaudeConfig;
+	claudeSdk?: ClaudeSdkConfig;
+	onError?: OnErrorConfig;
+	steps: StepConfig[];
 }
 
 /**
@@ -161,123 +168,125 @@ export interface WorkflowConfig {
 export type StepDefinition = StepConfig | LoopDefinition;
 
 export interface LoopDefinition {
-  type: "forEach" | "while" | "range" | "retry";
-  config: Record<string, unknown>;
-  steps: StepDefinition[];
+	type: "forEach" | "while" | "range" | "retry";
+	config: Record<string, unknown>;
+	steps: StepDefinition[];
 }
 
 /**
  * Workflow builder interface for fluent API.
  */
 export interface WorkflowBuilder {
-  step(
-    name: string,
-    tool: ToolDefinition,
-    options?: StepOptions
-  ): StepDefinition;
+	step(
+		name: string,
+		tool: ToolDefinition,
+		options?: StepOptions,
+	): StepDefinition;
 
-  bash(command: string): ToolDefinition;
-  claude(prompt: string): ToolDefinition;
-  claudeSdk(config: ClaudeSdkToolConfig): ToolDefinition;
-  json(action: string, config: JsonToolConfig): ToolDefinition;
-  data(content: string, format: string): ToolDefinition;
-  checklist(items: ChecklistItem[]): ToolDefinition;
-  linear(action: string, config: LinearToolConfig): ToolDefinition;
+	bash(command: string): ToolDefinition;
+	claude(prompt: string): ToolDefinition;
+	set(varName: string, value: string): ToolDefinition;
+	claudeSdk(config: ClaudeSdkToolConfig): ToolDefinition;
+	json(action: string, config: JsonToolConfig): ToolDefinition;
+	data(content: string, format: string): ToolDefinition;
+	checklist(items: ChecklistItem[]): ToolDefinition;
+	linear(action: string, config: LinearToolConfig): ToolDefinition;
+	hook(name: string): ToolDefinition;
 
-  forEach(
-    source: string,
-    itemVar: string,
-    steps: StepDefinition[]
-  ): LoopDefinition;
-  while(condition: string, steps: StepDefinition[]): LoopDefinition;
-  range(from: number, to: number, steps: StepDefinition[]): LoopDefinition;
-  retry(config: RetryConfig, steps: StepDefinition[]): LoopDefinition;
+	forEach(
+		source: string,
+		itemVar: string,
+		steps: StepDefinition[],
+	): LoopDefinition;
+	while(condition: string, steps: StepDefinition[]): LoopDefinition;
+	range(from: number, to: number, steps: StepDefinition[]): LoopDefinition;
+	retry(config: RetryConfig, steps: StepDefinition[]): LoopDefinition;
 }
 
 export interface ToolDefinition {
-  tool: string;
-  config: Record<string, unknown>;
+	tool: string;
+	config: Record<string, unknown>;
 }
 
 export interface StepOptions {
-  output?: string;
-  when?: string;
-  onError?: "stop" | "continue";
-  visible?: boolean;
-  cwd?: string;
-  model?: string;
+	output?: string;
+	when?: string;
+	onError?: "stop" | "continue";
+	visible?: boolean;
+	cwd?: string;
+	model?: string;
 }
 
 export interface ClaudeSdkToolConfig {
-  prompt: string;
-  schema?: Record<string, unknown>;
-  systemPrompt?: string;
-  model?: string;
-  maxRetries?: number;
-  timeout?: number;
+	prompt: string;
+	schema?: Record<string, unknown>;
+	systemPrompt?: string;
+	model?: string;
+	maxRetries?: number;
+	timeout?: number;
 }
 
 export interface JsonToolConfig {
-  input?: string;
-  query?: string;
-  path?: string;
-  value?: string;
+	input?: string;
+	query?: string;
+	path?: string;
+	value?: string;
 }
 
 export interface ChecklistItem {
-  name: string;
-  command: string;
-  expectedPattern?: string;
+	name: string;
+	command: string;
+	expectedPattern?: string;
 }
 
 /**
  * Check item for checklist tool.
  */
 export interface ChecklistCheckItem {
-  name: string;
-  type: "bash" | "regex" | "model";
-  severity?: "error" | "warning" | "info";
-  // bash type
-  command?: string;
-  expect?: string | number;
-  expectNot?: string;
-  expectRegex?: string;
-  // regex type
-  pattern?: string;
-  files?: string;
-  exclude?: string;
-  // model type
-  prompt?: string;
-  passPattern?: string;
-  contextVars?: string[];
+	name: string;
+	type: "bash" | "regex" | "model";
+	severity?: "error" | "warning" | "info";
+	// bash type
+	command?: string;
+	expect?: string | number;
+	expectNot?: string;
+	expectRegex?: string;
+	// regex type
+	pattern?: string;
+	files?: string;
+	exclude?: string;
+	// model type
+	prompt?: string;
+	passPattern?: string;
+	contextVars?: string[];
 }
 
 export interface LinearToolConfig {
-  team?: string;
-  project?: string;
-  issueId?: string;
-  title?: string;
-  priority?: number;
-  labels?: string[];
+	team?: string;
+	project?: string;
+	issueId?: string;
+	title?: string;
+	priority?: number;
+	labels?: string[];
 }
 
 export interface RetryConfig {
-  maxAttempts: number;
-  until?: string;
-  backoff?: number;
+	maxAttempts: number;
+	until?: string;
+	backoff?: number;
 }
 
 /**
  * Workflow definition from a .workflow.ts file.
  */
 export interface WorkflowDefinition {
-  name: string;
-  vars?: Record<string, unknown>;
-  claude?: ClaudeConfig;
-  claudeSdk?: ClaudeSdkConfig;
-  tmux?: TmuxConfig;
-  onError?: OnErrorConfig;
-  steps: StepDefinition[];
+	name: string;
+	vars?: Record<string, unknown>;
+	claude?: ClaudeConfig;
+	claudeSdk?: ClaudeSdkConfig;
+	tmux?: TmuxConfig;
+	onError?: OnErrorConfig;
+	steps: StepDefinition[];
 }
 
 /**

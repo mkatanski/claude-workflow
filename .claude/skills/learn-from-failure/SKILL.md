@@ -17,7 +17,18 @@ Use this skill:
 
 ## Instructions
 
-### Step 1: Analyze the Failure
+### Step 1: Detect Project Language
+
+Check marker files to determine the project's primary language:
+
+| Check | Language | Target File |
+|-------|----------|-------------|
+| `package.json` AND `tsconfig.json` | TypeScript | typescript.md |
+| `Cargo.toml` | Rust | rust.md |
+| `go.mod` | Go | go.md |
+| `pyproject.toml` OR `requirements.txt` | Python | python.md |
+
+### Step 2: Analyze the Failure
 
 Examine the original error and the fix applied:
 
@@ -26,31 +37,51 @@ Examine the original error and the fix applied:
 3. **How was it fixed?** - The solution applied
 4. **Is it generalizable?** - Would this help in other situations?
 
-### Step 2: Determine if Pattern is New
+### Step 3: Determine if Pattern is New
 
-Read the existing antipattern files to check if this pattern already exists:
+Read the existing antipattern files to check if this pattern already exists.
 
-- `.claude/skills/antipatterns/python.md` - Python-specific patterns
-- `.claude/skills/antipatterns/testing.md` - Testing patterns
-- `.claude/skills/antipatterns/architecture.md` - Architecture patterns
-- `.claude/skills/antipatterns/lint.md` - Lint patterns
+List all `.md` files in `.claude/skills/antipatterns/` (except `SKILL.md`):
+```bash
+ls .claude/skills/antipatterns/*.md | grep -v SKILL.md
+```
+
+Always check:
+- `shared.md` - Language-agnostic patterns
+- The detected language file (e.g., `typescript.md`, `python.md`)
+
+Also check relevant category files:
+- `testing.md` - Testing-related patterns
+- `architecture.md` - Design patterns
+- `lint.md` - Linting patterns
 
 If a similar pattern exists:
 - Consider if it needs clarification or updating
 - Skip if it's already well-documented
 
-### Step 3: Categorize the Pattern
+### Step 4: Categorize the Pattern
 
-Determine which file the pattern belongs in:
+Use this decision tree to determine which file:
 
-| Category | File | When to Use |
-|----------|------|-------------|
-| Python | python.md | Type hints, idioms, language features |
-| Testing | testing.md | pytest, fixtures, assertions, mocking |
-| Architecture | architecture.md | Module structure, imports, design |
-| Lint | lint.md | ruff, mypy, formatting issues |
+```
+Is it specific to a language feature/syntax?
+  YES -> Use language file (typescript.md, python.md, rust.md, go.md)
+  NO -> Continue
 
-### Step 4: Write the Pattern
+Is it about testing?
+  YES -> testing.md
+
+Is it about linting/formatting/type checking?
+  YES -> lint.md
+
+Is it about module structure, imports, or design?
+  YES -> architecture.md
+
+Is it a universal pattern (applies to all languages)?
+  YES -> shared.md
+```
+
+### Step 5: Write the Pattern
 
 Add the pattern to the appropriate file using this format:
 
@@ -68,7 +99,7 @@ Guidelines:
 - Make it actionable, not theoretical
 - Focus on the "why" to aid understanding
 
-### Step 5: Curate Existing Patterns
+### Step 6: Curate Existing Patterns
 
 While adding the new pattern:
 - Check if it duplicates an existing entry - if so, merge them
@@ -83,7 +114,7 @@ Provide a brief summary:
 ## Learning Summary
 
 **Pattern Added:** [name]
-**Category:** [python/testing/architecture/lint]
+**Category:** [language/testing/architecture/lint/shared]
 **File Updated:** .claude/skills/antipatterns/[file].md
 
 **Pattern:**
@@ -98,3 +129,4 @@ Provide a brief summary:
 3. **Include context** - The "why" is as important as the "what"
 4. **Use examples** - Concrete code is clearer than abstract rules
 5. **Review existing** - Don't duplicate; improve what exists
+6. **Create language files** - If a language file doesn't exist, create it

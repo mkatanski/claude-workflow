@@ -1,0 +1,22 @@
+name: pre-implementation
+description: Checks before starting story implementation
+on_fail: warn
+
+items:
+  - name: "No uncommitted changes"
+    type: bash
+    command: "git status --porcelain | wc -l | tr -d ' '"
+    expect: "0"
+    severity: warning
+
+  - name: "Dependencies installed"
+    type: bash
+    command: "COUNT=$(pip check 2>&1 | grep -c 'No broken requirements' || true); echo \"$COUNT\""
+    expect: "1"
+    severity: error
+
+  - name: "Tests discoverable"
+    type: bash
+    command: "COUNT=$(pytest --collect-only -q 2>/dev/null | grep -c 'test' || true); echo \"$COUNT\""
+    expect_not: "0"
+    severity: info

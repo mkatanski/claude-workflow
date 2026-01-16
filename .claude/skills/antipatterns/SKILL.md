@@ -17,18 +17,30 @@ Use this skill:
 
 ## Instructions
 
-### Step 1: Identify Relevant Categories
+### Step 1: Detect Project Language
 
-Based on the task at hand, determine which antipattern categories are relevant:
+Check marker files in this order to determine the project's primary language:
 
-- **Python patterns** ([python.md](python.md)) - Type hints, idioms, common Python mistakes
-- **Testing patterns** ([testing.md](testing.md)) - pytest fixtures, assertions, test structure
-- **Architecture patterns** ([architecture.md](architecture.md)) - Module structure, dependencies, design
-- **Lint patterns** ([lint.md](lint.md)) - ruff, mypy, formatting issues
+| Check | Language |
+|-------|----------|
+| `package.json` AND `tsconfig.json` | TypeScript |
+| `package.json` (no tsconfig) | JavaScript |
+| `Cargo.toml` | Rust |
+| `go.mod` | Go |
+| `pyproject.toml` OR `requirements.txt` | Python |
 
-### Step 2: Review Relevant Patterns
+### Step 2: Read Relevant Pattern Files
 
-Read the relevant category files and note any patterns that apply to your current task.
+Always read:
+- **[shared.md](shared.md)** - Language-agnostic patterns (applies to all projects)
+
+Then read the language-specific file if it exists:
+- **[typescript.md](typescript.md)** - TypeScript patterns
+- **[python.md](python.md)** - Python patterns
+
+Plus category files relevant to the task:
+- **[testing.md](testing.md)** - Testing patterns (framework-agnostic)
+- **[lint.md](lint.md)** - Linting and formatting issues
 
 ### Step 3: Apply Learnings
 

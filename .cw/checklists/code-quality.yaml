@@ -1,0 +1,36 @@
+name: code-quality
+description: Code quality checks after implementation
+on_fail: warn
+
+items:
+  - name: "No TODO/FIXME left behind"
+    type: regex
+    pattern: "(TODO|FIXME|XXX|HACK):"
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: warning
+
+  - name: "No print() statements"
+    type: regex
+    pattern: "^\\s*print\\("
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: warning
+
+  - name: "No hardcoded secrets"
+    type: regex
+    pattern: "(api_key|password|secret|token)\\s*=\\s*['\"][^'\"]{8,}['\"]"
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: error
+
+  - name: "No Any type annotations"
+    type: regex
+    pattern: ":\\s*Any[\\s,\\)]|->\\s*Any"
+    files: "**/*.py"
+    exclude: "**/tests/**,**/.venv/**"
+    expect: 0
+    severity: warning

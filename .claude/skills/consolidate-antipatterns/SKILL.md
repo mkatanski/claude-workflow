@@ -17,27 +17,36 @@ Use this skill:
 
 ## Instructions
 
-### Step 1: Read All Antipattern Files
+### Step 1: Discover All Antipattern Files
 
-Load and analyze each category file:
+List all markdown files in the antipatterns directory:
 
-- `.claude/skills/antipatterns/python.md`
-- `.claude/skills/antipatterns/testing.md`
-- `.claude/skills/antipatterns/architecture.md`
-- `.claude/skills/antipatterns/lint.md`
+```bash
+ls .claude/skills/antipatterns/*.md | grep -v SKILL.md
+```
 
-### Step 2: Identify Issues
+This will discover all files including:
+- `shared.md` - Language-agnostic patterns
+- Language-specific files (`typescript.md`, `python.md`, `rust.md`, `go.md`, etc.)
+- Category files (`testing.md`, `architecture.md`, `lint.md`)
+
+### Step 2: Read All Discovered Files
+
+Load and analyze each discovered file. Do NOT hardcode the file list - process whatever files exist.
+
+### Step 3: Identify Issues
 
 Look for these problems:
 
 1. **Duplicates** - Same pattern described in different words
-2. **Too specific** - Patterns that only apply to one unique case
-3. **Outdated** - Patterns that no longer apply (dependencies removed, etc.)
-4. **Poorly written** - Unclear, missing examples, or lacking "why"
-5. **Wrong category** - Pattern in wrong file
-6. **Inconsistent format** - Not following the standard structure
+2. **Cross-file duplicates** - Pattern in shared.md that's also in a language file
+3. **Too specific** - Patterns that only apply to one unique case
+4. **Outdated** - Patterns that no longer apply (dependencies removed, etc.)
+5. **Poorly written** - Unclear, missing examples, or lacking "why"
+6. **Wrong category** - Pattern in wrong file
+7. **Inconsistent format** - Not following the standard structure
 
-### Step 3: Consolidate Duplicates
+### Step 4: Consolidate Duplicates
 
 When you find duplicate patterns:
 
@@ -45,15 +54,18 @@ When you find duplicate patterns:
 2. Merge any unique insights from both
 3. Remove the inferior duplicate
 4. Ensure the merged pattern is complete
+5. If duplicate exists in both shared.md and language file:
+   - Keep in shared.md if truly universal
+   - Keep in language file if language-specific nuances exist
 
-### Step 4: Remove Non-Generalizable Patterns
+### Step 5: Remove Non-Generalizable Patterns
 
 Patterns should be removed if:
 - They only applied to a single, specific bug
 - The underlying code was removed
 - The pattern is too narrow to help in future
 
-### Step 5: Improve Clarity
+### Step 6: Improve Clarity
 
 For each remaining pattern, ensure:
 - **Don't** has a concrete example
@@ -61,7 +73,7 @@ For each remaining pattern, ensure:
 - **Why** explains the consequences
 - **Source** identifies where it came from
 
-### Step 6: Ensure Consistent Formatting
+### Step 7: Ensure Consistent Formatting
 
 All patterns should follow:
 
@@ -73,7 +85,7 @@ All patterns should follow:
 **Source:** [origin]
 ```
 
-### Step 7: Update Files
+### Step 8: Update Files
 
 Write the consolidated content back to each file.
 
@@ -83,6 +95,12 @@ Provide a consolidation summary:
 
 ```
 ## Consolidation Summary
+
+### Files Processed
+- shared.md
+- typescript.md
+- testing.md
+- [etc.]
 
 ### Changes Made
 - **Duplicates merged:** [count]
@@ -94,6 +112,7 @@ Provide a consolidation summary:
 - Merged: "[pattern A]" and "[pattern B]" → "[merged name]"
 - Removed: "[pattern]" - [reason]
 - Improved: "[pattern]" - [what was improved]
+- Moved: "[pattern]" from [file] to [file]
 ```
 
 ## Best Practices
@@ -103,3 +122,4 @@ Provide a consolidation summary:
 3. **Keep it actionable** - Remove theory, keep practice
 4. **Maintain balance** - Each category should have meaningful patterns
 5. **Document removals** - Note why patterns were removed
+6. **Check cross-file consistency** - Patterns in shared.md shouldn't contradict language files

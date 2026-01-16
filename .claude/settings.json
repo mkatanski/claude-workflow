@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/complete\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+            "command": "PORT=\"${WORKFLOW_PORT:-7432}\"; PANE_ID=\"$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')\"; [ -n \"$PANE_ID\" ] && curl -s -X POST \"http://127.0.0.1:$PORT/complete\" -d \"pane=$PANE_ID\" -d \"project=/Users/michalkatanski/Projects/claude-orchestrator\" >/dev/null 2>&1 || true"
           }
         ]
       }
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -X POST \"http://localhost:$ORCHESTRATOR_PORT/exited\" --data-urlencode \"pane=$TMUX_PANE\" 2>/dev/null || true"
+            "command": "PORT=\"${WORKFLOW_PORT:-7432}\"; PANE_ID=\"$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')\"; [ -n \"$PANE_ID\" ] && curl -s -X POST \"http://127.0.0.1:$PORT/exited\" -d \"pane=$PANE_ID\" -d \"project=/Users/michalkatanski/Projects/claude-orchestrator\" >/dev/null 2>&1 || true"
           }
         ]
       }

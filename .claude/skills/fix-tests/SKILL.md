@@ -94,77 +94,109 @@ After applying fixes:
 4. **Run lint** after making changes
 5. **Document** significant fixes
 
-## Output Format
-
-After fixing tests, provide a summary:
-
-```markdown
-## Test Fix Summary
-
-### Failing Tests Analyzed
-- `test/path/file.test.ts`: TestName1, TestName2
-
-### Root Causes Identified
-
-#### Test 1: [Test Name]
-- **Error**: [Error message]
-- **Root Cause**: [Implementation/Test/Config]
-- **Analysis**: [What was wrong]
-- **Fix Applied**: [What was changed]
-
-#### Test 2: [Test Name]
-- **Error**: [Error message]
-- **Root Cause**: [Implementation/Test/Config]
-- **Analysis**: [What was wrong]
-- **Fix Applied**: [What was changed]
-
-### Files Modified
-- `path/to/file.ts`: [Description of changes]
-
-### Verification
-- [x] Fixed tests now pass
-- [x] Other tests still pass
-- [x] Lint passes
-```
-
 ## Common Test Failure Patterns
 
 ### Assertion Failures
+
+**TypeScript/JavaScript (Jest/Vitest):**
 ```
 Expected: "hello"
 Received: "Hello"
 ```
-- Check case sensitivity
-- Check exact string matching
-- Verify expected value is correct
+
+**Python (pytest):**
+```
+AssertionError: assert 'Hello' == 'hello'
+```
+
+**Rust (cargo test):**
+```
+assertion failed: `(left == right)`
+  left: `"hello"`,
+ right: `"Hello"`
+```
+
+**Go (go test):**
+```
+got: Hello
+want: hello
+```
+
+**Fix approach:** Check case sensitivity, exact string matching, verify expected value is correct.
 
 ### Type Errors
+
+**TypeScript:**
 ```
 TypeError: Cannot read property 'x' of undefined
 ```
-- Check null/undefined handling
-- Verify mock setup returns correct structure
-- Check optional chaining usage
+
+**Python:**
+```
+TypeError: 'NoneType' object is not subscriptable
+```
+
+**Rust:**
+```
+error[E0599]: no method named `x` found for type `Option<T>`
+```
+
+**Go:**
+```
+panic: runtime error: invalid memory address or nil pointer dereference
+```
+
+**Fix approach:** Check null/undefined handling, verify mock setup returns correct structure, check optional chaining.
 
 ### Async Issues
+
+**TypeScript:**
 ```
 Timeout - Async callback was not invoked within timeout
 ```
-- Check Promise handling
-- Verify async/await usage
-- Check mock async functions
+
+**Python:**
+```
+RuntimeWarning: coroutine 'test_async' was never awaited
+```
+
+**Rust:**
+```
+thread 'main' panicked at 'cannot block in async context'
+```
+
+**Go:**
+```
+fatal error: all goroutines are asleep - deadlock!
+```
+
+**Fix approach:** Check Promise/async handling, verify async/await usage, check mock async functions.
 
 ### Mock Issues
+
+**TypeScript (Jest):**
 ```
 Expected mock function to have been called
 ```
-- Verify mock is set up before test runs
-- Check mock is imported correctly
-- Verify function being tested uses the mock
 
-## Example Fix
+**Python (pytest-mock):**
+```
+AssertionError: Expected call: mock()
+Not called
+```
 
-**Test Output**:
+**Go (gomock):**
+```
+missing call(s) to *MockService.DoThing()
+```
+
+**Fix approach:** Verify mock is set up before test runs, check mock is imported correctly, verify function being tested uses the mock.
+
+## Language-Specific Examples
+
+### TypeScript Example
+
+**Test Output:**
 ```
 FAIL tests/unit/services/AuthService.test.ts
   AuthService
@@ -185,13 +217,7 @@ FAIL tests/unit/services/AuthService.test.ts
       16 |     });
 ```
 
-**Analysis**:
-1. Test expects `verifyPassword` to return `true` for correct password
-2. But it returns `false`
-3. Read `AuthService.verifyPassword` implementation
-4. Found: password and hash parameters were swapped in bcrypt.compare call
-
-**Fix Applied**:
+**Fix:**
 ```typescript
 // Before (incorrect)
 async verifyPassword(password: string, hash: string): Promise<boolean> {
@@ -204,23 +230,90 @@ async verifyPassword(password: string, hash: string): Promise<boolean> {
 }
 ```
 
-**Summary**:
+### Python Example
+
+**Test Output:**
+```
+FAILED tests/test_auth.py::test_verify_password - AssertionError
+E       assert False == True
+E        +  where False = <AuthService>.verify_password('password123', '$2b$12$...')
+```
+
+**Fix:**
+```python
+# Before (incorrect)
+def verify_password(self, password: str, hash: str) -> bool:
+    return bcrypt.checkpw(hash.encode(), password.encode())  # Wrong order!
+
+# After (correct)
+def verify_password(self, password: str, hash: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hash.encode())  # Correct order
+```
+
+### Rust Example
+
+**Test Output:**
+```
+---- auth::tests::test_verify_password stdout ----
+thread 'auth::tests::test_verify_password' panicked at 'assertion failed: result'
+```
+
+**Fix:**
+```rust
+// Before (incorrect)
+pub fn verify_password(password: &str, hash: &str) -> bool {
+    bcrypt::verify(hash, password).unwrap_or(false)  // Wrong order!
+}
+
+// After (correct)
+pub fn verify_password(password: &str, hash: &str) -> bool {
+    bcrypt::verify(password, hash).unwrap_or(false)  // Correct order
+}
+```
+
+### Go Example
+
+**Test Output:**
+```
+--- FAIL: TestVerifyPassword (0.00s)
+    auth_test.go:25: VerifyPassword() = false, want true
+```
+
+**Fix:**
+```go
+// Before (incorrect)
+func VerifyPassword(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(password), []byte(hash)) // Wrong order!
+    return err == nil
+}
+
+// After (correct)
+func VerifyPassword(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) // Correct order
+    return err == nil
+}
+```
+
+## Output Format
+
+After fixing tests, provide a summary:
+
 ```markdown
 ## Test Fix Summary
 
 ### Failing Tests Analyzed
-- `tests/unit/services/AuthService.test.ts`: verifyPassword tests
+- `test/path/file.test.ts`: TestName1, TestName2
 
 ### Root Causes Identified
 
-#### Test: should return true for correct password
-- **Error**: Expected true, Received false
-- **Root Cause**: Implementation
-- **Analysis**: bcrypt.compare was called with arguments in wrong order
-- **Fix Applied**: Swapped password and hash arguments in verifyPassword method
+#### Test 1: [Test Name]
+- **Error**: [Error message]
+- **Root Cause**: [Implementation/Test/Config]
+- **Analysis**: [What was wrong]
+- **Fix Applied**: [What was changed]
 
 ### Files Modified
-- `src/services/AuthService.ts`: Fixed verifyPassword argument order
+- `path/to/file.ts`: [Description of changes]
 
 ### Verification
 - [x] Fixed tests now pass

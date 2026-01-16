@@ -1,19 +1,13 @@
 # Python Antipatterns
 
-Patterns to avoid when writing Python code in this project.
+Patterns to avoid when writing Python code.
 
 ---
 
 ## Never use Any type
 **Don't:** `def process(data: Any) -> Any`
 **Do:** Use specific types, generics, or `Unknown` as last resort
-**Why:** Project rule - explicit types improve maintainability and catch errors at type-check time
-**Source:** Project CLAUDE.md
-
-## No logic in __init__.py files
-**Don't:** Put business logic, classes, or functions in `__init__.py`
-**Do:** Use `__init__.py` only for re-exports from module files
-**Why:** Project convention - keeps modules clean and imports predictable
+**Why:** Explicit types improve maintainability and catch errors at type-check time
 **Source:** Project CLAUDE.md
 
 ## Avoid mutable default arguments
@@ -28,9 +22,52 @@ Patterns to avoid when writing Python code in this project.
 **Why:** pathlib is more readable and provides better type safety
 **Source:** Modern Python convention
 
+## Don't use bare except
+**Don't:** `except:` or `except Exception:`
+**Do:** `except SpecificError as e:` and handle appropriately
+**Why:** Bare except catches everything including KeyboardInterrupt and SystemExit
+**Source:** Python error handling
+
+## Avoid string formatting with +
+**Don't:** `"Hello " + name + "!"`
+**Do:** `f"Hello {name}!"` or `"Hello {}!".format(name)`
+**Why:** f-strings are more readable, faster, and less error-prone
+**Source:** Modern Python convention
+
+## Don't use `type()` for type checking
+**Don't:** `if type(x) == list:`
+**Do:** `if isinstance(x, list):`
+**Why:** `isinstance` handles inheritance properly
+**Source:** Python best practice
+
+## Use context managers for resources
+**Don't:**
+```python
+f = open("file.txt")
+data = f.read()
+f.close()
+```
+**Do:**
+```python
+with open("file.txt") as f:
+    data = f.read()
+```
+**Why:** Context managers ensure proper cleanup even if exceptions occur
+**Source:** Python resource handling
+
+## Avoid deeply nested comprehensions
+**Don't:** `[[y for y in x if y > 0] for x in data if len(x) > 2]`
+**Do:** Use explicit loops for complex logic, or break into multiple steps
+**Why:** Complex comprehensions are hard to read and debug
+**Source:** Code readability
+
 ---
 
 # Claude Agent SDK Antipatterns
+
+Python SDK-specific patterns for Claude API usage.
+
+---
 
 ## Use correct model name format
 **Don't:** `model="claude-haiku-3-5-20241022"`

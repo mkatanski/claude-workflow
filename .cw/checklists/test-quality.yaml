@@ -1,0 +1,30 @@
+name: test-quality
+description: Test quality verification
+on_fail: warn
+
+items:
+  - name: "No skipped tests added"
+    type: regex
+    pattern: "@pytest.mark.skip|pytest.skip\\("
+    files: "**/test_*.py"
+    expect: 0
+    severity: warning
+
+  - name: "Test files for new modules"
+    type: model
+    prompt: |
+      Check if new Python modules have corresponding test files.
+      New modules should have test_<module>.py in tests/.
+
+      Changed files: {changed_files}
+
+      If no new modules were added, or all new modules have tests, output "PASS".
+      Otherwise output "FAIL: missing tests for [list modules]"
+    severity: warning
+
+  - name: "No bare assert statements"
+    type: regex
+    pattern: "^\\s+assert [^,\"']+$"
+    files: "**/test_*.py"
+    expect: 0
+    severity: info

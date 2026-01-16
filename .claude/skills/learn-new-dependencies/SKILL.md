@@ -16,34 +16,54 @@ Use this skill:
 
 ## Instructions
 
-### Step 1: Identify New Dependencies
+### Step 1: Detect Project Type and Dependencies
 
-Compare dependencies before and after implementation:
+Check marker files to determine the project type and read dependencies:
 
-For Python projects, check:
-- `pyproject.toml` - dependencies and dev-dependencies sections
-- `requirements.txt` - if used
-- `setup.py` - if used
+| Marker File | Language | How to Read Dependencies |
+|-------------|----------|--------------------------|
+| `package.json` | TypeScript/JS | `dependencies` and `devDependencies` |
+| `Cargo.toml` | Rust | `[dependencies]` section |
+| `go.mod` | Go | `require` statements |
+| `pyproject.toml` | Python | `[project.dependencies]` or `[tool.poetry.dependencies]` |
+| `requirements.txt` | Python | Line-by-line packages |
 
-Extract the list of NEW dependencies (not version updates).
+### Step 2: Compare Before and After
 
-### Step 2: Filter Dependencies
+Compare dependencies before and after implementation to identify NEW dependencies (not version updates).
 
-Not every dependency needs a skill. Create skills for:
+For example, in TypeScript:
+```bash
+# Before (captured at workflow start)
+# After (read now from package.json)
+```
+
+### Step 3: Filter Dependencies
+
+Not every dependency needs a skill. Use these rules:
 
 **Create skill for:**
-- Libraries with significant API surface (jmespath, pydantic, etc.)
+- Libraries with significant API surface
 - Libraries used throughout the codebase
 - Libraries with non-obvious usage patterns
 - Libraries where project-specific conventions matter
 
-**Skip skill for:**
-- Simple utilities with obvious usage (python-dotenv, etc.)
-- Type stubs (types-*)
-- Testing utilities already covered by testing.md antipatterns
-- Build tools (setuptools, wheel, etc.)
+**Skip (by language):**
 
-### Step 3: Fetch Documentation
+| Language | Skip These |
+|----------|------------|
+| TypeScript/JS | `@types/*`, type stubs, bundler plugins, test utilities |
+| Python | `types-*`, `mypy`, build tools (setuptools, wheel) |
+| Rust | `*-sys` crates, proc-macro crates |
+| Go | Indirect dependencies, test utilities |
+
+**Always Skip:**
+- Simple utilities with obvious usage
+- Build/compile tools
+- Testing utilities covered by testing.md antipatterns
+- Dev-only tooling (linters, formatters)
+
+### Step 4: Fetch Documentation
 
 For each dependency that needs a skill:
 
@@ -58,7 +78,7 @@ For each dependency that needs a skill:
    - Gotchas and common mistakes
    - Configuration options
 
-### Step 4: Create Skill Using skill-writer
+### Step 5: Create Skill Using skill-writer
 
 Use the `/skill-writer` skill to create each dependency skill:
 
@@ -66,6 +86,7 @@ Use the `/skill-writer` skill to create each dependency skill:
 
 2. **Skill content should include:**
    - When to use this library
+   - Installation command (language-appropriate)
    - Basic usage patterns
    - Project-specific conventions (if any)
    - Common pitfalls to avoid
@@ -77,7 +98,7 @@ Use the `/skill-writer` skill to create each dependency skill:
    - Focus on project-specific usage
    - Include concrete examples
 
-### Step 5: Validate Skills
+### Step 6: Validate Skills
 
 Ensure each created skill:
 - Has valid frontmatter (name, description)
@@ -92,17 +113,20 @@ Provide a summary of skills created:
 ```
 ## Dependency Skills Created
 
+### Project Type
+[TypeScript/Python/Rust/Go]
+
 ### New Skills
 | Package | Skill Path | Purpose |
 |---------|------------|---------|
 | jmespath | .claude/skills/deps/jmespath/SKILL.md | JSON/dict querying |
-| pydantic | .claude/skills/deps/pydantic/SKILL.md | Data validation |
+| zod | .claude/skills/deps/zod/SKILL.md | Schema validation |
 
 ### Skipped
 | Package | Reason |
 |---------|--------|
-| python-dotenv | Simple utility, obvious usage |
-| types-requests | Type stubs only |
+| @types/node | Type stubs only |
+| vitest | Testing utility |
 
 ### Notes
 - [Any special considerations or follow-ups needed]
@@ -112,47 +136,60 @@ Provide a summary of skills created:
 
 ```markdown
 ---
-name: jmespath
-description: Query JSON and dict structures using JMESPath expressions. Use when extracting data from complex nested structures or transforming JSON data.
+name: zod
+description: Schema validation and TypeScript type inference. Use when validating external data, API responses, or form inputs with runtime type safety.
 ---
 
-# JMESPath
+# Zod
 
-JMESPath is a query language for JSON. Use it for extracting and transforming data from complex nested structures.
+Schema validation library for TypeScript with automatic type inference.
 
 ## When to Use
 
-- Extracting specific values from API responses
-- Filtering lists based on conditions
-- Transforming data structures
+- Validating API responses
+- Form input validation
+- Parsing configuration files
+- Runtime type checking at system boundaries
+
+## Installation
+
+\`\`\`bash
+npm install zod
+# or
+bun add zod
+\`\`\`
 
 ## Basic Usage
 
-\`\`\`python
-import jmespath
+\`\`\`typescript
+import { z } from "zod";
 
-data = {"users": [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]}
+// Define schema
+const UserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  age: z.number().min(0).optional(),
+});
 
-# Extract all names
-names = jmespath.search("users[*].name", data)  # ["Alice", "Bob"]
+// Infer TypeScript type
+type User = z.infer<typeof UserSchema>;
 
-# Filter by condition
-adults = jmespath.search("users[?age >= `30`]", data)
+// Validate data
+const result = UserSchema.safeParse(data);
+if (result.success) {
+  const user: User = result.data;
+}
 \`\`\`
-
-## Project Conventions
-
-- Prefer JMESPath over manual dict traversal for complex queries
-- Use for workflow variable extraction (see workflow.py)
 
 ## Common Pitfalls
 
-- Numbers in expressions need backticks: `[?age >= \`30\`]`
-- Strings need quotes: `[?name == 'Alice']`
+- Use `.safeParse()` instead of `.parse()` for graceful error handling
+- Remember that `.optional()` allows `undefined`, use `.nullable()` for `null`
+- Use `.transform()` for data transformation during parsing
 
 ## Reference
 
-Official docs: https://jmespath.org/
+Official docs: https://zod.dev/
 ```
 
 ## Best Practices
@@ -162,3 +199,4 @@ Official docs: https://jmespath.org/
 3. **Include examples** - Real code from the project if possible
 4. **Link to docs** - Don't duplicate, reference
 5. **Update existing** - If skill exists, update rather than recreate
+6. **Context7 first** - Always fetch latest docs before creating

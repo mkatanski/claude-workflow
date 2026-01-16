@@ -182,6 +182,12 @@ return {
 | `linear_tasks` | Query Linear issues (get_next, get, assign) |
 | `linear_manage` | Create, update, and comment on Linear issues |
 
+### Extension Tools
+
+| Tool | Purpose |
+|------|---------|
+| `hook` | Execute optional project-specific hooks from `.cw/hooks/{name}.ts` |
+
 ## How Tools Interact with ExecutionContext
 
 The `ExecutionContext` is the shared state that flows through every step. Tools interact with it in several ways:
@@ -390,6 +396,26 @@ Use `linear_tasks` for querying and `linear_manage` for mutations:
 - `update` - Update issue fields
 - `comment` - Add a comment to an issue
 
+### Need to run project-specific logic?
+
+Use `hook` to execute optional TypeScript hooks. Hooks are project-specific and silently skip if not found:
+
+```typescript
+t.step("Post-build hook", t.hook("post-build"), { onError: "continue" })
+```
+
+Hook files live in `.cw/hooks/{name}.ts` and export a default async function:
+
+```typescript
+// .cw/hooks/post-build.ts
+import type { HookContext } from "../../src/core/tools/hook.ts";
+
+export default async function(context: HookContext): Promise<string | void> {
+  // Custom logic here
+  return "Hook completed";
+}
+```
+
 ## Further Reading
 
 For detailed configuration options and examples for each tool, see:
@@ -401,4 +427,5 @@ For detailed configuration options and examples for each tool, see:
 - [data Tool Reference](./tools/data.md)
 - [checklist Tool Reference](./tools/checklist.md)
 - [Linear Integration Tools](./tools/linear.md)
+- [hook Tool Reference](./tools/hook.md)
 - [Creating Custom Tools](./creating-tools.md)
