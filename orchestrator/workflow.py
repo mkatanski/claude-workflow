@@ -289,6 +289,8 @@ class WorkflowRunner:
             "path": step.path,
             "operation": step.operation,
             "create_if_missing": step.create_if_missing,
+            # checklist tool fields
+            "checklist": step.checklist,
             # Workflow-level claude_sdk config for fallback
             "_workflow_claude_sdk": {
                 "system_prompt": self.config.claude_sdk.system_prompt,
