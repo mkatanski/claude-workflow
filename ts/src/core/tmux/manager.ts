@@ -1,5 +1,5 @@
 /**
- * Tmux pane management for workflow orchestrator.
+ * Tmux pane management for workflow runner.
  */
 
 import { createHash } from "node:crypto";
@@ -211,9 +211,9 @@ export class TmuxManager {
   ): string {
     const cwd = this.claudeConfig.cwd ?? resolve(this.projectPath);
 
-    // Start with ORCHESTRATOR_PORT env var for hooks
+    // Start with WORKFLOW_PORT env var for hooks
     const parts = [
-      `cd ${shellQuote(cwd)} && ORCHESTRATOR_PORT=${this.server.port} claude`,
+      `cd ${shellQuote(cwd)} && WORKFLOW_PORT=${this.server.port} claude`,
     ];
 
     // Add model if specified (step override takes precedence)

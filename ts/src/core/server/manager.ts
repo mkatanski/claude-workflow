@@ -67,7 +67,7 @@ class AsyncEvent {
 /**
  * HTTP server for handling completion signals from Claude hooks.
  */
-export class OrchestratorServer {
+export class WorkflowServer {
   private port: number;
   private server: BunServer | null = null;
 
@@ -216,7 +216,7 @@ export class ServerManager {
 
   private requestedPort: number;
   private _port: number;
-  private server: OrchestratorServer | null = null;
+  private server: WorkflowServer | null = null;
 
   constructor(port: number = ServerManager.DEFAULT_PORT) {
     this.requestedPort = port;
@@ -263,7 +263,7 @@ export class ServerManager {
    */
   async start(): Promise<void> {
     this._port = await this.findAvailablePort(this.requestedPort);
-    this.server = new OrchestratorServer(this._port);
+    this.server = new WorkflowServer(this._port);
     await this.server.start();
   }
 

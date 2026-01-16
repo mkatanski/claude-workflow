@@ -1,5 +1,5 @@
 /**
- * Core types for the workflow orchestrator.
+ * Core types for the workflow runner.
  */
 
 /**

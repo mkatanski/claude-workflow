@@ -1,1 +1,1 @@
-export { OrchestratorServer, ServerManager } from "./manager.ts";
+export { WorkflowServer, ServerManager } from "./manager.ts";

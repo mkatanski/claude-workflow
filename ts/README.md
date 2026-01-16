@@ -1,6 +1,6 @@
-# Claude Orchestrator (TypeScript)
+# Claude Workflow (TypeScript)
 
-A TypeScript/Bun implementation of the Claude workflow orchestrator. Workflows are defined as `.workflow.ts` files using a fluent builder API.
+A TypeScript/Bun implementation of the Claude workflow runner. Workflows are defined as `.workflow.ts` files using a fluent builder API.
 
 ## Requirements
 
@@ -168,7 +168,7 @@ bun run build
 
 ## Architecture
 
-The orchestrator uses:
+The workflow runner uses:
 - **Bun.serve** for the HTTP completion signal server
 - **tmux** for visible pane management
 - **Anthropic SDK** for claude_sdk structured outputs

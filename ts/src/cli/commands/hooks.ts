@@ -32,7 +32,7 @@ interface ClaudeSettings {
  */
 function createStopHookCommand(projectPath: string): string {
   const escapedPath = projectPath.replace(/"/g, '\\"');
-  return `PORT="\${ORCHESTRATOR_PORT:-7432}"; PANE_ID="$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')"; [ -n "$PANE_ID" ] && curl -s -X POST "http://127.0.0.1:$PORT/complete" -d "pane=$PANE_ID" -d "project=${escapedPath}" >/dev/null 2>&1 || true`;
+  return `PORT="\${WORKFLOW_PORT:-7432}"; PANE_ID="$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')"; [ -n "$PANE_ID" ] && curl -s -X POST "http://127.0.0.1:$PORT/complete" -d "pane=$PANE_ID" -d "project=${escapedPath}" >/dev/null 2>&1 || true`;
 }
 
 /**
@@ -41,7 +41,7 @@ function createStopHookCommand(projectPath: string): string {
  */
 function createExitHookCommand(projectPath: string): string {
   const escapedPath = projectPath.replace(/"/g, '\\"');
-  return `PORT="\${ORCHESTRATOR_PORT:-7432}"; PANE_ID="$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')"; [ -n "$PANE_ID" ] && curl -s -X POST "http://127.0.0.1:$PORT/exited" -d "pane=$PANE_ID" -d "project=${escapedPath}" >/dev/null 2>&1 || true`;
+  return `PORT="\${WORKFLOW_PORT:-7432}"; PANE_ID="$(tmux display-message -p '#{pane_id}' 2>/dev/null || echo '')"; [ -n "$PANE_ID" ] && curl -s -X POST "http://127.0.0.1:$PORT/exited" -d "pane=$PANE_ID" -d "project=${escapedPath}" >/dev/null 2>&1 || true`;
 }
 
 /**
@@ -92,7 +92,7 @@ function writeSettings(projectPath: string, settings: ClaudeSettings): void {
 }
 
 /**
- * Create the orchestrator hooks configuration.
+ * Create the workflow hooks configuration.
  * @param projectPath - Absolute path to the project, embedded in hook commands
  */
 function createHooksConfig(projectPath: string): ClaudeSettings["hooks"] {
@@ -120,17 +120,17 @@ function hooksExistInSettings(settings: ClaudeSettings): boolean {
   if (!hooks) return false;
 
   const hasStopHook = hooks.Stop?.some((h) =>
-    h.hooks?.some((hook) => hook.command?.includes("ORCHESTRATOR_PORT"))
+    h.hooks?.some((hook) => hook.command?.includes("WORKFLOW_PORT"))
   );
   const hasSessionEndHook = hooks.SessionEnd?.some((h) =>
-    h.hooks?.some((hook) => hook.command?.includes("ORCHESTRATOR_PORT"))
+    h.hooks?.some((hook) => hook.command?.includes("WORKFLOW_PORT"))
   );
 
   return Boolean(hasStopHook && hasSessionEndHook);
 }
 
 /**
- * Install orchestrator hooks to project settings.
+ * Install workflow hooks to project settings.
  */
 export function installHooks(projectPath: string): void {
   const absolutePath = resolve(projectPath);
@@ -171,7 +171,7 @@ export function installHooks(projectPath: string): void {
   writeSettings(absolutePath, settings);
 
   console.log(`Installed hooks to: ${settingsPath}`);
-  console.log("These hooks will signal task completion to the orchestrator.");
+  console.log("These hooks will signal task completion to the workflow runner.");
 }
 
 /**
@@ -203,7 +203,7 @@ export function checkHooksQuiet(projectPath: string): boolean {
 }
 
 /**
- * Uninstall orchestrator hooks from project settings.
+ * Uninstall workflow hooks from project settings.
  */
 export function uninstallHooks(projectPath: string): void {
   const absolutePath = resolve(projectPath);
@@ -215,20 +215,20 @@ export function uninstallHooks(projectPath: string): void {
     return;
   }
 
-  // Remove orchestrator hooks from Stop
+  // Remove workflow hooks from Stop
   if (settings.hooks.Stop) {
     settings.hooks.Stop = settings.hooks.Stop.filter(
-      (h) => !h.hooks?.some((hook) => hook.command?.includes("ORCHESTRATOR_PORT"))
+      (h) => !h.hooks?.some((hook) => hook.command?.includes("WORKFLOW_PORT"))
     );
     if (settings.hooks.Stop.length === 0) {
       delete settings.hooks.Stop;
     }
   }
 
-  // Remove orchestrator hooks from SessionEnd
+  // Remove workflow hooks from SessionEnd
   if (settings.hooks.SessionEnd) {
     settings.hooks.SessionEnd = settings.hooks.SessionEnd.filter(
-      (h) => !h.hooks?.some((hook) => hook.command?.includes("ORCHESTRATOR_PORT"))
+      (h) => !h.hooks?.some((hook) => hook.command?.includes("WORKFLOW_PORT"))
     );
     if (settings.hooks.SessionEnd.length === 0) {
       delete settings.hooks.SessionEnd;
@@ -243,7 +243,7 @@ export function uninstallHooks(projectPath: string): void {
   // Write updated settings
   writeSettings(absolutePath, settings);
 
-  console.log(`Removed orchestrator hooks from: ${settingsPath}`);
+  console.log(`Removed workflow hooks from: ${settingsPath}`);
 }
 
 /**

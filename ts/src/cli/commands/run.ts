@@ -33,7 +33,7 @@ export async function runWorkflow(
   const hooksInstalled = checkHooksQuiet(absoluteProjectPath);
   if (!hooksInstalled) {
     const shouldInstall = await p.confirm({
-      message: "Orchestrator hooks not configured. Install them now?",
+      message: "Workflow hooks not configured. Install them now?",
       initialValue: true,
     });
 

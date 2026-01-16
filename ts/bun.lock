@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "claude-orchestrator",
+      "name": "claude-workflow",
       "dependencies": {
         "@anthropic-ai/sdk": "^0.52.0",
         "@clack/prompts": "^0.9.0",
