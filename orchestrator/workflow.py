@@ -129,8 +129,9 @@ class WorkflowRunner:
         self.step_times.append(step_duration)
 
         # Store output in variable if requested
-        if step.output_var and result.output:
-            self.context.set(step.output_var, result.output)
+        # Always update the variable, even with empty output, to avoid stale values
+        if step.output_var:
+            self.context.set(step.output_var, result.output or "")
 
         # Print result
         self._display.print_step_result(
