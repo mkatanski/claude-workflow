@@ -292,20 +292,35 @@ steps:
       echo "Epic description saved"
 
   - name: "Extract epic title (simple)"
+    tool: claude_sdk
     model: haiku
     prompt: |
-      Extract ONLY a short title from this epic description for use in a git branch name.
+      Extract a short title from this epic description for use in a git branch name.
 
       Epic:
       {epic_description}
 
       Rules:
       - Maximum 25 characters
-      - Lowercase only
+      - Lowercase letters and hyphens only
       - Use hyphens instead of spaces
-      - No special characters except hyphens
+      - Examples: "user-auth", "payment-flow", "dark-mode"
+    output_type: schema
+    schema:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Branch-safe title (lowercase, hyphens, max 25 chars)"
+      required:
+        - title
+    output_var: epic_title_json
 
-      Output ONLY the branch-safe title, nothing else.
+  - name: "Parse epic title (simple)"
+    tool: json
+    action: query
+    source: epic_title_json
+    query: "title"
     output_var: epic_title
 
   - name: "Generate branch name"
@@ -513,15 +528,35 @@ steps:
     output_var: milestones_count
 
   - name: "Extract epic title"
+    tool: claude_sdk
     model: haiku
     prompt: |
-      Extract ONLY a short title from this epic description for use in a git branch name.
+      Extract a short title from this epic description for use in a git branch name.
 
       Epic:
       {epic_description}
 
-      Rules: Maximum 25 chars, lowercase, hyphens only.
-      Output ONLY the branch-safe title.
+      Rules:
+      - Maximum 25 characters
+      - Lowercase letters and hyphens only
+      - Use hyphens instead of spaces
+      - Examples: "user-auth", "payment-flow", "dark-mode"
+    output_type: schema
+    schema:
+      type: object
+      properties:
+        title:
+          type: string
+          description: "Branch-safe title (lowercase, hyphens, max 25 chars)"
+      required:
+        - title
+    output_var: epic_title_json
+
+  - name: "Parse epic title (milestone)"
+    tool: json
+    action: query
+    source: epic_title_json
+    query: "title"
     output_var: epic_title
 
   - name: "Generate branch name (milestone)"
@@ -1248,9 +1283,10 @@ steps:
     command: "git add -A"
 
   - name: "Generate milestone commit message"
+    tool: claude_sdk
     model: haiku
     prompt: |
-      Generate a commit message for milestone {milestone_id}: {milestone_title}
+      Generate a git commit message for milestone {milestone_id}: {milestone_title}
 
       Stories completed: {stories_count}
 
@@ -1259,8 +1295,22 @@ steps:
 
       - Change 1
       - Change 2
+    output_type: schema
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          description: "Git commit message in conventional format"
+      required:
+        - message
+    output_var: milestone_commit_msg_json
 
-      Output ONLY the commit message.
+  - name: "Parse milestone commit message"
+    tool: json
+    action: query
+    source: milestone_commit_msg_json
+    query: "message"
     output_var: milestone_commit_message
 
   - name: "Commit milestone"
@@ -1288,14 +1338,30 @@ steps:
       EOF
 
   - name: "Generate milestone summary"
+    tool: claude_sdk
     model: haiku
     prompt: |
       Summarize what was built in milestone {milestone_id}: {milestone_title}
 
       Stories completed: {stories_count}
 
-      Provide a 2-3 sentence summary. Focus on WHAT was built.
-      Output ONLY the summary text.
+      Provide a 2-3 sentence summary focusing on WHAT was built.
+    output_type: schema
+    schema:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: "2-3 sentence summary of what was built"
+      required:
+        - summary
+    output_var: milestone_summary_json
+
+  - name: "Parse milestone summary"
+    tool: json
+    action: query
+    source: milestone_summary_json
+    query: "summary"
     output_var: milestone_summary
 
   - name: "Update cumulative summary"
@@ -1412,9 +1478,10 @@ steps:
     on_error: continue
 
   - name: "Generate final commit message"
+    tool: claude_sdk
     model: haiku
     prompt: |
-      Generate a final commit message for epic: {epic_title}
+      Generate a final git commit message for epic: {epic_title}
 
       Mode: {workflow_mode}
       Milestones: {milestones_count}
@@ -1424,8 +1491,22 @@ steps:
 
       - Major change 1
       - Major change 2
+    output_type: schema
+    schema:
+      type: object
+      properties:
+        message:
+          type: string
+          description: "Git commit message in conventional format"
+      required:
+        - message
+    output_var: commit_msg_json
 
-      Output ONLY the commit message.
+  - name: "Parse final commit message"
+    tool: json
+    action: query
+    source: commit_msg_json
+    query: "message"
     output_var: commit_message
 
   - name: "Stage final changes"
