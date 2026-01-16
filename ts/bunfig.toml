@@ -1,0 +1,7 @@
+[install]
+# Use the frozen lockfile for reproducible builds
+frozen = false
+
+[run]
+# Enable hot reloading in dev mode
+watch = true

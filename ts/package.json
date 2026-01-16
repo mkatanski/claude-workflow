@@ -1,0 +1,34 @@
+{
+  "name": "claude-workflow",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/cli/main.ts",
+  "bin": {
+    "cw": "src/cli/main.ts"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/main.ts",
+    "dev:bun": "bun run src/cli/main.ts",
+    "build": "bun build --compile --minify --outfile=dist/claude-workflow src/cli/main.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "npx @biomejs/biome check src",
+    "format": "npx @biomejs/biome format --write src"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "@clack/prompts": "^0.9.0",
+    "@langchain/langgraph": "^0.2.62",
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "jmespath": "^0.16.0",
+    "ora": "^8.2.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/jmespath": "^0.15.2",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.3"
+  }
+}
