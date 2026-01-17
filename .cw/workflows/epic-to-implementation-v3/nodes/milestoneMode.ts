@@ -9,32 +9,36 @@
  * - milestoneCommit: Commit milestone changes and generate summary
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
 import {
-	StateKeys,
-	DEFAULT_CONFIG,
-	getEpic,
-	getTempDir,
-	getMilestones,
-	getCurrentMilestoneIndex,
-	getCurrentMilestone,
-	getArchitecture,
-	getCumulativeSummary,
-} from "../state.ts";
+	state,
+	stateError,
+	updateAt,
+} from "../../../../src/core/utils/index.js";
 import {
-	epicTitleSchema,
-	milestonesJsonSchema,
-	storiesJsonSchema,
 	commitMessageSchema,
+	epicTitleSchema,
 	milestoneSummarySchema,
 } from "../schemas/index.ts";
+import {
+	DEFAULT_CONFIG,
+	getArchitecture,
+	getCumulativeSummary,
+	getCurrentMilestone,
+	getCurrentMilestoneIndex,
+	getEpic,
+	getMilestones,
+	StateKeys,
+} from "../state.ts";
 import type {
+	ArchitectureState,
 	EpicData,
 	Milestone,
 	Story,
-	ArchitectureState,
 	WorkflowConfig,
 } from "../types.ts";
 
@@ -50,11 +54,12 @@ export async function milestoneSetup(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const epic = getEpic(tools);
 
 	if (!epic) {
-		return { error: "Epic data not found in state" };
+		return stateError("Epic data not found in state");
 	}
 
 	tools.log("MILESTONE MODE: Multi-Phase Implementation");
@@ -73,11 +78,14 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!analyzeResult.success) {
-		return { error: `Epic analysis failed: ${analyzeResult.error}` };
+		return stateError(`Epic analysis failed: ${analyzeResult.error}`);
 	}
 
 	// Step 2: Extract epic title
-	const titleResult = await tools.claudeSdk<{ title: string; description?: string }>(
+	const titleResult = await tools.claudeSdk<{
+		title: string;
+		description?: string;
+	}>(
 		`Based on this epic prompt, provide a concise title (max 50 chars) and brief description:
 
 ${epic.promptContent}`,
@@ -114,15 +122,14 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!archResult.success) {
-		return { error: `Architecture creation failed: ${archResult.error}` };
+		return stateError(`Architecture creation failed: ${archResult.error}`);
 	}
 
-	// Read architecture document
-	const readArchResult = await tools.bash(
-		`cat "${config.outputDir}/architecture.md"`,
-		{ stripOutput: false },
+	// Read architecture document using FileOperations
+	const architectureDocument = tools.files.readTextOr(
+		`${config.outputDir}/architecture.md`,
+		"",
 	);
-	const architectureDocument = readArchResult.output;
 
 	const architecture: ArchitectureState = {
 		document: architectureDocument,
@@ -144,33 +151,29 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!milestonesResult.success) {
-		return { error: `Milestone generation failed: ${milestonesResult.error}` };
+		return stateError(`Milestone generation failed: ${milestonesResult.error}`);
 	}
 
-	// Read and parse milestones
-	const readMilestonesResult = await tools.bash(
-		`cat "${config.outputDir}/milestones.json"`,
-		{ stripOutput: false },
+	// Read and parse milestones using FileOperations
+	const milestonesJson = tools.files.readJson<{ milestones: Milestone[] }>(
+		`${config.outputDir}/milestones.json`,
 	);
 
-	if (!readMilestonesResult.success || !readMilestonesResult.output.trim()) {
-		return { error: "Failed to read generated milestones" };
+	if (milestonesJson.isErr()) {
+		return stateError("Failed to read generated milestones");
 	}
 
-	let milestones: Milestone[];
-	try {
-		const parsed = JSON.parse(readMilestonesResult.output) as { milestones: Milestone[] };
-		milestones = (parsed.milestones ?? []).map((m) => ({
-			...m,
-			completed: false,
-		}));
-	} catch {
-		return { error: `Failed to parse milestones JSON` };
-	}
+	const milestones = (milestonesJson.unwrap().milestones ?? []).map((m) => ({
+		...m,
+		completed: false,
+	}));
 
 	tools.log(`Generated ${milestones.length} milestones`);
 	for (const m of milestones) {
-		tools.log(`- ${m.id}: ${m.title} (${m.phase}, ~${m.storyCount} stories)`, "debug");
+		tools.log(
+			`- ${m.id}: ${m.title} (${m.phase}, ~${m.storyCount} stories)`,
+			"debug",
+		);
 	}
 
 	// Log decision
@@ -181,15 +184,13 @@ Output only "SAVED" when done.`,
 		`Phases: ${[...new Set(milestones.map((m) => m.phase))].join(", ")}`,
 	]);
 
-	return {
-		variables: {
-			[StateKeys.epic]: updatedEpic,
-			[StateKeys.architecture]: architecture,
-			[StateKeys.milestones]: milestones,
-			[StateKeys.currentMilestoneIndex]: 0,
-			[StateKeys.cumulativeSummary]: "",
-		},
-	};
+	return state()
+		.set(StateKeys.epic, updatedEpic)
+		.set(StateKeys.architecture, architecture)
+		.set(StateKeys.milestones, milestones)
+		.set(StateKeys.currentMilestoneIndex, 0)
+		.set(StateKeys.cumulativeSummary, "")
+		.build();
 }
 
 /**
@@ -202,21 +203,24 @@ export async function processMilestone(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const milestone = getCurrentMilestone(tools);
 	const architecture = getArchitecture(tools);
 	const cumulativeSummary = getCumulativeSummary(tools);
 	const milestoneIndex = getCurrentMilestoneIndex(tools);
 
 	if (!milestone) {
-		return { error: "No current milestone found" };
+		return stateError("No current milestone found");
 	}
 
 	if (!architecture) {
-		return { error: "Architecture not found" };
+		return stateError("Architecture not found");
 	}
 
-	tools.log(`MILESTONE ${milestoneIndex + 1}: ${milestone.title} (${milestone.phase})`);
+	tools.log(
+		`MILESTONE ${milestoneIndex + 1}: ${milestone.title} (${milestone.phase})`,
+	);
 
 	// Step 1: Refine architecture for this milestone
 	tools.log("Refining architecture for milestone...", "debug");
@@ -247,12 +251,11 @@ Output only "UPDATED" when done.`,
 		tools.log("Architecture refinement skipped", "warn");
 	}
 
-	// Read updated architecture
-	const readArchResult = await tools.bash(
-		`cat "${config.outputDir}/architecture.md"`,
-		{ stripOutput: false },
+	// Read updated architecture using FileOperations
+	const updatedArchDocument = tools.files.readTextOr(
+		`${config.outputDir}/architecture.md`,
+		architecture.document,
 	);
-	const updatedArchDocument = readArchResult.output || architecture.document;
 
 	// Step 2: Generate stories for this milestone
 	tools.log("Generating stories for milestone...");
@@ -275,45 +278,42 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!storiesResult.success) {
-		return { error: `Story generation failed: ${storiesResult.error}` };
+		return stateError(`Story generation failed: ${storiesResult.error}`);
 	}
 
-	// Read and parse stories
-	const readStoriesResult = await tools.bash(`cat "${storiesFile}"`, { stripOutput: false });
+	// Read and parse stories using FileOperations
+	const storiesJson = tools.files.readJson<{ stories: Story[] }>(storiesFile);
 
-	if (!readStoriesResult.success || !readStoriesResult.output.trim()) {
-		return { error: "Failed to read generated stories" };
+	if (storiesJson.isErr()) {
+		return stateError("Failed to read generated stories");
 	}
 
-	let stories: Story[];
-	try {
-		const parsed = JSON.parse(readStoriesResult.output) as { stories: Story[] };
-		stories = parsed.stories ?? [];
-	} catch {
-		return { error: "Failed to parse stories JSON" };
-	}
+	const stories = storiesJson.unwrap().stories ?? [];
 
 	tools.log(`Generated ${stories.length} stories for ${milestone.id}`);
 
 	// Log decision
-	await logDecision(tools, config.outputDir, `Milestone ${milestone.id} Setup`, [
-		`Generated ${stories.length} implementation stories`,
-		`Refined architecture for ${milestone.phase} phase`,
-		`Goals: ${milestone.goals.slice(0, 2).join(", ")}${milestone.goals.length > 2 ? "..." : ""}`,
-	]);
+	await logDecision(
+		tools,
+		config.outputDir,
+		`Milestone ${milestone.id} Setup`,
+		[
+			`Generated ${stories.length} implementation stories`,
+			`Refined architecture for ${milestone.phase} phase`,
+			`Goals: ${milestone.goals.slice(0, 2).join(", ")}${milestone.goals.length > 2 ? "..." : ""}`,
+		],
+	);
 
-	return {
-		variables: {
-			[StateKeys.architecture]: {
-				document: updatedArchDocument,
-				version: architecture.version,
-				pendingUpdates: [],
-			},
-			[StateKeys.stories]: stories,
-			[StateKeys.currentStoryIndex]: 0,
-			[StateKeys.phase]: "stories",
-		},
-	};
+	return state()
+		.set(StateKeys.architecture, {
+			document: updatedArchDocument,
+			version: architecture.version,
+			pendingUpdates: [],
+		})
+		.set(StateKeys.stories, stories)
+		.set(StateKeys.currentStoryIndex, 0)
+		.set(StateKeys.phase, "stories")
+		.build();
 }
 
 /**
@@ -328,14 +328,15 @@ export async function milestoneCommit(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const milestone = getCurrentMilestone(tools);
 	const milestones = getMilestones(tools);
 	const milestoneIndex = getCurrentMilestoneIndex(tools);
 	const cumulativeSummary = getCumulativeSummary(tools);
 
 	if (!milestone) {
-		return { error: "No current milestone found" };
+		return stateError("No current milestone found");
 	}
 
 	tools.log(`COMMITTING MILESTONE: ${milestone.id}`);
@@ -343,7 +344,7 @@ export async function milestoneCommit(
 	// Stage all changes
 	const stageResult = await tools.bash("git add -A");
 	if (!stageResult.success) {
-		return { error: `Failed to stage changes: ${stageResult.error}` };
+		return stateError(`Failed to stage changes: ${stageResult.error}`);
 	}
 
 	// Check if there are changes to commit
@@ -352,7 +353,10 @@ export async function milestoneCommit(
 		tools.log("No changes to commit for this milestone", "debug");
 	} else {
 		// Generate commit message
-		const commitMsgResult = await tools.claudeSdk<{ subject: string; body?: string }>(
+		const commitMsgResult = await tools.claudeSdk<{
+			subject: string;
+			body?: string;
+		}>(
 			`Generate a commit message for completing milestone "${milestone.title}" (${milestone.phase} phase).
 
 Goals achieved:
@@ -365,7 +369,8 @@ Use conventional commit format (feat:, fix:, etc.)`,
 			},
 		);
 
-		const subject = commitMsgResult.data?.subject ?? `feat: complete ${milestone.id}`;
+		const subject =
+			commitMsgResult.data?.subject ?? `feat: complete ${milestone.id}`;
 		const body = commitMsgResult.data?.body ?? "";
 
 		// Create commit
@@ -378,21 +383,26 @@ Use conventional commit format (feat:, fix:, etc.)`,
 			tools.log(`Commit failed: ${commitResult.error}`, "warn");
 		} else {
 			// Get commit SHA
-			const shaResult = await tools.bash("git rev-parse HEAD", { stripOutput: true });
+			const shaResult = await tools.bash("git rev-parse HEAD", {
+				stripOutput: true,
+			});
 			const commitSha = shaResult.output.trim();
 
 			// Create tag
-			const tagResult = await tools.bash(`git tag -a "${milestone.id}" -m "Milestone: ${milestone.title}"`);
+			const tagResult = await tools.bash(
+				`git tag -a "${milestone.id}" -m "Milestone: ${milestone.title}"`,
+			);
 			if (!tagResult.success) {
 				tools.log("Tag creation failed", "warn");
 			}
 
 			tools.log(`Committed: ${commitSha.slice(0, 8)}, tagged: ${milestone.id}`);
 
-			// Update milestone with commit sha
-			const updatedMilestones = milestones.map((m, i) =>
-				i === milestoneIndex ? { ...m, completed: true, commitSha } : m,
-			);
+			// Update milestone with commit sha using updateAt helper
+			const updatedMilestones = updateAt(milestones, milestoneIndex, {
+				completed: true,
+				commitSha,
+			});
 
 			// Generate milestone summary for context carryover
 			const summaryResult = await tools.claudeSdk<{
@@ -412,7 +422,8 @@ This summary will be used as context for the next milestone. Be concise but capt
 				},
 			);
 
-			const milestoneSummary = summaryResult.data?.summary ?? `Completed ${milestone.id}`;
+			const milestoneSummary =
+				summaryResult.data?.summary ?? `Completed ${milestone.id}`;
 			const keyChanges = summaryResult.data?.keyChanges ?? [];
 
 			// Append to cumulative summary
@@ -421,38 +432,40 @@ ${milestoneSummary}
 Key changes: ${keyChanges.join(", ")}
 `;
 
-			const updatedCumulativeSummary = cumulativeSummary + "\n" + newSummarySection;
+			const updatedCumulativeSummary =
+				cumulativeSummary + "\n" + newSummarySection;
 
 			// Log decision
-			await logDecision(tools, config.outputDir, `Milestone ${milestone.id} Complete`, [
-				`Commit: ${commitSha.slice(0, 8)}`,
-				`Tag: ${milestone.id}`,
-				...keyChanges.slice(0, 3).map((c) => `Change: ${c}`),
-			]);
+			await logDecision(
+				tools,
+				config.outputDir,
+				`Milestone ${milestone.id} Complete`,
+				[
+					`Commit: ${commitSha.slice(0, 8)}`,
+					`Tag: ${milestone.id}`,
+					...keyChanges.slice(0, 3).map((c) => `Change: ${c}`),
+				],
+			);
 
-			return {
-				variables: {
-					[StateKeys.milestones]: updatedMilestones,
-					[StateKeys.currentMilestoneIndex]: milestoneIndex + 1,
-					[StateKeys.cumulativeSummary]: updatedCumulativeSummary,
-					[StateKeys.phase]: "milestone_commit",
-				},
-			};
+			return state()
+				.set(StateKeys.milestones, updatedMilestones)
+				.set(StateKeys.currentMilestoneIndex, milestoneIndex + 1)
+				.set(StateKeys.cumulativeSummary, updatedCumulativeSummary)
+				.set(StateKeys.phase, "milestone_commit")
+				.build();
 		}
 	}
 
-	// No changes case - still increment milestone
-	const updatedMilestones = milestones.map((m, i) =>
-		i === milestoneIndex ? { ...m, completed: true } : m,
-	);
+	// No changes case - still increment milestone using updateAt helper
+	const updatedMilestones = updateAt(milestones, milestoneIndex, {
+		completed: true,
+	});
 
-	return {
-		variables: {
-			[StateKeys.milestones]: updatedMilestones,
-			[StateKeys.currentMilestoneIndex]: milestoneIndex + 1,
-			[StateKeys.phase]: "milestone_commit",
-		},
-	};
+	return state()
+		.set(StateKeys.milestones, updatedMilestones)
+		.set(StateKeys.currentMilestoneIndex, milestoneIndex + 1)
+		.set(StateKeys.phase, "milestone_commit")
+		.build();
 }
 
 /**
@@ -464,7 +477,9 @@ async function logDecision(
 	decision: string,
 	details: string[],
 ): Promise<void> {
-	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', { stripOutput: true });
+	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', {
+		stripOutput: true,
+	});
 	const date = dateResult.output.trim();
 
 	const detailsStr = details.map((d) => `- ${d}`).join("\n");
@@ -477,7 +492,5 @@ ${detailsStr}
 ---
 `;
 
-	await tools.bash(`cat >> "${outputDir}/decisions.md" << 'DECISION_EOF'
-${content}
-DECISION_EOF`);
+	tools.files.appendText(`${outputDir}/decisions.md`, content);
 }

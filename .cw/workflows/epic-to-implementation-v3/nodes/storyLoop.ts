@@ -8,17 +8,25 @@
  * - nextStory: Move to next story
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
 import {
-	StateKeys,
+	state,
+	stateError,
+	stateVars,
+	updateAt,
+} from "../../../../src/core/utils/index.js";
+import {
 	DEFAULT_CONFIG,
-	getStories,
-	getCurrentStoryIndex,
-	getCurrentStory,
 	getArchitecture,
+	getCurrentStory,
+	getCurrentStoryIndex,
+	getStories,
 	getTestLoop,
+	StateKeys,
 } from "../state.ts";
 import type { Story, TestLoopState, WorkflowConfig } from "../types.ts";
 
@@ -37,15 +45,18 @@ export async function implementStory(
 	const story = getCurrentStory(tools);
 	const storyIndex = getCurrentStoryIndex(tools);
 	const architecture = getArchitecture(tools);
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 
 	if (!story) {
-		return { error: "No current story found" };
+		return stateError("No current story found");
 	}
 
 	const storiesTotal = getStories(tools).length;
 
-	tools.log(`STORY ${storyIndex + 1}/${storiesTotal}: ${story.id} - ${story.title}`);
+	tools.log(
+		`STORY ${storyIndex + 1}/${storiesTotal}: ${story.id} - ${story.title}`,
+	);
 
 	// Step 1: Antipatterns review
 	tools.log("Reviewing antipatterns...", "debug");
@@ -66,7 +77,8 @@ Output a brief summary of relevant antipatterns to avoid.`,
 	// Step 2: Implement story
 	tools.log("Implementing story...");
 	const storyJson = JSON.stringify(story, null, 2);
-	const archDoc = architecture?.document ?? "No architecture document available";
+	const archDoc =
+		architecture?.document ?? "No architecture document available";
 
 	const implementResult = await tools.claude(
 		`Use the /implement-story skill to implement this story.
@@ -93,7 +105,7 @@ Output "IMPLEMENTED" when done.`,
 	);
 
 	if (!implementResult.success) {
-		return { error: `Story implementation failed: ${implementResult.error}` };
+		return stateError(`Story implementation failed: ${implementResult.error}`);
 	}
 
 	// Step 3: Code review
@@ -117,11 +129,11 @@ Output "REVIEWED" when done.`,
 		tools.log("Code review completed with issues", "warn");
 	}
 
-	// Update story status and reset test loop
+	// Update story status using updateAt helper and reset test loop
 	const stories = getStories(tools);
-	const updatedStories = stories.map((s, i) =>
-		i === storyIndex ? { ...s, status: "in_progress" as const } : s,
-	);
+	const updatedStories = updateAt(stories, storyIndex, {
+		status: "in_progress" as const,
+	});
 
 	const testLoop: TestLoopState = {
 		retryCount: 0,
@@ -131,12 +143,10 @@ Output "REVIEWED" when done.`,
 		lastLintOutput: "",
 	};
 
-	return {
-		variables: {
-			[StateKeys.stories]: updatedStories,
-			[StateKeys.testLoop]: testLoop,
-		},
-	};
+	return stateVars({
+		[StateKeys.stories]: updatedStories,
+		[StateKeys.testLoop]: testLoop,
+	});
 }
 
 /**
@@ -163,7 +173,8 @@ export async function runTests(
 	);
 
 	const lintOutput = lintResult.output;
-	const lintPassed = !lintOutput.includes("LINT_ERRORS") && !lintOutput.includes("error");
+	const lintPassed =
+		!lintOutput.includes("LINT_ERRORS") && !lintOutput.includes("error");
 
 	if (lintPassed) {
 		tools.log("Lint passed", "debug");
@@ -201,11 +212,9 @@ export async function runTests(
 		lastLintOutput: lintOutput,
 	};
 
-	return {
-		variables: {
-			[StateKeys.testLoop]: updatedTestLoop,
-		},
-	};
+	return stateVars({
+		[StateKeys.testLoop]: updatedTestLoop,
+	});
 }
 
 /**
@@ -274,11 +283,9 @@ Output "LEARNED" when done.`,
 		retryCount: testLoop.retryCount + 1,
 	};
 
-	return {
-		variables: {
-			[StateKeys.testLoop]: updatedTestLoop,
-		},
-	};
+	return stateVars({
+		[StateKeys.testLoop]: updatedTestLoop,
+	});
 }
 
 /**
@@ -298,7 +305,7 @@ export async function nextStory(
 
 	const story = stories[storyIndex];
 	if (!story) {
-		return { error: "No current story found" };
+		return stateError("No current story found");
 	}
 
 	// Update story status
@@ -310,11 +317,11 @@ export async function nextStory(
 		tools.log(`Story ${story.id}: failed`, "warn");
 	}
 
-	const updatedStories = stories.map((s, i) =>
-		i === storyIndex
-			? { ...s, status: status as "completed" | "failed", testsPassed: testLoop.passed }
-			: s,
-	);
+	// Update story using updateAt helper
+	const updatedStories = updateAt(stories, storyIndex, {
+		status: status as "completed" | "failed",
+		testsPassed: testLoop.passed,
+	});
 
 	// Reset test loop for next story
 	const resetTestLoop: TestLoopState = {
@@ -325,11 +332,9 @@ export async function nextStory(
 		lastLintOutput: "",
 	};
 
-	return {
-		variables: {
-			[StateKeys.stories]: updatedStories,
-			[StateKeys.currentStoryIndex]: storyIndex + 1,
-			[StateKeys.testLoop]: resetTestLoop,
-		},
-	};
+	return state()
+		.set(StateKeys.stories, updatedStories)
+		.set(StateKeys.currentStoryIndex, storyIndex + 1)
+		.set(StateKeys.testLoop, resetTestLoop)
+		.build();
 }

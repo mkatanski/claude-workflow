@@ -8,12 +8,20 @@
  * - Generate stories
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
-import { StateKeys, DEFAULT_CONFIG, getEpic, getTempDir } from "../state.ts";
-import { epicTitleSchema, storiesJsonSchema } from "../schemas/index.ts";
-import type { EpicData, Story, ArchitectureState, WorkflowConfig } from "../types.ts";
+import { state, stateError } from "../../../../src/core/utils/index.js";
+import { epicTitleSchema } from "../schemas/index.ts";
+import { DEFAULT_CONFIG, getEpic, getTempDir, StateKeys } from "../state.ts";
+import type {
+	ArchitectureState,
+	EpicData,
+	Story,
+	WorkflowConfig,
+} from "../types.ts";
 
 /**
  * Simple setup node: Full setup for simple epics.
@@ -27,12 +35,12 @@ export async function simpleSetup(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const epic = getEpic(tools);
-	const tempDir = getTempDir(tools);
 
 	if (!epic) {
-		return { error: "Epic data not found in state" };
+		return stateError("Epic data not found in state");
 	}
 
 	tools.log("SIMPLE MODE: Single-Pass Implementation");
@@ -51,11 +59,14 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!analyzeResult.success) {
-		return { error: `Epic analysis failed: ${analyzeResult.error}` };
+		return stateError(`Epic analysis failed: ${analyzeResult.error}`);
 	}
 
 	// Step 2: Extract epic title
-	const titleResult = await tools.claudeSdk<{ title: string; description?: string }>(
+	const titleResult = await tools.claudeSdk<{
+		title: string;
+		description?: string;
+	}>(
 		`Based on this epic prompt, provide a concise title (max 50 chars) and brief description:
 
 ${epic.promptContent}`,
@@ -87,18 +98,17 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!archResult.success) {
-		return { error: `Architecture creation failed: ${archResult.error}` };
+		return stateError(`Architecture creation failed: ${archResult.error}`);
 	}
 
-	// Read architecture document
-	const readArchResult = await tools.bash(
-		`cat "${config.outputDir}/architecture.md"`,
-		{ stripOutput: false },
+	// Read architecture document using FileOperations
+	const archDoc = tools.files.readTextOr(
+		`${config.outputDir}/architecture.md`,
+		"",
 	);
-	const architectureDocument = readArchResult.output;
 
 	const architecture: ArchitectureState = {
-		document: architectureDocument,
+		document: archDoc,
 		version: 1,
 		pendingUpdates: [],
 	};
@@ -117,26 +127,19 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!storiesResult.success) {
-		return { error: `Story generation failed: ${storiesResult.error}` };
+		return stateError(`Story generation failed: ${storiesResult.error}`);
 	}
 
-	// Read and parse stories
-	const readStoriesResult = await tools.bash(
-		`cat "${config.outputDir}/stories.json"`,
-		{ stripOutput: false },
+	// Read and parse stories using FileOperations and schema
+	const storiesJson = tools.files.readJson<{ stories: Story[] }>(
+		`${config.outputDir}/stories.json`,
 	);
 
-	if (!readStoriesResult.success || !readStoriesResult.output.trim()) {
-		return { error: "Failed to read generated stories" };
+	if (storiesJson.isErr()) {
+		return stateError("Failed to read generated stories");
 	}
 
-	let stories: Story[];
-	try {
-		const parsed = JSON.parse(readStoriesResult.output) as { stories: Story[] };
-		stories = parsed.stories ?? [];
-	} catch {
-		return { error: `Failed to parse stories JSON: ${readStoriesResult.output.slice(0, 200)}` };
-	}
+	const stories = storiesJson.unwrap().stories ?? [];
 
 	tools.log(`Generated ${stories.length} stories`);
 
@@ -147,15 +150,13 @@ Output only "SAVED" when done.`,
 		`Epic title: ${epicTitle}`,
 	]);
 
-	return {
-		variables: {
-			[StateKeys.epic]: updatedEpic,
-			[StateKeys.architecture]: architecture,
-			[StateKeys.stories]: stories,
-			[StateKeys.currentStoryIndex]: 0,
-			[StateKeys.phase]: "stories",
-		},
-	};
+	return state()
+		.set(StateKeys.epic, updatedEpic)
+		.set(StateKeys.architecture, architecture)
+		.set(StateKeys.stories, stories)
+		.set(StateKeys.currentStoryIndex, 0)
+		.set(StateKeys.phase, "stories")
+		.build();
 }
 
 /**
@@ -167,7 +168,9 @@ async function logDecision(
 	decision: string,
 	details: string[],
 ): Promise<void> {
-	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', { stripOutput: true });
+	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', {
+		stripOutput: true,
+	});
 	const date = dateResult.output.trim();
 
 	const detailsStr = details.map((d) => `- ${d}`).join("\n");
@@ -180,7 +183,5 @@ ${detailsStr}
 ---
 `;
 
-	await tools.bash(`cat >> "${outputDir}/decisions.md" << 'DECISION_EOF'
-${content}
-DECISION_EOF`);
+	tools.files.appendText(`${outputDir}/decisions.md`, content);
 }

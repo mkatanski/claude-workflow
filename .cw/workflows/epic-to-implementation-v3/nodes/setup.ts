@@ -8,12 +8,19 @@
  * - analyzeScope: Run epic-scope-analyzer, determine mode
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
-import { DEFAULT_CONFIG, StateKeys } from "../state.ts";
+import {
+	fromToolResult,
+	state,
+	stateError,
+} from "../../../../src/core/utils/index.js";
 import { scopeAnalysisSchema } from "../schemas/index.ts";
-import type { ScopeAnalysis, WorkflowMode, EpicData } from "../types.ts";
+import { DEFAULT_CONFIG, StateKeys } from "../state.ts";
+import type { EpicData, ScopeAnalysis, WorkflowMode } from "../types.ts";
 
 /**
  * Setup node: Initialize workflow state and read epic prompt.
@@ -30,38 +37,42 @@ export async function setup(
 	const config = DEFAULT_CONFIG;
 
 	// Create workflow ID and temp directory
-	const workflowIdResult = await tools.bash(
-		'echo "$(date +%Y%m%d%H%M%S)-$$"',
-		{ stripOutput: true },
+	const workflowIdResult = fromToolResult(
+		await tools.bash('echo "$(date +%Y%m%d%H%M%S)-$$"', { stripOutput: true }),
 	);
-	if (!workflowIdResult.success) {
-		return { error: `Failed to generate workflow ID: ${workflowIdResult.error}` };
+	if (workflowIdResult.isErr()) {
+		return stateError(
+			`Failed to generate workflow ID: ${workflowIdResult.unwrapErr()}`,
+		);
 	}
-	const workflowId = workflowIdResult.output.trim();
+	const workflowId = workflowIdResult.unwrap().trim();
 
 	const tempDir = `.cw/tmp/orchestrator-${workflowId}`;
-	const mkdirResult = await tools.bash(`mkdir -p "${tempDir}"`);
-	if (!mkdirResult.success) {
-		return { error: `Failed to create temp directory: ${mkdirResult.error}` };
+	const mkdirResult = fromToolResult(await tools.bash(`mkdir -p "${tempDir}"`));
+	if (mkdirResult.isErr()) {
+		return stateError(
+			`Failed to create temp directory: ${mkdirResult.unwrapErr()}`,
+		);
 	}
 
 	// Ensure output directory exists
-	const ensureOutputResult = await tools.bash(`mkdir -p "${config.outputDir}"`);
-	if (!ensureOutputResult.success) {
-		return { error: `Failed to create output directory: ${ensureOutputResult.error}` };
+	const ensureOutputResult = fromToolResult(
+		await tools.bash(`mkdir -p "${config.outputDir}"`),
+	);
+	if (ensureOutputResult.isErr()) {
+		return stateError(
+			`Failed to create output directory: ${ensureOutputResult.unwrapErr()}`,
+		);
 	}
 
-	// Read epic prompt file
-	const readPromptResult = await tools.bash(
-		`cat "${config.promptFile}" 2>/dev/null || echo ""`,
-		{ stripOutput: false },
-	);
-	const promptContent = readPromptResult.output.trim();
+	// Read epic prompt file using FileOperations
+	const promptResult = tools.files.readText(config.promptFile);
+	const promptContent = promptResult.isOk() ? promptResult.unwrap().trim() : "";
 
 	if (!promptContent) {
-		return {
-			error: `Epic prompt file is empty or missing: ${config.promptFile}. Please create the file with your feature/epic description and run again.`,
-		};
+		return stateError(
+			`Epic prompt file is empty or missing: ${config.promptFile}. Please create the file with your feature/epic description and run again.`,
+		);
 	}
 
 	// Capture initial dependencies
@@ -87,7 +98,10 @@ find . -type d ! -path "*/node_modules/*" ! -path "*/.venv/*" ! -path "*/.git/*"
 	// Log setup completion
 	tools.log(`Workflow ID: ${workflowId}`, "debug");
 	tools.log(`Temp directory: ${tempDir}`, "debug");
-	tools.log(`Epic prompt: ${config.promptFile} (${promptContent.length} chars)`, "debug");
+	tools.log(
+		`Epic prompt: ${config.promptFile} (${promptContent.length} chars)`,
+		"debug",
+	);
 
 	const epicData: EpicData = {
 		promptContent,
@@ -95,16 +109,14 @@ find . -type d ! -path "*/node_modules/*" ! -path "*/.venv/*" ! -path "*/.git/*"
 		codebaseStructure,
 	};
 
-	return {
-		variables: {
-			[StateKeys.config]: config,
-			[StateKeys.workflowId]: workflowId,
-			[StateKeys.tempDir]: tempDir,
-			[StateKeys.epic]: epicData,
-			[StateKeys.depsBefore]: depsBefore,
-			[StateKeys.phase]: "scope_analysis",
-		},
-	};
+	return state()
+		.set(StateKeys.config, config)
+		.set(StateKeys.workflowId, workflowId)
+		.set(StateKeys.tempDir, tempDir)
+		.set(StateKeys.epic, epicData)
+		.set(StateKeys.depsBefore, depsBefore)
+		.set(StateKeys.phase, "scope_analysis")
+		.build();
 }
 
 /**
@@ -119,12 +131,13 @@ export async function analyzeScope(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<typeof DEFAULT_CONFIG>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<typeof DEFAULT_CONFIG>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const epic = tools.getVar<EpicData>(StateKeys.epic);
 	const tempDir = tools.getVar<string>(StateKeys.tempDir) ?? "";
 
 	if (!epic) {
-		return { error: "Epic data not found in state" };
+		return stateError("Epic data not found in state");
 	}
 
 	// Run epic-scope-analyzer skill
@@ -144,15 +157,15 @@ Output only "SAVED" when done.`,
 	);
 
 	if (!analyzerResult.success) {
-		return { error: `Epic scope analyzer failed: ${analyzerResult.error}` };
+		return stateError(`Epic scope analyzer failed: ${analyzerResult.error}`);
 	}
 
-	// Read the saved analysis
-	const readResult = await tools.bash(`cat "${tempDir}/scope-analysis.json"`, {
-		stripOutput: false,
-	});
+	// Read the saved analysis using FileOperations
+	const scopeResult = tools.files.readJson<ScopeAnalysis>(
+		`${tempDir}/scope-analysis.json`,
+	);
 
-	if (!readResult.success || !readResult.output.trim()) {
+	if (scopeResult.isErr()) {
 		// Fallback: Use claudeSdk to analyze directly
 		const sdkResult = await tools.claudeSdk<ScopeAnalysis>(
 			`Analyze this epic prompt and determine its scope:
@@ -176,48 +189,38 @@ Provide your analysis.`,
 		);
 
 		if (!sdkResult.success || !sdkResult.data) {
-			return { error: `Scope analysis failed: ${sdkResult.error}` };
+			return stateError(`Scope analysis failed: ${sdkResult.error}`);
 		}
 
 		const scope = sdkResult.data;
 		const mode: WorkflowMode = scope.needsMilestones ? "milestone" : "simple";
 
 		// Log scope analysis results
-		tools.log(`Scope Analysis: ${scope.estimatedStoryCount} stories, complexity ${scope.complexityScore}, mode: ${mode}`);
+		tools.log(
+			`Scope Analysis: ${scope.estimatedStoryCount} stories, complexity ${scope.complexityScore}, mode: ${mode}`,
+		);
 
 		// Initialize decisions log
 		await initializeDecisionsLog(tools, scope, mode, config.outputDir);
 
-		return {
-			variables: {
-				[StateKeys.scope]: scope,
-				[StateKeys.mode]: mode,
-			},
-		};
+		return state()
+			.set(StateKeys.scope, scope)
+			.set(StateKeys.mode, mode)
+			.build();
 	}
 
-	// Parse the JSON from file
-	let scope: ScopeAnalysis;
-	try {
-		scope = JSON.parse(readResult.output) as ScopeAnalysis;
-	} catch {
-		return { error: `Failed to parse scope analysis JSON: ${readResult.output}` };
-	}
-
+	const scope = scopeResult.unwrap();
 	const mode: WorkflowMode = scope.needsMilestones ? "milestone" : "simple";
 
 	// Log scope analysis results
-	tools.log(`Scope Analysis: ${scope.estimatedStoryCount} stories, complexity ${scope.complexityScore}, mode: ${mode}`);
+	tools.log(
+		`Scope Analysis: ${scope.estimatedStoryCount} stories, complexity ${scope.complexityScore}, mode: ${mode}`,
+	);
 
 	// Initialize decisions log
 	await initializeDecisionsLog(tools, scope, mode, config.outputDir);
 
-	return {
-		variables: {
-			[StateKeys.scope]: scope,
-			[StateKeys.mode]: mode,
-		},
-	};
+	return state().set(StateKeys.scope, scope).set(StateKeys.mode, mode).build();
 }
 
 /**
@@ -229,7 +232,9 @@ async function initializeDecisionsLog(
 	mode: WorkflowMode,
 	outputDir: string,
 ): Promise<void> {
-	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', { stripOutput: true });
+	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', {
+		stripOutput: true,
+	});
 	const date = dateResult.output.trim();
 
 	const content = `# Epic Implementation Decisions Log
@@ -248,7 +253,5 @@ This document records key decisions made during epic implementation.
 
 `;
 
-	await tools.bash(`cat > "${outputDir}/decisions.md" << 'DECISIONS_EOF'
-${content}
-DECISIONS_EOF`);
+	tools.files.writeText(`${outputDir}/decisions.md`, content);
 }

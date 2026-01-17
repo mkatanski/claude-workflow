@@ -7,20 +7,23 @@
  * - updateArchitecture: Update architecture with valid improvements
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
+import { state, stateVars } from "../../../../src/core/utils/index.js";
+import { driftCheckSchema } from "../schemas/index.ts";
 import {
-	StateKeys,
 	DEFAULT_CONFIG,
 	getArchitecture,
 	getDrift,
+	StateKeys,
 } from "../state.ts";
-import { driftCheckSchema } from "../schemas/index.ts";
 import type {
-	DriftState,
-	DriftIssue,
 	ArchitectureState,
+	DriftIssue,
+	DriftState,
 	WorkflowConfig,
 } from "../types.ts";
 
@@ -35,24 +38,23 @@ export async function checkDrift(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const architecture = getArchitecture(tools);
 
 	tools.log("Checking for architectural drift...");
 
 	if (!architecture) {
 		tools.log("No architecture document, skipping drift check", "debug");
-		return {
-			variables: {
-				[StateKeys.drift]: {
-					fixCount: 0,
-					aligned: true,
-					issues: [],
-					keepImprovements: [],
-				},
-				[StateKeys.phase]: "post_stories",
-			},
-		};
+		return state()
+			.set(StateKeys.drift, {
+				fixCount: 0,
+				aligned: true,
+				issues: [],
+				keepImprovements: [],
+			})
+			.set(StateKeys.phase, "post_stories")
+			.build();
 	}
 
 	// Run check-drift skill
@@ -72,19 +74,20 @@ Save the drift analysis to: ${config.outputDir}/drift-analysis.json
 Output only "SAVED" when done.`,
 	);
 
-	// Try to read the drift analysis file
-	const readResult = await tools.bash(
-		`cat "${config.outputDir}/drift-analysis.json" 2>/dev/null || echo "{}"`,
-		{ stripOutput: false },
-	);
+	// Try to read the drift analysis file using FileOperations
+	const driftJson = tools.files.readJson<{
+		aligned: boolean;
+		issues: DriftIssue[];
+	}>(`${config.outputDir}/drift-analysis.json`);
 
 	let driftData: { aligned: boolean; issues: DriftIssue[] };
 
-	try {
-		driftData = JSON.parse(readResult.output) as typeof driftData;
-	} catch {
+	if (driftJson.isErr()) {
 		// Fallback: Use claudeSdk to analyze
-		const sdkResult = await tools.claudeSdk<{ aligned: boolean; issues: DriftIssue[] }>(
+		const sdkResult = await tools.claudeSdk<{
+			aligned: boolean;
+			issues: DriftIssue[];
+		}>(
 			`Analyze the current implementation for architectural drift.
 
 Architecture summary (first 2000 chars):
@@ -104,6 +107,8 @@ Provide your analysis.`,
 		);
 
 		driftData = sdkResult.data ?? { aligned: true, issues: [] };
+	} else {
+		driftData = driftJson.unwrap();
 	}
 
 	// Categorize issues
@@ -113,7 +118,10 @@ Provide your analysis.`,
 	const removeIssues = driftData.issues.filter((i) => i.category === "remove");
 
 	tools.log(`Drift Analysis: ${driftData.aligned ? "aligned" : "needs fixes"}`);
-	tools.log(`Fix: ${fixIssues.length}, Keep: ${keepIssues.length}, Defer: ${deferIssues.length}, Remove: ${removeIssues.length}`, "debug");
+	tools.log(
+		`Fix: ${fixIssues.length}, Keep: ${keepIssues.length}, Defer: ${deferIssues.length}, Remove: ${removeIssues.length}`,
+		"debug",
+	);
 
 	const drift: DriftState = {
 		fixCount: 0,
@@ -122,12 +130,10 @@ Provide your analysis.`,
 		keepImprovements: keepIssues,
 	};
 
-	return {
-		variables: {
-			[StateKeys.drift]: drift,
-			[StateKeys.phase]: "post_stories",
-		},
-	};
+	return state()
+		.set(StateKeys.drift, drift)
+		.set(StateKeys.phase, "post_stories")
+		.build();
 }
 
 /**
@@ -142,11 +148,14 @@ export async function fixDrift(
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
 	const drift = getDrift(tools);
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 
 	const fixIssues = drift.issues.filter((i) => i.category === "fix");
 
-	tools.log(`Fixing drift issues (attempt ${drift.fixCount + 1}): ${fixIssues.length} issues`);
+	tools.log(
+		`Fixing drift issues (attempt ${drift.fixCount + 1}): ${fixIssues.length} issues`,
+	);
 
 	// Run fix-drift skill
 	const fixResult = await tools.claude(
@@ -188,11 +197,9 @@ Output "FIXED" when done.`,
 		fixCount: drift.fixCount + 1,
 	};
 
-	return {
-		variables: {
-			[StateKeys.drift]: updatedDrift,
-		},
-	};
+	return stateVars({
+		[StateKeys.drift]: updatedDrift,
+	});
 }
 
 /**
@@ -205,30 +212,29 @@ export async function updateArchitecture(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const architecture = getArchitecture(tools);
 	const drift = getDrift(tools);
 
 	if (!architecture) {
-		return {
-			variables: {
-				[StateKeys.phase]: "post_stories",
-			},
-		};
+		return stateVars({
+			[StateKeys.phase]: "post_stories",
+		});
 	}
 
 	const keepImprovements = drift.keepImprovements;
 
 	if (keepImprovements.length === 0) {
 		tools.log("No architecture updates needed", "debug");
-		return {
-			variables: {
-				[StateKeys.phase]: "post_stories",
-			},
-		};
+		return stateVars({
+			[StateKeys.phase]: "post_stories",
+		});
 	}
 
-	tools.log(`Updating architecture with ${keepImprovements.length} improvements...`);
+	tools.log(
+		`Updating architecture with ${keepImprovements.length} improvements...`,
+	);
 
 	// Run update-architecture skill
 	const updateResult = await tools.claude(
@@ -247,24 +253,22 @@ Output "UPDATED" when done.`,
 		tools.log("Architecture update completed with issues", "warn");
 	}
 
-	// Read updated architecture
-	const readResult = await tools.bash(
-		`cat "${config.outputDir}/architecture.md"`,
-		{ stripOutput: false },
+	// Read updated architecture using FileOperations
+	const updatedDoc = tools.files.readTextOr(
+		`${config.outputDir}/architecture.md`,
+		architecture.document,
 	);
 
 	const updatedArchitecture: ArchitectureState = {
-		document: readResult.output || architecture.document,
+		document: updatedDoc,
 		version: architecture.version + 1,
 		pendingUpdates: [],
 	};
 
 	tools.log(`Architecture updated to v${updatedArchitecture.version}`);
 
-	return {
-		variables: {
-			[StateKeys.architecture]: updatedArchitecture,
-			[StateKeys.phase]: "post_stories",
-		},
-	};
+	return state()
+		.set(StateKeys.architecture, updatedArchitecture)
+		.set(StateKeys.phase, "post_stories")
+		.build();
 }

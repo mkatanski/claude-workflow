@@ -2,14 +2,14 @@
  * Routers module exports
  */
 export {
-	routeByMode,
-	routeAfterGit,
-	routeStories,
-	routeTestResult,
-	routeAfterFix,
-	routeDrift,
 	routeAfterDriftFix,
+	routeAfterFix,
+	routeAfterGit,
 	routeAfterPostStories,
+	routeByMode,
+	routeDrift,
 	routeMoreMilestones,
 	routerPaths,
+	routeStories,
+	routeTestResult,
 } from "./routers.ts";

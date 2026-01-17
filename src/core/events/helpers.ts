@@ -42,12 +42,17 @@ import type {
   ToolChecklistStartPayload,
   ToolChecklistCompletePayload,
   ToolChecklistItemCompletePayload,
+  // Retry events
+  RetryStartPayload,
+  RetryAttemptPayload,
+  RetrySuccessPayload,
+  RetryExhaustedPayload,
   // Infrastructure events
   TmuxPaneCreatePayload,
   TmuxPaneClosePayload,
   CleanupStartPayload,
   CleanupCompletePayload,
-} from './types';
+} from './types.js';
 
 // ============================================================================
 // Event Creator Factory
@@ -243,6 +248,26 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
     checklistComplete(payload: ToolChecklistCompletePayload) {
       return emitter.emit('tool:checklist:complete', payload);
+    },
+
+    // ========================================================================
+    // Retry Events
+    // ========================================================================
+
+    retryStart(payload: RetryStartPayload) {
+      return emitter.emit('retry:start', payload);
+    },
+
+    retryAttempt(payload: RetryAttemptPayload) {
+      return emitter.emit('retry:attempt', payload);
+    },
+
+    retrySuccess(payload: RetrySuccessPayload) {
+      return emitter.emit('retry:success', payload);
+    },
+
+    retryExhausted(payload: RetryExhaustedPayload) {
+      return emitter.emit('retry:exhausted', payload);
     },
 
     // ========================================================================

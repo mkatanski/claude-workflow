@@ -6,6 +6,11 @@
  * tool implementations.
  */
 
+import type { FileOperations } from "../utils/files/index.js";
+import type { SchemaValidator, JsonSchema } from "../utils/schema/index.js";
+import type { RetryableOperation, RetryConfig } from "../utils/retry/index.js";
+import type { IterationHelper } from "../utils/iteration/index.js";
+
 /**
  * Options for bash command execution.
  */
@@ -276,6 +281,52 @@ export interface WorkflowTools {
 
 	/** Temporary directory for workflow files */
 	readonly tempDir: string;
+
+	// --- Utilities ---
+
+	/**
+	 * File operations service for reading/writing files.
+	 * Provides Result-based error handling instead of exceptions.
+	 */
+	readonly files: FileOperations;
+
+	/**
+	 * Schema validator for JSON parsing and validation.
+	 */
+	readonly schema: {
+		/**
+		 * Parse JSON string safely.
+		 */
+		parseJson<T>(json: string): import("../utils/result/index.js").ResultBox<T, string>;
+
+		/**
+		 * Parse JSON with fallback value.
+		 */
+		parseJsonSafe<T>(json: string, defaultValue: T): T;
+
+		/**
+		 * Create a reusable validator for a schema.
+		 */
+		createValidator<T>(schema: JsonSchema): SchemaValidator<T>;
+	};
+
+	// --- Utility factories ---
+
+	/**
+	 * Create a retry operation handler.
+	 *
+	 * @param name - Operation name for logging/events
+	 * @param config - Retry configuration
+	 */
+	createRetry<T>(name: string, config: RetryConfig): RetryableOperation<T>;
+
+	/**
+	 * Create an iteration helper for array processing.
+	 *
+	 * @param items - Array to iterate
+	 * @param stateKey - State key for storing current index
+	 */
+	createIterator<T>(items: readonly T[], stateKey: string): IterationHelper<T>;
 }
 
 /** Log level type */

@@ -43,6 +43,12 @@ import {
 	createTimer,
 	type EventHelpers,
 } from "../events/index.ts";
+import { FileOperations } from "../utils/files/index.js";
+import { parseJson, parseJsonSafe, SchemaValidator } from "../utils/schema/index.js";
+import type { JsonSchema } from "../utils/schema/index.js";
+import { RetryableOperation } from "../utils/retry/index.js";
+import type { RetryConfig } from "../utils/retry/index.js";
+import { IterationHelper } from "../utils/iteration/index.js";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -89,6 +95,9 @@ export function createWorkflowTools(
 		executionContext,
 		variableUpdates,
 	};
+
+	// Lazy-initialized utilities
+	let filesInstance: FileOperations | undefined;
 
 	// Create event helpers if emitter is provided
 	const events: EventHelpers | null = emitter ? createEventHelpers(emitter) : null;
@@ -554,6 +563,36 @@ export function createWorkflowTools(
 
 		get tempDir(): string {
 			return config.tempDir;
+		},
+
+		// --- Utilities ---
+		get files(): FileOperations {
+			// Lazy initialization - create on first access
+			if (!filesInstance) {
+				filesInstance = new FileOperations(config.projectPath, config.tempDir);
+			}
+			return filesInstance;
+		},
+
+		schema: {
+			parseJson<T>(json: string) {
+				return parseJson<T>(json);
+			},
+			parseJsonSafe<T>(json: string, defaultValue: T): T {
+				return parseJsonSafe(json, defaultValue);
+			},
+			createValidator<T>(schema: JsonSchema): SchemaValidator<T> {
+				return new SchemaValidator<T>(schema);
+			},
+		},
+
+		// --- Utility factories ---
+		createRetry<T>(name: string, retryConfig: RetryConfig): RetryableOperation<T> {
+			return new RetryableOperation<T>(name, retryConfig, emitter);
+		},
+
+		createIterator<T>(items: readonly T[], stateKey: string): IterationHelper<T> {
+			return new IterationHelper<T>(items, stateKey, tools);
 		},
 	};
 

@@ -6,10 +6,17 @@
  * - Creates feature branch based on epic title
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
-import { StateKeys, getEpic } from "../state.ts";
+import {
+	fromToolResult,
+	state,
+	stateError,
+} from "../../../../src/core/utils/index.js";
+import { getEpic, StateKeys } from "../state.ts";
 import type { GitState } from "../types.ts";
 
 /**
@@ -27,19 +34,21 @@ export async function gitSetup(
 	const epic = getEpic(tools);
 
 	if (!epic) {
-		return { error: "Epic data not found in state" };
+		return stateError("Epic data not found in state");
 	}
 
 	tools.log("Setting up git...");
 
 	// Get current branch
-	const branchResult = await tools.bash("git branch --show-current", {
-		stripOutput: true,
-	});
-	if (!branchResult.success) {
-		return { error: `Failed to get current branch: ${branchResult.error}` };
+	const branchResult = fromToolResult(
+		await tools.bash("git branch --show-current", { stripOutput: true }),
+	);
+	if (branchResult.isErr()) {
+		return stateError(
+			`Failed to get current branch: ${branchResult.unwrapErr()}`,
+		);
 	}
-	const originalBranch = branchResult.output.trim();
+	const originalBranch = branchResult.unwrap().trim();
 	tools.log(`Current branch: ${originalBranch}`, "debug");
 
 	// Check for uncommitted changes
@@ -49,9 +58,11 @@ export async function gitSetup(
 	let stashRef: string | undefined;
 	if (hasUncommittedChanges) {
 		tools.log("Uncommitted changes detected, stashing...");
-		const stashResult = await tools.bash("git stash push -m 'epic-workflow-stash'");
-		if (!stashResult.success) {
-			return { error: `Failed to stash changes: ${stashResult.error}` };
+		const stashResult = fromToolResult(
+			await tools.bash("git stash push -m 'epic-workflow-stash'"),
+		);
+		if (stashResult.isErr()) {
+			return stateError(`Failed to stash changes: ${stashResult.unwrapErr()}`);
 		}
 
 		// Get stash ref
@@ -80,16 +91,22 @@ export async function gitSetup(
 
 	if (branchExistsResult.output.trim() === "exists") {
 		// Checkout existing branch
-		const checkoutResult = await tools.bash(`git checkout "${branchName}"`);
-		if (!checkoutResult.success) {
-			return { error: `Failed to checkout branch: ${checkoutResult.error}` };
+		const checkoutResult = fromToolResult(
+			await tools.bash(`git checkout "${branchName}"`),
+		);
+		if (checkoutResult.isErr()) {
+			return stateError(
+				`Failed to checkout branch: ${checkoutResult.unwrapErr()}`,
+			);
 		}
 		tools.log(`Checked out existing branch: ${branchName}`);
 	} else {
 		// Create and checkout new branch
-		const createResult = await tools.bash(`git checkout -b "${branchName}"`);
-		if (!createResult.success) {
-			return { error: `Failed to create branch: ${createResult.error}` };
+		const createResult = fromToolResult(
+			await tools.bash(`git checkout -b "${branchName}"`),
+		);
+		if (createResult.isErr()) {
+			return stateError(`Failed to create branch: ${createResult.unwrapErr()}`);
 		}
 		tools.log(`Created branch: ${branchName}`);
 	}
@@ -101,9 +118,5 @@ export async function gitSetup(
 		stashRef,
 	};
 
-	return {
-		variables: {
-			[StateKeys.git]: gitState,
-		},
-	};
+	return state().set(StateKeys.git, gitState).build();
 }

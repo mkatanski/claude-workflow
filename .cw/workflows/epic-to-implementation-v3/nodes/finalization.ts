@@ -10,20 +10,26 @@
  * - Cleanup
  */
 
-import type { WorkflowStateType } from "../../../../src/core/graph/state.ts";
+import type {
+	WorkflowStateType,
+	WorkflowStateUpdate,
+} from "../../../../src/core/graph/state.ts";
 import type { WorkflowTools } from "../../../../src/core/graph/tools.ts";
-import type { WorkflowStateUpdate } from "../../../../src/core/graph/state.ts";
+import { state } from "../../../../src/core/utils/index.js";
 import {
-	StateKeys,
+	commitMessageSchema,
+	newDependenciesSchema,
+} from "../schemas/index.ts";
+import {
 	DEFAULT_CONFIG,
 	getEpic,
 	getGit,
+	getMilestones,
+	getMode,
 	getStories,
 	getTempDir,
-	getMode,
-	getMilestones,
+	StateKeys,
 } from "../state.ts";
-import { commitMessageSchema, newDependenciesSchema } from "../schemas/index.ts";
 import type { GitState, WorkflowConfig } from "../types.ts";
 
 /**
@@ -40,7 +46,8 @@ export async function finalization(
 	_state: WorkflowStateType,
 	tools: WorkflowTools,
 ): Promise<WorkflowStateUpdate> {
-	const config = tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
+	const config =
+		tools.getVar<WorkflowConfig>(StateKeys.config) ?? DEFAULT_CONFIG;
 	const epic = getEpic(tools);
 	const git = getGit(tools);
 	const stories = getStories(tools);
@@ -59,7 +66,8 @@ export async function finalization(
 		{ stripOutput: false },
 	);
 	const finalLintPassed =
-		!lintResult.output.includes("LINT_ERRORS") && !lintResult.output.includes("error");
+		!lintResult.output.includes("LINT_ERRORS") &&
+		!lintResult.output.includes("error");
 
 	if (finalLintPassed) {
 		tools.log("Final lint passed", "debug");
@@ -72,7 +80,8 @@ export async function finalization(
 		{ stripOutput: false },
 	);
 	const finalTestsPassed =
-		!testResult.output.includes("TEST_FAILED") && !testResult.output.includes("FAILED");
+		!testResult.output.includes("TEST_FAILED") &&
+		!testResult.output.includes("FAILED");
 
 	if (finalTestsPassed) {
 		tools.log("Final tests passed", "debug");
@@ -132,11 +141,17 @@ List only the NEW dependencies that were added.`,
 			},
 		);
 
-		if (newDepsResult.data?.hasNewDependencies && newDepsResult.data.newDependencies.length > 0) {
+		if (
+			newDepsResult.data?.hasNewDependencies &&
+			newDepsResult.data.newDependencies.length > 0
+		) {
 			const newDeps = newDepsResult.data.newDependencies;
 			tools.log(`Found ${newDeps.length} new dependencies`);
 			for (const dep of newDeps) {
-				tools.log(`- ${dep.name}${dep.version ? `@${dep.version}` : ""}`, "debug");
+				tools.log(
+					`- ${dep.name}${dep.version ? `@${dep.version}` : ""}`,
+					"debug",
+				);
 			}
 
 			// Step 4: Learn new dependencies
@@ -172,10 +187,15 @@ Output "LEARNED" when done.`,
 		const statusResult = await tools.bash("git status --porcelain");
 		if (statusResult.output.trim()) {
 			// Generate final commit message
-			const completedStories = stories.filter((s) => s.status === "completed").length;
+			const completedStories = stories.filter(
+				(s) => s.status === "completed",
+			).length;
 			const failedStories = stories.filter((s) => s.status === "failed").length;
 
-			const commitMsgResult = await tools.claudeSdk<{ subject: string; body?: string }>(
+			const commitMsgResult = await tools.claudeSdk<{
+				subject: string;
+				body?: string;
+			}>(
 				`Generate a final commit message for completing the epic "${epic?.title ?? "unknown"}".
 
 Summary:
@@ -191,7 +211,9 @@ Use conventional commit format.`,
 				},
 			);
 
-			const subject = commitMsgResult.data?.subject ?? `feat: complete ${epic?.title ?? "epic"}`;
+			const subject =
+				commitMsgResult.data?.subject ??
+				`feat: complete ${epic?.title ?? "epic"}`;
 			const body = commitMsgResult.data?.body ?? "";
 			const commitMessage = body ? `${subject}\n\n${body}` : subject;
 
@@ -200,7 +222,9 @@ Use conventional commit format.`,
 			);
 
 			if (commitResult.success) {
-				const shaResult = await tools.bash("git rev-parse HEAD", { stripOutput: true });
+				const shaResult = await tools.bash("git rev-parse HEAD", {
+					stripOutput: true,
+				});
 				finalCommitSha = shaResult.output.trim();
 				tools.log(`Final commit: ${finalCommitSha.slice(0, 8)}`, "debug");
 			} else {
@@ -218,7 +242,9 @@ Use conventional commit format.`,
 	}
 
 	// Generate summary
-	const completedStories = stories.filter((s) => s.status === "completed").length;
+	const completedStories = stories.filter(
+		(s) => s.status === "completed",
+	).length;
 	const failedStories = stories.filter((s) => s.status === "failed").length;
 
 	tools.log("EPIC IMPLEMENTATION COMPLETE");
@@ -228,7 +254,10 @@ Use conventional commit format.`,
 		tools.log(`Stories with issues: ${failedStories}`, "warn");
 	}
 	if (mode === "milestone") {
-		tools.log(`Milestones: ${milestones.filter((m) => m.completed).length}/${milestones.length}`, "debug");
+		tools.log(
+			`Milestones: ${milestones.filter((m) => m.completed).length}/${milestones.length}`,
+			"debug",
+		);
 	}
 	tools.log(`Branch: ${git?.branchName ?? "unknown"}`, "debug");
 	if (finalCommitSha) {
@@ -239,7 +268,9 @@ Use conventional commit format.`,
 	await logDecision(tools, config.outputDir, "Epic Complete", [
 		`Stories completed: ${completedStories}/${stories.length}`,
 		`Branch: ${git?.branchName ?? "unknown"}`,
-		finalCommitSha ? `Final commit: ${finalCommitSha.slice(0, 8)}` : "No final commit",
+		finalCommitSha
+			? `Final commit: ${finalCommitSha.slice(0, 8)}`
+			: "No final commit",
 		`Final tests: ${finalTestsPassed ? "passed" : "failing"}`,
 	]);
 
@@ -248,13 +279,11 @@ Use conventional commit format.`,
 		? { ...git, finalCommitSha }
 		: undefined;
 
-	return {
-		variables: {
-			[StateKeys.git]: updatedGit,
-			[StateKeys.phase]: "completed",
-		},
-		completed: true,
-	};
+	return state()
+		.set(StateKeys.git, updatedGit)
+		.set(StateKeys.phase, "completed")
+		.complete()
+		.build();
 }
 
 /**
@@ -266,7 +295,9 @@ async function logDecision(
 	decision: string,
 	details: string[],
 ): Promise<void> {
-	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', { stripOutput: true });
+	const dateResult = await tools.bash('date "+%Y-%m-%d %H:%M"', {
+		stripOutput: true,
+	});
 	const date = dateResult.output.trim();
 
 	const detailsStr = details.map((d) => `- ${d}`).join("\n");
@@ -279,7 +310,5 @@ ${detailsStr}
 ---
 `;
 
-	await tools.bash(`cat >> "${outputDir}/decisions.md" << 'DECISION_EOF'
-${content}
-DECISION_EOF`);
+	tools.files.appendText(`${outputDir}/decisions.md`, content);
 }

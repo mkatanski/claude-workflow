@@ -443,6 +443,49 @@ export type ToolHookCompleteEvent = BaseEvent<'tool:hook:complete', ToolHookComp
 export type ToolHookEvent = ToolHookStartEvent | ToolHookCompleteEvent;
 
 // ============================================================================
+// Retry Events
+// ============================================================================
+
+export interface RetryStartPayload {
+  operationName: string;
+  maxAttempts: number;
+  backoffStrategy: string;
+}
+
+export interface RetryAttemptPayload {
+  operationName: string;
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  error?: string;
+}
+
+export interface RetrySuccessPayload {
+  operationName: string;
+  attempt: number;
+  totalAttempts: number;
+  totalDuration: number;
+}
+
+export interface RetryExhaustedPayload {
+  operationName: string;
+  totalAttempts: number;
+  totalDuration: number;
+  lastError?: string;
+}
+
+export type RetryStartEvent = BaseEvent<'retry:start', RetryStartPayload>;
+export type RetryAttemptEvent = BaseEvent<'retry:attempt', RetryAttemptPayload>;
+export type RetrySuccessEvent = BaseEvent<'retry:success', RetrySuccessPayload>;
+export type RetryExhaustedEvent = BaseEvent<'retry:exhausted', RetryExhaustedPayload>;
+
+export type RetryEvent =
+  | RetryStartEvent
+  | RetryAttemptEvent
+  | RetrySuccessEvent
+  | RetryExhaustedEvent;
+
+// ============================================================================
 // Log Events - User logging from workflows
 // ============================================================================
 
@@ -466,7 +509,8 @@ export type ToolEvent =
   | ToolClaudeSdkEvent
   | ToolJsonEvent
   | ToolChecklistEvent
-  | ToolHookEvent;
+  | ToolHookEvent
+  | RetryEvent;
 
 // ============================================================================
 // State Events
@@ -609,7 +653,7 @@ export type EventHandler<T extends WorkflowEventType = WorkflowEventType> = (
 ) => void | Promise<void>;
 
 /** Pattern matcher for event categories */
-export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'log';
+export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'log';
 
 /** Subscription handle for cleanup */
 export interface Subscription {
@@ -658,4 +702,8 @@ export function isCustomEvent(event: WorkflowEvent): event is CustomEvent {
 
 export function isLogEvent(event: WorkflowEvent): event is LogEvent {
   return event.type === 'log';
+}
+
+export function isRetryEvent(event: WorkflowEvent): event is RetryEvent {
+  return event.type.startsWith('retry:');
 }

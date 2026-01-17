@@ -5,39 +5,43 @@
  * Uses conditional edges for loops (story retry, drift fix, milestone iteration).
  */
 
-import { START, END, type WorkflowGraph } from "../../../src/core/graph/workflowGraph.ts";
+import {
+	END,
+	START,
+	type WorkflowGraph,
+} from "../../../src/core/graph/workflowGraph.ts";
 
 // Import all nodes
 import {
-	setup,
 	analyzeScope,
-	simpleSetup,
-	milestoneSetup,
-	processMilestone,
-	milestoneCommit,
+	checkDrift,
+	finalization,
+	fixDrift,
+	fixTests,
 	gitSetup,
 	implementStory,
-	runTests,
-	fixTests,
+	milestoneCommit,
+	milestoneSetup,
 	nextStory,
-	checkDrift,
-	fixDrift,
+	processMilestone,
+	runTests,
+	setup,
+	simpleSetup,
 	updateArchitecture,
-	finalization,
 } from "./nodes/index.ts";
 
 // Import all routers
 import {
-	routeByMode,
-	routeAfterGit,
-	routeStories,
-	routeTestResult,
-	routeAfterFix,
-	routeDrift,
 	routeAfterDriftFix,
+	routeAfterFix,
+	routeAfterGit,
 	routeAfterPostStories,
+	routeByMode,
+	routeDrift,
 	routeMoreMilestones,
 	routerPaths,
+	routeStories,
+	routeTestResult,
 } from "./routers/index.ts";
 
 /**
@@ -156,29 +160,53 @@ export function buildGraph(graph: WorkflowGraph): void {
 	graph.addEdge("setup", "analyzeScope");
 
 	// --- Scope analysis routes to mode setup ---
-	graph.addConditionalEdges("analyzeScope", routeByMode, routerPaths.routeByMode);
+	graph.addConditionalEdges(
+		"analyzeScope",
+		routeByMode,
+		routerPaths.routeByMode,
+	);
 
 	// --- Mode setup to git setup ---
 	graph.addEdge("simpleSetup", "gitSetup");
 	graph.addEdge("milestoneSetup", "gitSetup");
 
 	// --- Git setup routes based on mode ---
-	graph.addConditionalEdges("gitSetup", routeAfterGit, routerPaths.routeAfterGit);
+	graph.addConditionalEdges(
+		"gitSetup",
+		routeAfterGit,
+		routerPaths.routeAfterGit,
+	);
 
 	// --- Process milestone (milestone mode) ---
 	graph.addEdge("processMilestone", "checkStories");
 
 	// --- Story loop ---
-	graph.addConditionalEdges("checkStories", routeStories, routerPaths.routeStories);
+	graph.addConditionalEdges(
+		"checkStories",
+		routeStories,
+		routerPaths.routeStories,
+	);
 	graph.addEdge("implementStory", "runTests");
-	graph.addConditionalEdges("runTests", routeTestResult, routerPaths.routeTestResult);
-	graph.addConditionalEdges("fixTests", routeAfterFix, routerPaths.routeAfterFix);
+	graph.addConditionalEdges(
+		"runTests",
+		routeTestResult,
+		routerPaths.routeTestResult,
+	);
+	graph.addConditionalEdges(
+		"fixTests",
+		routeAfterFix,
+		routerPaths.routeAfterFix,
+	);
 	graph.addEdge("nextStory", "checkStories"); // Loop back to check for more stories
 
 	// --- Post-stories ---
 	graph.addEdge("postStories", "checkDrift");
 	graph.addConditionalEdges("checkDrift", routeDrift, routerPaths.routeDrift);
-	graph.addConditionalEdges("fixDrift", routeAfterDriftFix, routerPaths.routeAfterDriftFix);
+	graph.addConditionalEdges(
+		"fixDrift",
+		routeAfterDriftFix,
+		routerPaths.routeAfterDriftFix,
+	);
 	graph.addConditionalEdges(
 		"updateArchitecture",
 		routeAfterPostStories,
