@@ -100,6 +100,10 @@ export async function discoverWorkflows(
 export async function loadWorkflow(
 	workflowPath: string,
 ): Promise<WorkflowDefinition> {
+	console.warn(
+		"[DEPRECATED] Legacy .workflow.ts format is deprecated. Please migrate to the LangGraph API. See MIGRATION.md for guidance.",
+	);
+
 	const absolutePath = resolve(workflowPath);
 
 	// Import the workflow module

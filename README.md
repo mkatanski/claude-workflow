@@ -4,17 +4,23 @@ A TypeScript/LangChain-based implementation of claude-workflow, providing type-s
 
 ## Overview
 
-This is the TypeScript implementation of claude-workflow, designed to orchestrate complex automation tasks using Claude Code. It provides a fluent builder API for defining workflows as TypeScript files with full type safety and IDE support.
+This is the TypeScript implementation of claude-workflow, designed to orchestrate complex automation tasks using Claude Code. It provides a **LangGraph-based API** for defining workflows as TypeScript files with full type safety, state management, and IDE support.
+
+> **📢 API Migration Notice**
+>
+> The legacy WorkflowBuilder API (`t.step()`, `t.bash()`, etc.) is **deprecated** and will be removed in a future version. Please migrate to the new **LangGraph API** for better type safety, native graph visualization, and enhanced debugging capabilities.
+>
+> 👉 **[Migration Guide](./MIGRATION.md)** - Complete guide for migrating from WorkflowBuilder to LangGraph
 
 ## Features
 
 - **TypeScript-first** with full type safety and IDE autocompletion
-- **LangChain state graphs** for workflow execution
-- **Builder API** for programmatic workflow definition
+- **LangGraph-based workflows** with native graph visualization and state management
+- **Type-safe state** with no string interpolation errors
 - **Dual runtime support** - works with both Bun (recommended) and Node.js (via tsx)
 - **8 built-in tools** for shell commands, Claude integration, data manipulation, and external services
-- **Variable interpolation** with automatic externalization for large content
-- **Conditional execution** with natural language conditions
+- **Conditional routing** with clean, typed routing logic
+- **Checkpointing & resumability** - pause and resume workflows automatically
 - **tmux integration** for visible Claude Code execution
 
 ## Requirements
@@ -104,35 +110,61 @@ cw hooks cleanup-global
 
 ## Workflow Files
 
-Workflows are defined in `.cw/workflows/` as `.workflow.ts` files using the builder API.
+Workflows are defined in `.cw/workflows/` as TypeScript files using the **LangGraph API**.
 
-### Basic Structure
+### Basic Structure (LangGraph API - Current)
 
 ```typescript
-import type { WorkflowBuilder } from "../../../src/types/index.ts";
+import type { LangGraphWorkflowDefinition } from "../../../src/core/graph/types.ts";
+import type { ClaudeConfig } from "../../../src/types/index.ts";
+import { START, END } from "@langchain/langgraph";
 
-export default (t: WorkflowBuilder) => ({
+const claudeConfig: ClaudeConfig = {
+  model: "sonnet",
+  dangerouslySkipPermissions: true,
+};
+
+const workflow: LangGraphWorkflowDefinition = {
   name: "Example Workflow",
 
-  // Variables available via {var_name} interpolation
+  // Initial state variables
   vars: {
     greeting: "Hello",
     target: "World",
   },
 
-  // Claude Code configuration
-  claude: {
-    model: "sonnet",
-    dangerouslySkipPermissions: true,
-  },
+  claude: claudeConfig,
 
-  // Workflow steps
-  steps: [
-    t.step("Get current date", t.bash("date"), { output: "currentDate" }),
-    t.step("Show message", t.bash("echo '{greeting}, {target}!'")),
-  ],
-});
+  // Build the workflow graph
+  build(graph) {
+    // Node: Get current date
+    graph.addNode("get_date", async (state, tools) => {
+      const result = await tools.bash("date");
+      return {
+        variables: {
+          currentDate: result.output?.trim()
+        }
+      };
+    });
+
+    // Node: Show message
+    graph.addNode("show_message", async (state, tools) => {
+      const message = `${state.greeting}, ${state.target}!`;
+      await tools.bash(`echo '${message}'`);
+      return {};
+    });
+
+    // Define execution flow
+    graph.addEdge(START, "get_date");
+    graph.addEdge("get_date", "show_message");
+    graph.addEdge("show_message", END);
+  },
+};
+
+export default () => workflow;
 ```
+
+> **Note:** The legacy WorkflowBuilder API is still supported but deprecated. See [MIGRATION.md](./MIGRATION.md) for migration instructions.
 
 ### Configuration Options
 
@@ -161,48 +193,64 @@ claude: {
 }
 ```
 
-### Step Options
+### Node Patterns
+
+#### Capturing Output
 
 ```typescript
-t.step("Step name", t.bash("command"), {
-  output: "varName",       // Store output in variable
-  when: "{var} is not empty", // Conditional execution
-  onError: "continue",     // "stop" (default) or "continue"
-  visible: true,           // Show in tmux pane
-  cwd: "/custom/path",     // Working directory override
-  model: "opus",           // Model override for this step
-})
+graph.addNode("get_version", async (state, tools) => {
+  const result = await tools.bash("node --version");
+  return {
+    variables: {
+      nodeVersion: result.output?.trim()
+    }
+  };
+});
 ```
 
-### Variable Interpolation
-
-Use `{var_name}` syntax in prompts and commands:
+#### Using State Variables
 
 ```typescript
-// Simple variable
-t.bash("echo '{greeting}'")
-
-// Nested access
-t.bash("echo '{user.name}'")
-
-// Array index
-t.bash("echo '{items.0.title}'")
-
-// Complex interpolation
-t.claude("Fix the error in {filePath}: {errorMessage}")
+graph.addNode("show_message", async (state, tools) => {
+  // Type-safe access to state variables
+  const message = `${state.greeting}, ${state.target}`;
+  await tools.bash(`echo '${message}'`);
+  return {};
+});
 ```
 
-Variables larger than 10KB are automatically externalized to temp files and referenced with `@filepath`.
+#### Conditional Routing
+
+```typescript
+// Router function
+function routeByEnvironment(state) {
+  return state.environment === "production" ? "deploy" : "skip";
+}
+
+// Use conditional edges
+graph.addConditionalEdges("check_env", routeByEnvironment, {
+  deploy: "deploy_node",
+  skip: "skip_node",
+});
+```
 
 ## Available Tools
+
+The `tools` parameter in node functions provides these built-in tools:
 
 ### 1. bash
 
 Execute shell commands:
 
 ```typescript
-t.step("Run tests", t.bash("npm test"), { output: "testResult" })
-t.step("Build", t.bash("npm run build"))
+graph.addNode("run_tests", async (state, tools) => {
+  const result = await tools.bash("npm test");
+  return {
+    variables: {
+      testResult: result.output
+    }
+  };
+});
 ```
 
 ### 2. claude
@@ -210,198 +258,182 @@ t.step("Build", t.bash("npm run build"))
 Run Claude Code prompts in tmux with full IDE capabilities:
 
 ```typescript
-t.step("Analyze code", t.claude("Analyze the error in {file} and suggest fixes"), {
-  output: "analysis",
-  model: "opus",
-})
+graph.addNode("analyze", async (state, tools) => {
+  const result = await tools.claude(`Analyze the error in ${state.file} and suggest fixes`, {
+    model: "opus",
+  });
+  return {
+    variables: {
+      analysis: result.output
+    }
+  };
+});
 ```
 
-### 3. claude_sdk
+### 3. claudeSdk
 
-Direct Claude SDK calls with structured output (JSON schema validation):
+Direct Claude SDK calls with structured output (Zod schema validation):
 
 ```typescript
-t.step("Extract data", t.claudeSdk({
-  prompt: "Extract the title and author from: {content}",
-  schema: {
-    type: "object",
-    properties: {
-      title: { type: "string" },
-      author: { type: "string" },
-    },
-    required: ["title", "author"],
-  },
-  systemPrompt: "You are a data extraction assistant.",
-  model: "haiku",
-  maxRetries: 3,
-  timeout: 30000,
-}), { output: "extracted" })
+import { z } from "zod";
+
+const ExtractionSchema = z.object({
+  title: z.string(),
+  author: z.string(),
+});
+
+graph.addNode("extract_data", async (state, tools) => {
+  const result = await tools.claudeSdk({
+    systemPrompt: `Extract the title and author from: ${state.content}`,
+    schema: ExtractionSchema,
+    model: "haiku",
+    maxRetries: 3,
+  });
+  return {
+    variables: {
+      extracted: result
+    }
+  };
+});
 ```
 
-### 4. data
+### 4. setVar / getVar
 
-Write content to temporary files (useful for large data):
+Manipulate state variables:
 
 ```typescript
-t.step("Save data", t.data("{largeContent}", "json"), { output: "dataFilePath" })
+graph.addNode("update_counter", async (state, tools) => {
+  const current = tools.getVar("counter") || 0;
+  tools.setVar("counter", current + 1);
+  return {};
+});
 ```
 
-### 5. json
+### 5. JSON Operations
 
-JSON/YAML manipulation with JMESPath queries:
+Use native JavaScript for JSON manipulation:
 
 ```typescript
-// Parse JSON string
-t.step("Parse", t.json("parse", { input: "{jsonString}" }), { output: "parsed" })
+graph.addNode("parse_json", async (state, tools) => {
+  const data = JSON.parse(state.jsonString);
+  const activeNames = data.items
+    .filter(item => item.status === 'active')
+    .map(item => item.name);
 
-// Query with JMESPath
-t.step("Query", t.json("query", {
-  input: "{data}",
-  query: "items[?status=='active'].name",
-}), { output: "activeNames" })
-
-// Stringify object
-t.step("Stringify", t.json("stringify", { input: "{object}" }), { output: "jsonStr" })
-
-// Set value at path
-t.step("Update", t.json("set", {
-  input: "{data}",
-  path: "config.enabled",
-  value: "true",
-}), { output: "updated" })
+  return {
+    variables: {
+      parsed: data,
+      activeNames
+    }
+  };
+});
 ```
 
-### 6. checklist
+### 6. Validation with checklist
 
-Run validation checks with three check types:
+Run validation checks (see legacy API docs for checklist tool details):
 
 ```typescript
-t.step("Validate", t.checklist([
-  // Bash check - run command and verify output
-  {
-    name: "TypeScript compiles",
-    type: "bash",
-    command: "tsc --noEmit",
-    severity: "error",
-  },
-  // Regex check - pattern matching in files
-  {
-    name: "No console.log in production",
-    type: "regex",
-    pattern: "console\\.log",
-    files: "src/**/*.ts",
-    exclude: "**/*.test.ts",
-    expect: 0,
-    severity: "warning",
-  },
-  // Model check - LLM-based judgment
-  {
-    name: "Code quality check",
-    type: "model",
-    prompt: "Does this code follow best practices? {codeSnippet}",
-    passPattern: "yes|pass|good",
-    contextVars: ["codeSnippet"],
-    severity: "info",
-  },
-]))
+graph.addNode("validate", async (state, tools) => {
+  // Validation logic using tools.bash() or tools.claudeSdk()
+  const typeCheckResult = await tools.bash("tsc --noEmit");
+
+  if (!typeCheckResult.success) {
+    throw new Error("TypeScript compilation failed");
+  }
+
+  return {};
+});
 ```
 
-### 7. linear_tasks
+> **Note:** For detailed tool examples using the legacy WorkflowBuilder API, see [MIGRATION.md](./MIGRATION.md).
 
-Query Linear issues for workflow automation:
-
-```typescript
-// Get next available issue
-t.step("Get task", t.linear("get_next", {
-  team: "ENG",
-  project: "Backend",
-  status: "Todo",
-  priority: 1,
-  labels: ["bug"],
-}), { output: "issueId" })
-
-// Get full issue details
-t.step("Get details", t.linear("get", {
-  issueId: "{issueId}",
-}), { output: "issueDetails" })
-
-// Assign issue
-t.step("Assign", t.linear("assign", {
-  issueId: "{issueId}",
-  assignee: "me",
-}))
-```
-
-### 8. linear_manage
-
-Create and update Linear issues:
-
-```typescript
-// Create new issue
-t.step("Create issue", t.linear("create", {
-  team: "ENG",
-  title: "Fix bug in {component}",
-  description: "{bugDescription}",
-  priority: 2,
-  labels: ["bug", "urgent"],
-}), { output: "newIssueId" })
-
-// Update issue status
-t.step("Update status", t.linear("update", {
-  issueId: "{issueId}",
-  status: "In Progress",
-}))
-
-// Add comment
-t.step("Add comment", t.linear("comment", {
-  issueId: "{issueId}",
-  body: "Started implementation. See PR: {prUrl}",
-}))
-```
-
-## Control Flow
+## Control Flow Patterns
 
 ### Loops
 
-```typescript
-// ForEach loop
-t.forEach("{items}", "item", [
-  t.step("Process", t.bash("echo 'Processing {item}'")),
-])
-
-// While loop
-t.while("{counter} < 10", [
-  t.step("Increment", t.bash("echo $((counter + 1))")),
-])
-
-// Range loop
-t.range(1, 5, [
-  t.step("Iterate", t.bash("echo 'Iteration {i}'")),
-])
-
-// Retry with backoff
-t.retry({ maxAttempts: 3, until: "{success} == true", backoff: 1000 }, [
-  t.step("Try operation", t.bash("./flaky-command")),
-])
-```
-
-### Conditions
-
-Use natural language conditions with `when`:
+Use graph cycles with conditional routing:
 
 ```typescript
-t.step("Deploy", t.bash("./deploy.sh"), {
-  when: "{environment} == production",
-})
+// Loop through items
+function shouldContinueLoop(state) {
+  return state.currentIndex < state.items.length ? "process" : "done";
+}
 
-t.step("Notify", t.bash("./notify.sh"), {
-  when: "{result} is not empty",
-})
+graph.addNode("process_item", async (state, tools) => {
+  const item = state.items[state.currentIndex];
+  await tools.bash(`echo 'Processing ${item}'`);
+  return {
+    variables: {
+      currentIndex: state.currentIndex + 1
+    }
+  };
+});
 
-t.step("Rollback", t.bash("./rollback.sh"), {
-  when: "{exitCode} != 0",
-})
+graph.addConditionalEdges("check_loop", shouldContinueLoop, {
+  process: "process_item",
+  done: END,
+});
+
+// Create loop back edge
+graph.addEdge("process_item", "check_loop");
 ```
+
+### Conditional Routing
+
+Use router functions for branching logic:
+
+```typescript
+function routeByEnvironment(state) {
+  if (state.environment === "production") {
+    return "deploy";
+  }
+  return "skip";
+}
+
+graph.addNode("deploy", async (state, tools) => {
+  await tools.bash("./deploy.sh");
+  return {};
+});
+
+graph.addNode("skip", async (state, tools) => {
+  console.log("Skipping deployment");
+  return {};
+});
+
+graph.addConditionalEdges("check_env", routeByEnvironment, {
+  deploy: "deploy",
+  skip: "skip",
+});
+```
+
+### Retry Logic
+
+```typescript
+function shouldRetry(state) {
+  if (state.success) return "complete";
+  if (state.attempts >= 3) return "failed";
+  return "retry";
+}
+
+graph.addNode("try_operation", async (state, tools) => {
+  const result = await tools.bash("./flaky-command");
+  return {
+    variables: {
+      success: result.success,
+      attempts: state.attempts + 1,
+    }
+  };
+});
+
+graph.addConditionalEdges("try_operation", shouldRetry, {
+  complete: END,
+  retry: "try_operation", // Loop back
+  failed: "handle_failure",
+});
+```
+
+> **Note:** For legacy control flow patterns (forEach, while, retry), see [MIGRATION.md](./MIGRATION.md).
 
 ## Project Structure
 
@@ -460,15 +492,19 @@ For detailed documentation on individual tools and advanced usage, see the `docs
 
 ## Examples
 
-See the `examples/` directory for complete workflow examples:
+See the `examples/` directory and real-world workflows:
 
-- `examples/.cw/workflows/example.workflow.ts` - Basic workflow demonstrating all core features
+- `examples/.cw/workflows/example.ts` - Basic LangGraph workflow demonstrating core features
+- `.cw/workflows/epic-to-implementation-v3/workflow.ts` - Complex real-world workflow example
+- `examples/.cw/workflows/example.legacy.workflow.ts` - Legacy WorkflowBuilder example (deprecated)
 
 Run the example:
 
 ```bash
 bun run dev examples
 ```
+
+For migration from legacy API, see **[MIGRATION.md](./MIGRATION.md)**.
 
 ## License
 

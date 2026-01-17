@@ -228,8 +228,15 @@ class WorkflowBuilderImpl implements WorkflowBuilder {
 
 /**
  * Create a workflow builder instance.
+ *
+ * @deprecated Use LangGraph-based workflows instead. See MIGRATION.md for migration guide.
+ * The WorkflowBuilder API is deprecated and will be removed in a future version.
+ * Use the LangGraph API (WorkflowGraph) for new workflows.
  */
 export function createBuilder(): WorkflowBuilder {
+	console.warn(
+		"[DEPRECATED] createBuilder() is deprecated. Please migrate to the LangGraph API (WorkflowGraph). See MIGRATION.md for guidance.",
+	);
 	return new WorkflowBuilderImpl();
 }
 

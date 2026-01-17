@@ -71,6 +71,9 @@ export interface OnErrorConfig {
 
 /**
  * Step configuration for workflow steps.
+ *
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This type is part of the legacy step-based workflow system.
  */
 export interface StepConfig {
 	name: string;
@@ -149,6 +152,9 @@ export interface StepConfig {
 
 /**
  * Workflow configuration.
+ *
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This type is part of the legacy step-based workflow system.
  */
 export interface WorkflowConfig {
 	type: "claude-workflow";
@@ -164,9 +170,16 @@ export interface WorkflowConfig {
 
 /**
  * Builder types for fluent API.
+ *
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This type is part of the legacy fluent API builder system.
  */
 export type StepDefinition = StepConfig | LoopDefinition;
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This type is part of the legacy fluent API builder system.
+ */
 export interface LoopDefinition {
 	type: "forEach" | "while" | "range" | "retry";
 	config: Record<string, unknown>;
@@ -175,6 +188,9 @@ export interface LoopDefinition {
 
 /**
  * Workflow builder interface for fluent API.
+ *
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
  */
 export interface WorkflowBuilder {
 	step(
@@ -203,11 +219,19 @@ export interface WorkflowBuilder {
 	retry(config: RetryConfig, steps: StepDefinition[]): LoopDefinition;
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface ToolDefinition {
 	tool: string;
 	config: Record<string, unknown>;
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface StepOptions {
 	output?: string;
 	when?: string;
@@ -217,6 +241,10 @@ export interface StepOptions {
 	model?: string;
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface ClaudeSdkToolConfig {
 	prompt: string;
 	schema?: Record<string, unknown>;
@@ -226,6 +254,10 @@ export interface ClaudeSdkToolConfig {
 	timeout?: number;
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface JsonToolConfig {
 	input?: string;
 	query?: string;
@@ -233,6 +265,10 @@ export interface JsonToolConfig {
 	value?: string;
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface ChecklistItem {
 	name: string;
 	command: string;
@@ -261,6 +297,10 @@ export interface ChecklistCheckItem {
 	contextVars?: string[];
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface LinearToolConfig {
 	team?: string;
 	project?: string;
@@ -270,6 +310,10 @@ export interface LinearToolConfig {
 	labels?: string[];
 }
 
+/**
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy fluent API builder system.
+ */
 export interface RetryConfig {
 	maxAttempts: number;
 	until?: string;
@@ -278,6 +322,9 @@ export interface RetryConfig {
 
 /**
  * Workflow definition from a .workflow.ts file.
+ *
+ * @deprecated Use LangGraphWorkflowDefinition with WorkflowGraph instead.
+ * This interface is part of the legacy step-based workflow system.
  */
 export interface WorkflowDefinition {
 	name: string;
@@ -291,5 +338,8 @@ export interface WorkflowDefinition {
 
 /**
  * Exported function signature for workflow files.
+ *
+ * @deprecated Use LangGraphWorkflowFactory instead.
+ * This type is part of the legacy fluent API builder system.
  */
 export type WorkflowFactory = (t: WorkflowBuilder) => WorkflowDefinition;
