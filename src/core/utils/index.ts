@@ -10,6 +10,8 @@
  * - **retry**: Configurable retry logic with backoff strategies
  * - **iteration**: Stateful iteration helpers for array processing
  * - **schema**: JSON parsing and validation utilities
+ * - **errors**: Comprehensive error classes with contextual information
+ * - **circuit-breaker**: Circuit breaker pattern to prevent cascading failures
  *
  * @example
  * ```typescript
@@ -26,6 +28,10 @@
  *   IterationHelper, createIterator,
  *   // Schema utilities
  *   parseJson, parseJsonSafe, validate,
+ *   // Error handling utilities
+ *   WorkflowError, ValidationError, createNodeErrorContext,
+ *   // Circuit breaker utilities
+ *   CircuitBreaker, withCircuitBreaker,
  * } from "@/core/utils";
  * ```
  *
@@ -93,7 +99,7 @@ export {
 	parseJsonSafe,
 	SchemaValidator,
 	tryParseJson,
-	type ValidationError,
+	type ValidationError as SchemaValidationError,
 	validate,
 	validateSchema,
 } from "./schema/index.js";
@@ -120,3 +126,55 @@ export {
 	updateAt,
 	type WorkflowStateUpdate,
 } from "./state/index.js";
+
+// Error handling utilities
+export {
+	CircuitBreakerError,
+	combineStackTraces,
+	ConfigurationError,
+	createNodeErrorContext,
+	createToolErrorContext,
+	createWorkflowErrorContext,
+	DEFAULT_STACK_FORMAT_OPTIONS,
+	enrichErrorContext,
+	type ErrorContext,
+	type ErrorContextWithCorrelation,
+	ExecutionError,
+	extractTopFrame,
+	formatErrorContext,
+	formatErrorStack,
+	formatFrameLocation,
+	formatStackTrace,
+	isCircuitBreakerError,
+	isConfigurationError,
+	isExecutionError,
+	isRetryError,
+	isTimeoutError,
+	isToolError,
+	isValidationError,
+	isWorkflowError,
+	mergeErrorContexts,
+	type ParsedStackTrace,
+	parseStackTrace,
+	RetryError,
+	serializeErrorContext,
+	type StackFrame,
+	type StackTraceFormatOptions,
+	TimeoutError,
+	ToolError,
+	toWorkflowError,
+	ValidationError,
+	WorkflowError,
+} from "./errors/index.js";
+// Circuit breaker utilities
+export {
+	CircuitBreaker,
+	CircuitBreakerOpenError,
+	CircuitBreakerTimeoutError,
+	type CircuitBreakerConfig,
+	type CircuitBreakerMetrics,
+	type CircuitBreakerState,
+	createCircuitBreaker,
+	DEFAULT_CIRCUIT_BREAKER_CONFIG,
+	withCircuitBreaker,
+} from "./circuit-breaker/index.js";

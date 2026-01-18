@@ -486,6 +486,62 @@ export type RetryEvent =
   | RetryExhaustedEvent;
 
 // ============================================================================
+// Circuit Breaker Events
+// ============================================================================
+
+export interface CircuitBreakerOpenedPayload {
+  operationName: string;
+  failureCount: number;
+  failureThreshold: number;
+  error?: string;
+}
+
+export interface CircuitBreakerHalfOpenPayload {
+  operationName: string;
+  timeoutDuration: number;
+}
+
+export interface CircuitBreakerClosedPayload {
+  operationName: string;
+  successCount: number;
+}
+
+export interface CircuitBreakerTestPayload {
+  operationName: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface CircuitBreakerTripPayload {
+  operationName: string;
+  currentFailureCount: number;
+  failureThreshold: number;
+  error?: string;
+}
+
+export interface CircuitBreakerRejectedPayload {
+  operationName: string;
+  consecutiveFailures: number;
+  rejectedCount: number;
+  resetTimeoutMs: number;
+}
+
+export type CircuitBreakerOpenedEvent = BaseEvent<'circuit:opened', CircuitBreakerOpenedPayload>;
+export type CircuitBreakerHalfOpenEvent = BaseEvent<'circuit:halfopen', CircuitBreakerHalfOpenPayload>;
+export type CircuitBreakerClosedEvent = BaseEvent<'circuit:closed', CircuitBreakerClosedPayload>;
+export type CircuitBreakerTestEvent = BaseEvent<'circuit:test', CircuitBreakerTestPayload>;
+export type CircuitBreakerTripEvent = BaseEvent<'circuit:trip', CircuitBreakerTripPayload>;
+export type CircuitBreakerRejectedEvent = BaseEvent<'circuit:rejected', CircuitBreakerRejectedPayload>;
+
+export type CircuitBreakerEvent =
+  | CircuitBreakerOpenedEvent
+  | CircuitBreakerHalfOpenEvent
+  | CircuitBreakerClosedEvent
+  | CircuitBreakerTestEvent
+  | CircuitBreakerTripEvent
+  | CircuitBreakerRejectedEvent;
+
+// ============================================================================
 // Log Events - User logging from workflows
 // ============================================================================
 
@@ -510,7 +566,8 @@ export type ToolEvent =
   | ToolJsonEvent
   | ToolChecklistEvent
   | ToolHookEvent
-  | RetryEvent;
+  | RetryEvent
+  | CircuitBreakerEvent;
 
 // ============================================================================
 // State Events
@@ -653,7 +710,7 @@ export type EventHandler<T extends WorkflowEventType = WorkflowEventType> = (
 ) => void | Promise<void>;
 
 /** Pattern matcher for event categories */
-export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'log';
+export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'log';
 
 /** Subscription handle for cleanup */
 export interface Subscription {
@@ -706,4 +763,8 @@ export function isLogEvent(event: WorkflowEvent): event is LogEvent {
 
 export function isRetryEvent(event: WorkflowEvent): event is RetryEvent {
   return event.type.startsWith('retry:');
+}
+
+export function isCircuitBreakerEvent(event: WorkflowEvent): event is CircuitBreakerEvent {
+  return event.type.startsWith('circuit:');
 }

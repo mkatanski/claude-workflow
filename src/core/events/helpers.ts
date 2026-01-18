@@ -47,6 +47,13 @@ import type {
   RetryAttemptPayload,
   RetrySuccessPayload,
   RetryExhaustedPayload,
+  // Circuit breaker events
+  CircuitBreakerOpenedPayload,
+  CircuitBreakerHalfOpenPayload,
+  CircuitBreakerClosedPayload,
+  CircuitBreakerTestPayload,
+  CircuitBreakerTripPayload,
+  CircuitBreakerRejectedPayload,
   // Infrastructure events
   TmuxPaneCreatePayload,
   TmuxPaneClosePayload,
@@ -268,6 +275,34 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
     retryExhausted(payload: RetryExhaustedPayload) {
       return emitter.emit('retry:exhausted', payload);
+    },
+
+    // ========================================================================
+    // Circuit Breaker Events
+    // ========================================================================
+
+    circuitBreakerOpened(payload: CircuitBreakerOpenedPayload) {
+      return emitter.emit('circuit:opened', payload);
+    },
+
+    circuitBreakerHalfOpen(payload: CircuitBreakerHalfOpenPayload) {
+      return emitter.emit('circuit:halfopen', payload);
+    },
+
+    circuitBreakerClosed(payload: CircuitBreakerClosedPayload) {
+      return emitter.emit('circuit:closed', payload);
+    },
+
+    circuitBreakerTest(payload: CircuitBreakerTestPayload) {
+      return emitter.emit('circuit:test', payload);
+    },
+
+    circuitBreakerTrip(payload: CircuitBreakerTripPayload) {
+      return emitter.emit('circuit:trip', payload);
+    },
+
+    circuitBreakerRejected(payload: CircuitBreakerRejectedPayload) {
+      return emitter.emit('circuit:rejected', payload);
     },
 
     // ========================================================================
