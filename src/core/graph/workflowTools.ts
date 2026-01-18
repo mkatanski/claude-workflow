@@ -5,95 +5,99 @@
  * for LangGraph node functions. Supports event emission for workflow observability.
  */
 
-import type { WorkflowStateType } from "./state.ts";
-import type {
-	WorkflowTools,
-	BashOptions,
-	BashResult,
-	ClaudeOptions,
-	ClaudeResult,
-	ClaudeSdkOptions,
-	ClaudeSdkResult,
-	JsonAction,
-	JsonOptions,
-	JsonResult,
-	ChecklistItem,
-	ChecklistOptions,
-	ChecklistResult,
-	HookOptions,
-	HookResult,
-	LogLevel,
-	AgentSessionOptions,
-	AgentSessionResult,
-} from "./tools.ts";
-import { ExecutionContext } from "../context/execution.ts";
-import type { TmuxManager } from "../tmux/manager.ts";
 import type {
 	ClaudeConfig,
 	ClaudeSdkConfig,
 	StepConfig,
 } from "../../types/index.ts";
-import { BashTool } from "../tools/bash.ts";
-import { ClaudeTool } from "../tools/claude.ts";
-import { ClaudeSdkTool } from "../tools/claudeSdk.ts";
-import { JsonTool } from "../tools/json.ts";
-import { ChecklistTool } from "../tools/checklist.ts";
-import { HookTool } from "../tools/hook.ts";
-import { ClaudeAgentTool } from "../tools/claudeAgent.ts";
-import { resolveModel } from "../tools/claudeAgent.types.ts";
-import type { ClaudeAgentConfig } from "../tools/claudeAgent.types.ts";
+import { ExecutionContext } from "../context/execution.ts";
 import {
-	type WorkflowEmitter,
 	createEventHelpers,
 	createTimer,
 	type EventHelpers,
+	type WorkflowEmitter,
 } from "../events/index.ts";
+import {
+	type ExecuteParallelBashOptions,
+	type ExecuteParallelClaudeOptions,
+	executeParallelBash,
+	executeParallelClaude,
+} from "../parallel/index.ts";
+import type { TmuxManager } from "../tmux/manager.ts";
+import { BashTool } from "../tools/bash.ts";
+import { ChecklistTool } from "../tools/checklist.ts";
+import { ClaudeTool } from "../tools/claude.ts";
+import { ClaudeAgentTool } from "../tools/claudeAgent.ts";
+import type { ClaudeAgentConfig } from "../tools/claudeAgent.types.ts";
+import { resolveModel } from "../tools/claudeAgent.types.ts";
+import { ClaudeSdkTool } from "../tools/claudeSdk.ts";
+import type {
+	AddOptions,
+	CommitOptions,
+	CreateBranchOptions,
+	DeleteBranchOptions,
+	DiffOptions,
+	GitBranch,
+	GitCommit,
+	GitConfig,
+	GitDiff,
+	GitOperations,
+	GitRemote,
+	GitResult,
+	GitStashEntry,
+	GitStatus,
+	GitWorktree,
+	ListBranchesOptions,
+	LogOptions,
+	ResetOptions,
+	StashOptions,
+	StashPopOptions,
+	SwitchBranchOptions,
+	WorktreeAddOptions,
+	WorktreeRemoveOptions,
+} from "../tools/git/index.ts";
+import { GitTool } from "../tools/git/index.ts";
+import { HookTool } from "../tools/hook.ts";
+import { JsonTool } from "../tools/json.ts";
 import { FileOperations } from "../utils/files/index.js";
+import { IterationHelper } from "../utils/iteration/index.js";
+import type { RetryConfig } from "../utils/retry/index.js";
+import { RetryableOperation } from "../utils/retry/index.js";
+import type { JsonSchema } from "../utils/schema/index.js";
 import {
 	parseJson,
 	parseJsonSafe,
 	SchemaValidator,
 } from "../utils/schema/index.js";
-import type { JsonSchema } from "../utils/schema/index.js";
-import { RetryableOperation } from "../utils/retry/index.js";
-import type { RetryConfig } from "../utils/retry/index.js";
-import { IterationHelper } from "../utils/iteration/index.js";
-import { GitTool } from "../tools/git/index.ts";
-import {
-	executeParallelBash,
-	type ExecuteParallelBashOptions,
-} from "../parallel/index.ts";
+import type { WorkflowStateType } from "./state.ts";
 import type {
+	AgentSessionOptions,
+	AgentSessionResult,
+	BashCommandResult,
+	BashOptions,
+	BashResult,
+	ChecklistItem,
+	ChecklistOptions,
+	ChecklistResult,
+	ClaudeOptions,
+	ClaudeResult,
+	ClaudeSdkOptions,
+	ClaudeSdkResult,
+	ClaudeSessionResult,
+	HookOptions,
+	HookResult,
+	JsonAction,
+	JsonOptions,
+	JsonResult,
+	LogLevel,
 	ParallelBashConfig,
 	ParallelBashOptions,
 	ParallelBashResult,
-	BashCommandResult,
+	ParallelClaudeConfig,
+	ParallelClaudeOptions,
+	ParallelClaudeResult,
+	WorkflowTools,
 } from "./tools.ts";
-import type {
-	GitConfig,
-	GitOperations,
-	GitStatus,
-	GitRemote,
-	GitBranch,
-	GitCommit,
-	GitDiff,
-	GitWorktree,
-	GitStashEntry,
-	GitResult,
-	CreateBranchOptions,
-	SwitchBranchOptions,
-	DeleteBranchOptions,
-	ListBranchesOptions,
-	CommitOptions,
-	AddOptions,
-	ResetOptions,
-	DiffOptions,
-	LogOptions,
-	WorktreeAddOptions,
-	WorktreeRemoveOptions,
-	StashOptions,
-	StashPopOptions,
-} from "../tools/git/index.ts";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -886,6 +890,201 @@ export function createWorkflowTools(
 					error: message,
 					errorType: "UNKNOWN",
 				};
+			}
+		},
+
+		async parallelClaude(
+			sessions: ParallelClaudeConfig[],
+			options?: ParallelClaudeOptions,
+		): Promise<ParallelClaudeResult> {
+			const timer = createTimer();
+			const maxConcurrency = options?.maxConcurrency ?? 3;
+			const continueOnError = options?.continueOnError ?? true;
+
+			// Emit start event with properly typed payload
+			events?.parallelClaudeStart({
+				sessions: sessions.map((session, index) => ({
+					id: session.id ?? `session_${index}`,
+					prompt: session.prompt,
+					model: session.model,
+					label: session.label,
+					timeout: session.timeout,
+					maxBudgetUsd: session.maxBudgetUsd,
+				})),
+				maxConcurrency,
+				continueOnError,
+				totalTimeout: options?.totalTimeout,
+				maxTotalBudgetUsd: options?.maxTotalBudgetUsd,
+				label: options?.label,
+			});
+
+			try {
+				// Build execution options with callbacks for event emission
+				const executeOptions: ExecuteParallelClaudeOptions = {
+					...options,
+					defaultWorkingDirectory: config.projectPath,
+					onProgress: (progress) => {
+						// Calculate running and queued
+						const running = progress.activeSessionIds.length;
+						const queued =
+							sessions.length - progress.completedSessions - running;
+
+						// Emit progress event
+						events?.parallelClaudeProgress({
+							completed: progress.completedSessions,
+							total: progress.totalSessions,
+							running,
+							queued,
+							succeeded: progress.completedSessions - progress.failedSessions,
+							failed: progress.failedSessions,
+							tokensUsed: progress.tokensUsed,
+							elapsedMs: progress.elapsedMs,
+						});
+					},
+					onSessionComplete: (sessionResult) => {
+						// Find the original session config for the prompt
+						const originalSession = sessions.find(
+							(s, index) =>
+								s.id === sessionResult.id ||
+								`session_${index}` === sessionResult.id,
+						);
+
+						// Emit session complete event
+						events?.parallelClaudeSessionComplete({
+							id: sessionResult.id,
+							prompt: originalSession?.prompt ?? "",
+							label: sessionResult.label,
+							success: sessionResult.success,
+							output: sessionResult.output,
+							error: sessionResult.error,
+							tokens: {
+								input: sessionResult.tokens.input,
+								output: sessionResult.tokens.output,
+								total: sessionResult.tokens.total,
+							},
+							duration: sessionResult.duration,
+							queueWaitTime: sessionResult.queueWaitTime,
+							model: sessionResult.model,
+							sessionId: sessionResult.sessionId,
+						});
+					},
+				};
+
+				// Execute parallel Claude sessions
+				const internalResult = await executeParallelClaude(
+					sessions,
+					executeOptions,
+				);
+
+				// Transform internal result to match WorkflowTools interface
+				const transformedSessions: ClaudeSessionResult[] =
+					internalResult.sessions.map((session) => ({
+						id: session.id,
+						success: session.success,
+						output: session.output,
+						messages: [...session.messages],
+						error: session.error,
+						tokens: {
+							input: session.tokens.input,
+							output: session.tokens.output,
+							total: session.tokens.total,
+						},
+						duration: session.duration,
+						queueWaitTime: session.queueWaitTime,
+						model: session.model,
+						sessionId: session.sessionId,
+						label: session.label,
+					}));
+
+				// Create result with helper methods matching the interface
+				const result: ParallelClaudeResult = {
+					success: internalResult.success,
+					totalDuration: internalResult.totalDuration,
+					sessions: transformedSessions,
+					summary: {
+						total: internalResult.summary.total,
+						succeeded: internalResult.summary.succeeded,
+						failed: internalResult.summary.failed,
+						totalTokens: {
+							input: internalResult.summary.totalTokens.input,
+							output: internalResult.summary.totalTokens.output,
+							total: internalResult.summary.totalTokens.total,
+						},
+						estimatedCostUsd: internalResult.summary.estimatedCostUsd,
+					},
+					getSession(id: string): ClaudeSessionResult | undefined {
+						return transformedSessions.find((s) => s.id === id);
+					},
+					getSuccessfulOutputs(): Array<{ id: string; output: string }> {
+						return transformedSessions
+							.filter((s) => s.success && s.output !== undefined)
+							.map((s) => ({ id: s.id, output: s.output as string }));
+					},
+					getErrors(): Array<{ id: string; error: string }> {
+						return transformedSessions
+							.filter((s) => !s.success && s.error !== undefined)
+							.map((s) => ({ id: s.id, error: s.error as string }));
+					},
+				};
+
+				// Emit complete event
+				events?.parallelClaudeComplete({
+					success: result.success,
+					total: result.summary.total,
+					succeeded: result.summary.succeeded,
+					failed: result.summary.failed,
+					totalTokens: result.summary.totalTokens.total,
+					estimatedCostUsd: result.summary.estimatedCostUsd,
+					duration: timer.elapsed(),
+					aborted: false,
+					label: options?.label,
+				});
+
+				return result;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const elapsedDuration = timer.elapsed();
+
+				// Create empty error result with helper methods
+				const errorResult: ParallelClaudeResult = {
+					success: false,
+					totalDuration: elapsedDuration,
+					sessions: [],
+					summary: {
+						total: sessions.length,
+						succeeded: 0,
+						failed: sessions.length,
+						totalTokens: { input: 0, output: 0, total: 0 },
+						estimatedCostUsd: 0,
+					},
+					getSession(): ClaudeSessionResult | undefined {
+						return undefined;
+					},
+					getSuccessfulOutputs(): Array<{ id: string; output: string }> {
+						return [];
+					},
+					getErrors(): Array<{ id: string; error: string }> {
+						return sessions.map((session, index) => ({
+							id: session.id ?? `session_${index}`,
+							error: message,
+						}));
+					},
+				};
+
+				// Emit complete event with failure
+				events?.parallelClaudeComplete({
+					success: false,
+					total: sessions.length,
+					succeeded: 0,
+					failed: sessions.length,
+					totalTokens: 0,
+					estimatedCostUsd: 0,
+					duration: elapsedDuration,
+					aborted: true,
+					label: options?.label,
+				});
+
+				return errorResult;
 			}
 		},
 

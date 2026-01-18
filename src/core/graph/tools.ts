@@ -6,46 +6,46 @@
  * tool implementations.
  */
 
-import type { FileOperations } from "../utils/files/index.js";
-import type { SchemaValidator, JsonSchema } from "../utils/schema/index.js";
-import type { RetryableOperation, RetryConfig } from "../utils/retry/index.js";
-import type { IterationHelper } from "../utils/iteration/index.js";
 import type {
-	GitConfig,
-	GitOperations,
-	GitStatus,
-	GitBranch,
-	GitCommit,
-	GitDiff,
-	GitWorktree,
-	GitStashEntry,
-	GitRemote,
-	GitError,
-	GitResult,
-	CreateBranchOptions,
-	SwitchBranchOptions,
-	DeleteBranchOptions,
-	ListBranchesOptions,
-	CommitOptions,
-	AddOptions,
-	ResetOptions,
-	DiffOptions,
-	LogOptions,
-	WorktreeAddOptions,
-	WorktreeRemoveOptions,
-	StashOptions,
-	StashPopOptions,
-} from "../tools/git/types.js";
-import type {
-	ModelSpec,
-	ToolsConfig,
+	AgentErrorType,
+	AgentMessageSubtype,
+	AgentMessageType,
 	BuiltInTool,
+	ModelSpec,
 	PermissionMode,
 	SubagentDefinition,
-	AgentMessageType,
-	AgentMessageSubtype,
-	AgentErrorType,
+	ToolsConfig,
 } from "../tools/claudeAgent.types.js";
+import type {
+	AddOptions,
+	CommitOptions,
+	CreateBranchOptions,
+	DeleteBranchOptions,
+	DiffOptions,
+	GitBranch,
+	GitCommit,
+	GitConfig,
+	GitDiff,
+	GitError,
+	GitOperations,
+	GitRemote,
+	GitResult,
+	GitStashEntry,
+	GitStatus,
+	GitWorktree,
+	ListBranchesOptions,
+	LogOptions,
+	ResetOptions,
+	StashOptions,
+	StashPopOptions,
+	SwitchBranchOptions,
+	WorktreeAddOptions,
+	WorktreeRemoveOptions,
+} from "../tools/git/types.js";
+import type { FileOperations } from "../utils/files/index.js";
+import type { IterationHelper } from "../utils/iteration/index.js";
+import type { RetryableOperation, RetryConfig } from "../utils/retry/index.js";
+import type { JsonSchema, SchemaValidator } from "../utils/schema/index.js";
 
 /**
  * Options for bash command execution.
@@ -190,6 +190,122 @@ export interface ClaudeResult {
 	success: boolean;
 	output: string;
 	error?: string;
+}
+
+/**
+ * Token usage tracking for Claude sessions.
+ */
+export interface TokenUsage {
+	/** Number of input tokens */
+	input: number;
+	/** Number of output tokens */
+	output: number;
+	/** Total tokens (input + output) */
+	total: number;
+}
+
+/**
+ * Configuration for a single session in parallel Claude execution.
+ */
+export interface ParallelClaudeConfig {
+	/** The prompt to send to the Claude session */
+	prompt: string;
+	/** Unique identifier for the session (auto-generated if not provided) */
+	id?: string;
+	/** Model to use (alias or full ID) */
+	model?: "sonnet" | "opus" | "haiku" | string;
+	/** Tools to allow for this session */
+	tools?: BuiltInTool[];
+	/** System prompt for this session */
+	systemPrompt?: string;
+	/** Working directory for file operations */
+	workingDirectory?: string;
+	/** Timeout in milliseconds for this session */
+	timeout?: number;
+	/** Maximum budget in USD for this session */
+	maxBudgetUsd?: number;
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Options for parallel Claude execution.
+ */
+export interface ParallelClaudeOptions {
+	/** Maximum number of concurrent sessions (default: 3, range: 1-5) */
+	maxConcurrency?: number;
+	/** Whether to continue executing remaining sessions when one fails (default: true) */
+	continueOnError?: boolean;
+	/** Maximum total timeout for all sessions in milliseconds */
+	totalTimeout?: number;
+	/** Maximum total budget in USD for all sessions */
+	maxTotalBudgetUsd?: number;
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Result for a single session in parallel Claude execution.
+ */
+export interface ClaudeSessionResult {
+	/** Unique identifier for the session */
+	id: string;
+	/** Whether the session completed successfully */
+	success: boolean;
+	/** Final output text from the session */
+	output?: string;
+	/** All messages from the session */
+	messages: AgentMessage[];
+	/** Error message if session failed */
+	error?: string;
+	/** Token usage for this session */
+	tokens: TokenUsage;
+	/** Execution duration in milliseconds */
+	duration: number;
+	/** Time spent waiting in queue before execution in milliseconds */
+	queueWaitTime: number;
+	/** Model used for this session */
+	model: string;
+	/** Session ID for resume capability */
+	sessionId?: string;
+	/** Human-readable label (if provided) */
+	label?: string;
+}
+
+/**
+ * Summary statistics for parallel Claude execution.
+ */
+export interface ParallelClaudeSummary {
+	/** Total number of sessions */
+	total: number;
+	/** Number of successful sessions */
+	succeeded: number;
+	/** Number of failed sessions */
+	failed: number;
+	/** Aggregated token usage across all sessions */
+	totalTokens: TokenUsage;
+	/** Estimated cost in USD based on model and token counts */
+	estimatedCostUsd: number;
+}
+
+/**
+ * Result of parallel Claude execution.
+ */
+export interface ParallelClaudeResult {
+	/** Whether all sessions succeeded */
+	success: boolean;
+	/** Total execution duration in milliseconds */
+	totalDuration: number;
+	/** Individual results for each session */
+	sessions: ClaudeSessionResult[];
+	/** Summary statistics */
+	summary: ParallelClaudeSummary;
+	/** Get result for a specific session by ID */
+	getSession(id: string): ClaudeSessionResult | undefined;
+	/** Get outputs from all successful sessions */
+	getSuccessfulOutputs(): Array<{ id: string; output: string }>;
+	/** Get error details from all failed sessions */
+	getErrors(): Array<{ id: string; error: string }>;
 }
 
 /**
@@ -512,6 +628,50 @@ export interface WorkflowTools {
 		prompt: string,
 		options?: AgentSessionOptions,
 	): Promise<AgentSessionResult>;
+
+	/**
+	 * Execute multiple Claude Agent SDK sessions concurrently.
+	 *
+	 * Sessions execute in parallel with configurable concurrency limits.
+	 * Uses Promise.allSettled semantics by default - individual session
+	 * failures don't abort other sessions unless continueOnError is false.
+	 *
+	 * @param sessions - Array of session configurations to execute
+	 * @param options - Parallel execution options
+	 * @returns Promise resolving to results with summary, token tracking, and helper methods
+	 *
+	 * @example
+	 * ```typescript
+	 * // Execute multiple analysis tasks in parallel
+	 * const result = await tools.parallelClaude([
+	 *   { prompt: 'Analyze security vulnerabilities', id: 'security', workingDirectory: './src' },
+	 *   { prompt: 'Review code quality', id: 'quality', model: 'sonnet' },
+	 *   { prompt: 'Generate documentation', id: 'docs', systemPrompt: 'You are a technical writer' },
+	 * ], { maxConcurrency: 3 });
+	 *
+	 * // Check overall success
+	 * if (result.success) {
+	 *   console.log('All sessions succeeded');
+	 * }
+	 *
+	 * // Get specific session result
+	 * const securityResult = result.getSession('security');
+	 *
+	 * // Get all successful outputs
+	 * const outputs = result.getSuccessfulOutputs();
+	 *
+	 * // Get error details
+	 * const errors = result.getErrors();
+	 *
+	 * // Access token usage summary
+	 * console.log(`Total tokens: ${result.summary.totalTokens.total}`);
+	 * console.log(`Estimated cost: $${result.summary.estimatedCostUsd.toFixed(4)}`);
+	 * ```
+	 */
+	parallelClaude(
+		sessions: ParallelClaudeConfig[],
+		options?: ParallelClaudeOptions,
+	): Promise<ParallelClaudeResult>;
 
 	/**
 	 * Git operations for repository management.
