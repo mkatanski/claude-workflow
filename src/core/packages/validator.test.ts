@@ -535,15 +535,15 @@ describe("PackageValidator", () => {
 					name: "pkg-a",
 					version: "1.0.0",
 					main: "./index.ts",
-					dependencies: { "pkg-b": "^1.0.0" },
+					dependencies: { "pkg-b": "^1.0.0" } as Record<string, string>,
 				},
 				{
 					name: "pkg-b",
 					version: "1.0.0",
 					main: "./index.ts",
-					dependencies: { "pkg-c": "^1.0.0" },
+					dependencies: { "pkg-c": "^1.0.0" } as Record<string, string>,
 				},
-				{ name: "pkg-c", version: "1.0.0", main: "./index.ts" },
+				{ name: "pkg-c", version: "1.0.0", main: "./index.ts", dependencies: {} as Record<string, string> },
 			];
 
 			const graph = validator.buildDependencyGraph(packages);
@@ -577,13 +577,13 @@ describe("PackageValidator", () => {
 					name: "pkg-a",
 					version: "1.0.0",
 					main: "./index.ts",
-					dependencies: { "pkg-b": "^1.0.0" },
+					dependencies: { "pkg-b": "^1.0.0" } as Record<string, string>,
 				},
 				{
 					name: "pkg-b",
 					version: "1.0.0",
 					main: "./index.ts",
-					dependencies: { "pkg-a": "^1.0.0" },
+					dependencies: { "pkg-a": "^1.0.0" } as Record<string, string>,
 				},
 			];
 
@@ -792,7 +792,7 @@ describe("PackageValidator", () => {
 
 		it("should format failed validation result with errors", () => {
 			const result = {
-				valid: false,
+				valid: false as const,
 				errors: [
 					{
 						code: PACKAGE_ERROR_CODES.INVALID_NAME,
@@ -814,7 +814,7 @@ describe("PackageValidator", () => {
 
 		it("should format warnings in result", () => {
 			const result = {
-				valid: true,
+				valid: true as const,
 				errors: [],
 				warnings: [
 					{
@@ -836,7 +836,7 @@ describe("PackageValidator", () => {
 
 		it("should format result without packageJson", () => {
 			const result = {
-				valid: false,
+				valid: false as const,
 				errors: [
 					{
 						code: PACKAGE_ERROR_CODES.INVALID_JSON,
