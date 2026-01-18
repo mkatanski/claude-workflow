@@ -42,6 +42,16 @@ import type {
   ToolChecklistStartPayload,
   ToolChecklistCompletePayload,
   ToolChecklistItemCompletePayload,
+  // Git events
+  ToolGitCommitPayload,
+  ToolGitBranchCreatePayload,
+  ToolGitBranchSwitchPayload,
+  ToolGitBranchDeletePayload,
+  ToolGitWorktreeAddPayload,
+  ToolGitWorktreeRemovePayload,
+  ToolGitErrorPayload,
+  ToolGitStatusPayload,
+  ToolGitStashPayload,
   // Retry events
   RetryStartPayload,
   RetryAttemptPayload,
@@ -255,6 +265,55 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
     checklistComplete(payload: ToolChecklistCompletePayload) {
       return emitter.emit('tool:checklist:complete', payload);
+    },
+
+    // ========================================================================
+    // Tool: Git Events
+    // ========================================================================
+
+    gitCommit(payload: ToolGitCommitPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:commit', payload);
+    },
+
+    gitBranchCreate(payload: ToolGitBranchCreatePayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:branch:create', payload);
+    },
+
+    gitBranchSwitch(payload: ToolGitBranchSwitchPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:branch:switch', payload);
+    },
+
+    gitBranchDelete(payload: ToolGitBranchDeletePayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:branch:delete', payload);
+    },
+
+    gitWorktreeAdd(payload: ToolGitWorktreeAddPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:worktree:add', payload);
+    },
+
+    gitWorktreeRemove(payload: ToolGitWorktreeRemovePayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:worktree:remove', payload);
+    },
+
+    gitStatus(payload: ToolGitStatusPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:status', payload);
+    },
+
+    gitStash(payload: ToolGitStashPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:stash', payload);
+    },
+
+    gitError(payload: ToolGitErrorPayload) {
+      emitter.setContext({ toolName: 'git' });
+      return emitter.emit('tool:git:error', payload);
     },
 
     // ========================================================================

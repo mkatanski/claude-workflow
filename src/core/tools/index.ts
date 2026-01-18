@@ -15,6 +15,7 @@ export { ChecklistTool } from "./checklist.ts";
 export { LinearTasksTool } from "./linearTasks.ts";
 export { LinearManageTool } from "./linearManage.ts";
 export { HookTool } from "./hook.ts";
+export { GitTool } from "./git/GitTool.ts";
 
 // Import and register all tools
 import { ToolRegistry } from "./registry.ts";
@@ -28,6 +29,7 @@ import { ChecklistTool } from "./checklist.ts";
 import { LinearTasksTool } from "./linearTasks.ts";
 import { LinearManageTool } from "./linearManage.ts";
 import { HookTool } from "./hook.ts";
+import { GitTool } from "./git/GitTool.ts";
 
 /**
  * Register all built-in tools.
@@ -43,4 +45,5 @@ export function registerBuiltinTools(): void {
 	ToolRegistry.register(new LinearTasksTool());
 	ToolRegistry.register(new LinearManageTool());
 	ToolRegistry.register(new HookTool());
+	ToolRegistry.register(new GitTool());
 }

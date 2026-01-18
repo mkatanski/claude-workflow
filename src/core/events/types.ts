@@ -444,6 +444,103 @@ export type ToolHookCompleteEvent = BaseEvent<'tool:hook:complete', ToolHookComp
 export type ToolHookEvent = ToolHookStartEvent | ToolHookCompleteEvent;
 
 // ============================================================================
+// Tool Events - Git
+// ============================================================================
+
+export interface ToolGitCommitPayload {
+  hash: string;
+  shortHash: string;
+  message: string;
+  filesCount: number;
+  amend: boolean;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitBranchCreatePayload {
+  name: string;
+  from: string;
+  checkout: boolean;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitBranchSwitchPayload {
+  from: string;
+  to: string;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitBranchDeletePayload {
+  name: string;
+  force: boolean;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitWorktreeAddPayload {
+  path: string;
+  branch: string;
+  created: boolean;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitWorktreeRemovePayload {
+  path: string;
+  force: boolean;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitErrorPayload {
+  operation: string;
+  errorType: string;
+  message: string;
+  command?: string;
+  label?: string;
+}
+
+export interface ToolGitStatusPayload {
+  branch: string;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  label?: string;
+  duration: number;
+}
+
+export interface ToolGitStashPayload {
+  action: 'push' | 'pop' | 'list';
+  message?: string;
+  index?: number;
+  label?: string;
+  duration: number;
+}
+
+export type ToolGitCommitEvent = BaseEvent<'tool:git:commit', ToolGitCommitPayload>;
+export type ToolGitBranchCreateEvent = BaseEvent<'tool:git:branch:create', ToolGitBranchCreatePayload>;
+export type ToolGitBranchSwitchEvent = BaseEvent<'tool:git:branch:switch', ToolGitBranchSwitchPayload>;
+export type ToolGitBranchDeleteEvent = BaseEvent<'tool:git:branch:delete', ToolGitBranchDeletePayload>;
+export type ToolGitWorktreeAddEvent = BaseEvent<'tool:git:worktree:add', ToolGitWorktreeAddPayload>;
+export type ToolGitWorktreeRemoveEvent = BaseEvent<'tool:git:worktree:remove', ToolGitWorktreeRemovePayload>;
+export type ToolGitErrorEvent = BaseEvent<'tool:git:error', ToolGitErrorPayload>;
+export type ToolGitStatusEvent = BaseEvent<'tool:git:status', ToolGitStatusPayload>;
+export type ToolGitStashEvent = BaseEvent<'tool:git:stash', ToolGitStashPayload>;
+
+export type ToolGitEvent =
+  | ToolGitCommitEvent
+  | ToolGitBranchCreateEvent
+  | ToolGitBranchSwitchEvent
+  | ToolGitBranchDeleteEvent
+  | ToolGitWorktreeAddEvent
+  | ToolGitWorktreeRemoveEvent
+  | ToolGitErrorEvent
+  | ToolGitStatusEvent
+  | ToolGitStashEvent;
+
+// ============================================================================
 // Retry Events
 // ============================================================================
 
@@ -567,6 +664,7 @@ export type ToolEvent =
   | ToolJsonEvent
   | ToolChecklistEvent
   | ToolHookEvent
+  | ToolGitEvent
   | RetryEvent
   | CircuitBreakerEvent;
 
@@ -773,7 +871,7 @@ export type EventHandler<T extends WorkflowEventType = WorkflowEventType> = (
 ) => void | Promise<void>;
 
 /** Pattern matcher for event categories */
-export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'debug:*' | 'log';
+export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'tool:git:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'debug:*' | 'log';
 
 /** Subscription handle for cleanup */
 export interface Subscription {
@@ -834,4 +932,8 @@ export function isRetryEvent(event: WorkflowEvent): event is RetryEvent {
 
 export function isCircuitBreakerEvent(event: WorkflowEvent): event is CircuitBreakerEvent {
   return event.type.startsWith('circuit:');
+}
+
+export function isGitEvent(event: WorkflowEvent): event is ToolGitEvent {
+  return event.type.startsWith('tool:git:');
 }

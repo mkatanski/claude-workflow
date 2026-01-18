@@ -10,6 +10,32 @@ import type { FileOperations } from "../utils/files/index.js";
 import type { SchemaValidator, JsonSchema } from "../utils/schema/index.js";
 import type { RetryableOperation, RetryConfig } from "../utils/retry/index.js";
 import type { IterationHelper } from "../utils/iteration/index.js";
+import type {
+	GitConfig,
+	GitOperations,
+	GitStatus,
+	GitBranch,
+	GitCommit,
+	GitDiff,
+	GitWorktree,
+	GitStashEntry,
+	GitRemote,
+	GitError,
+	GitResult,
+	CreateBranchOptions,
+	SwitchBranchOptions,
+	DeleteBranchOptions,
+	ListBranchesOptions,
+	CommitOptions,
+	AddOptions,
+	ResetOptions,
+	DiffOptions,
+	LogOptions,
+	WorktreeAddOptions,
+	WorktreeRemoveOptions,
+	StashOptions,
+	StashPopOptions,
+} from "../tools/git/types.js";
 
 /**
  * Options for bash command execution.
@@ -253,6 +279,38 @@ export interface WorkflowTools {
 	 */
 	hook(name: string, options?: HookOptions): Promise<HookResult>;
 
+	/**
+	 * Git operations for repository management.
+	 *
+	 * Provides access to Git operations including:
+	 * - Status: status(), isRepo(), getBranch(), getRemotes()
+	 * - Branch: createBranch(), switchBranch(), deleteBranch(), listBranches()
+	 * - Commit: commit(), add(), reset()
+	 * - Diff: diff()
+	 * - Log: log()
+	 * - Worktree: worktreeAdd(), worktreeRemove(), worktreeList()
+	 * - Stash: stash(), stashPop(), stashList()
+	 *
+	 * All operations return Result<T, GitError> for proper error handling.
+	 *
+	 * @example
+	 * ```typescript
+	 * // Get repository status
+	 * const statusResult = await tools.git.status();
+	 * if (isOk(statusResult)) {
+	 *   console.log(`On branch ${statusResult.value.branch}`);
+	 * }
+	 *
+	 * // Create and switch to a new branch
+	 * await tools.git.createBranch({ name: 'feature/new', checkout: true });
+	 *
+	 * // Commit changes
+	 * await tools.git.add({ all: true });
+	 * const commitResult = await tools.git.commit({ message: 'Add new feature' });
+	 * ```
+	 */
+	readonly git: GitOperations;
+
 	// --- Logging ---
 
 	/**
@@ -331,3 +389,46 @@ export interface WorkflowTools {
 
 /** Log level type */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+// =============================================================================
+// Git Type Re-exports
+// =============================================================================
+
+/**
+ * Re-export Git types for use by workflow nodes.
+ * These types are needed when working with the tools.git operations.
+ */
+export type {
+	// Core types
+	GitConfig,
+	GitOperations,
+	GitError,
+	GitResult,
+	// Status types
+	GitStatus,
+	GitRemote,
+	// Branch types
+	GitBranch,
+	CreateBranchOptions,
+	SwitchBranchOptions,
+	DeleteBranchOptions,
+	ListBranchesOptions,
+	// Commit types
+	GitCommit,
+	CommitOptions,
+	AddOptions,
+	ResetOptions,
+	// Diff types
+	GitDiff,
+	DiffOptions,
+	// Log types
+	LogOptions,
+	// Worktree types
+	GitWorktree,
+	WorktreeAddOptions,
+	WorktreeRemoveOptions,
+	// Stash types
+	GitStashEntry,
+	StashOptions,
+	StashPopOptions,
+};

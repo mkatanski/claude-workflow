@@ -49,6 +49,32 @@ import type { JsonSchema } from "../utils/schema/index.js";
 import { RetryableOperation } from "../utils/retry/index.js";
 import type { RetryConfig } from "../utils/retry/index.js";
 import { IterationHelper } from "../utils/iteration/index.js";
+import { GitTool } from "../tools/git/index.ts";
+import type {
+	GitConfig,
+	GitOperations,
+	GitStatus,
+	GitRemote,
+	GitBranch,
+	GitCommit,
+	GitDiff,
+	GitWorktree,
+	GitStashEntry,
+	GitResult,
+	CreateBranchOptions,
+	SwitchBranchOptions,
+	DeleteBranchOptions,
+	ListBranchesOptions,
+	CommitOptions,
+	AddOptions,
+	ResetOptions,
+	DiffOptions,
+	LogOptions,
+	WorktreeAddOptions,
+	WorktreeRemoveOptions,
+	StashOptions,
+	StashPopOptions,
+} from "../tools/git/index.ts";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -109,6 +135,7 @@ export function createWorkflowTools(
 	const jsonTool = new JsonTool();
 	const checklistTool = new ChecklistTool();
 	const hookTool = new HookTool();
+	const gitTool = new GitTool();
 
 	// Create placeholder TmuxManager if not provided
 	// This is used for non-tmux tools that still need the parameter
@@ -594,6 +621,9 @@ export function createWorkflowTools(
 		createIterator<T>(items: readonly T[], stateKey: string): IterationHelper<T> {
 			return new IterationHelper<T>(items, stateKey, tools);
 		},
+
+		// --- Git operations ---
+		git: createGitOperationsWrapper(gitTool, config.projectPath, events),
 	};
 
 	return {
@@ -622,4 +652,396 @@ function createPlaceholderTmuxManager(): TmuxManager {
 		getPaneContentHash: throwError,
 		capturePaneContent: throwError,
 	} as unknown as TmuxManager;
+}
+
+/**
+ * Create a wrapper around GitTool that implements GitOperations with event emission.
+ *
+ * @param gitTool - The GitTool instance
+ * @param projectPath - Default working directory for operations
+ * @param events - Optional event helpers for emitting events
+ * @returns GitOperations implementation with event emission
+ */
+function createGitOperationsWrapper(
+	gitTool: GitTool,
+	projectPath: string,
+	events: EventHelpers | null,
+): GitOperations {
+	/**
+	 * Merge user config with default project path.
+	 */
+	const mergeConfig = (userConfig?: GitConfig): GitConfig => ({
+		cwd: projectPath,
+		...userConfig,
+	});
+
+	/**
+	 * Emit a git error event.
+	 */
+	const emitGitError = (
+		operation: string,
+		errorType: string,
+		message: string,
+		command?: string,
+		label?: string,
+	): void => {
+		events?.emit("tool:git:error", {
+			operation,
+			errorType,
+			message,
+			command,
+			label,
+		});
+	};
+
+	return {
+		// --- Status Operations ---
+
+		async status(config?: GitConfig): Promise<GitResult<GitStatus>> {
+			const timer = createTimer();
+			const mergedConfig = mergeConfig(config);
+			const result = await gitTool.status(mergedConfig);
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:status", {
+					branch: result.value.branch,
+					staged: result.value.staged.length,
+					unstaged: result.value.unstaged.length,
+					untracked: result.value.untracked.length,
+					label: config?.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"status",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					config?.label,
+				);
+			}
+
+			return result;
+		},
+
+		async isRepo(config?: GitConfig): Promise<GitResult<boolean>> {
+			return gitTool.isRepo(mergeConfig(config));
+		},
+
+		async getBranch(config?: GitConfig): Promise<GitResult<string>> {
+			return gitTool.getBranch(mergeConfig(config));
+		},
+
+		async getRemotes(config?: GitConfig): Promise<GitResult<GitRemote[]>> {
+			return gitTool.getRemotes(mergeConfig(config));
+		},
+
+		// --- Branch Operations ---
+
+		async createBranch(
+			options: CreateBranchOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const mergedConfig = mergeConfig(config);
+
+			// Get current branch before operation for event context
+			const currentBranchResult = await gitTool.getBranch(mergedConfig);
+			const fromBranch =
+				currentBranchResult._tag === "ok"
+					? currentBranchResult.value
+					: "unknown";
+
+			const result = await gitTool.createBranch(options, mergedConfig);
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:branch:create", {
+					name: options.name,
+					from: options.from ?? fromBranch,
+					checkout: options.checkout ?? false,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"createBranch",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async switchBranch(
+			options: SwitchBranchOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const mergedConfig = mergeConfig(config);
+
+			// Get current branch before switch
+			const currentBranchResult = await gitTool.getBranch(mergedConfig);
+			const fromBranch =
+				currentBranchResult._tag === "ok"
+					? currentBranchResult.value
+					: "unknown";
+
+			const result = await gitTool.switchBranch(options, mergedConfig);
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:branch:switch", {
+					from: fromBranch,
+					to: options.name,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"switchBranch",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async deleteBranch(
+			options: DeleteBranchOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const result = await gitTool.deleteBranch(options, mergeConfig(config));
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:branch:delete", {
+					name: options.name,
+					force: options.force ?? false,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"deleteBranch",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async listBranches(
+			options?: ListBranchesOptions,
+			config?: GitConfig,
+		): Promise<GitResult<GitBranch[]>> {
+			return gitTool.listBranches(options, mergeConfig(config));
+		},
+
+		// --- Commit Operations ---
+
+		async commit(
+			options: CommitOptions,
+			config?: GitConfig,
+		): Promise<GitResult<string>> {
+			const timer = createTimer();
+			const mergedConfig = mergeConfig(config);
+
+			// Get status to count files before commit
+			const statusResult = await gitTool.status(mergedConfig);
+			const filesCount =
+				statusResult._tag === "ok"
+					? statusResult.value.staged.length
+					: 0;
+
+			const result = await gitTool.commit(options, mergedConfig);
+
+			if (result._tag === "ok") {
+				const hash = result.value;
+				events?.emit("tool:git:commit", {
+					hash,
+					shortHash: hash.substring(0, 7),
+					message: options.message,
+					filesCount,
+					amend: options.amend ?? false,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"commit",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async add(
+			options: AddOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			return gitTool.add(options, mergeConfig(config));
+		},
+
+		async reset(
+			options?: ResetOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			return gitTool.reset(options, mergeConfig(config));
+		},
+
+		// --- Diff Operations ---
+
+		async diff(
+			options?: DiffOptions,
+			config?: GitConfig,
+		): Promise<GitResult<GitDiff>> {
+			return gitTool.diff(options, mergeConfig(config));
+		},
+
+		// --- Log Operations ---
+
+		async log(
+			options?: LogOptions,
+			config?: GitConfig,
+		): Promise<GitResult<GitCommit[]>> {
+			return gitTool.log(options, mergeConfig(config));
+		},
+
+		// --- Worktree Operations ---
+
+		async worktreeAdd(
+			options: WorktreeAddOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const result = await gitTool.worktreeAdd(options, mergeConfig(config));
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:worktree:add", {
+					path: options.path,
+					branch: options.branch ?? options.newBranch ?? "HEAD",
+					created: true,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"worktreeAdd",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async worktreeRemove(
+			options: WorktreeRemoveOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const result = await gitTool.worktreeRemove(options, mergeConfig(config));
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:worktree:remove", {
+					path: options.path,
+					force: options.force ?? false,
+					label: options.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"worktreeRemove",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options.label,
+				);
+			}
+
+			return result;
+		},
+
+		async worktreeList(
+			config?: GitConfig,
+		): Promise<GitResult<GitWorktree[]>> {
+			return gitTool.worktreeList(mergeConfig(config));
+		},
+
+		// --- Stash Operations ---
+
+		async stash(
+			options?: StashOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const result = await gitTool.stash(options, mergeConfig(config));
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:stash", {
+					action: "push" as const,
+					message: options?.message,
+					label: options?.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"stash",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options?.label,
+				);
+			}
+
+			return result;
+		},
+
+		async stashPop(
+			options?: StashPopOptions,
+			config?: GitConfig,
+		): Promise<GitResult<void>> {
+			const timer = createTimer();
+			const result = await gitTool.stashPop(options, mergeConfig(config));
+
+			if (result._tag === "ok") {
+				events?.emit("tool:git:stash", {
+					action: "pop" as const,
+					index: options?.index,
+					label: options?.label,
+					duration: timer.elapsed(),
+				});
+			} else {
+				emitGitError(
+					"stashPop",
+					result.error.type,
+					result.error.message,
+					result.error.command,
+					options?.label,
+				);
+			}
+
+			return result;
+		},
+
+		async stashList(
+			config?: GitConfig,
+		): Promise<GitResult<GitStashEntry[]>> {
+			return gitTool.stashList(mergeConfig(config));
+		},
+	};
 }
