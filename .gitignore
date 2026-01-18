@@ -39,6 +39,7 @@ coverage/
 executed
 status
 .claude/epic-prompt.md
+.stories/
 
 # Workflow temp files
 .temp/
