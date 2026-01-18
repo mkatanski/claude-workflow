@@ -1,0 +1,32 @@
+{
+	"name": "test-workflow",
+	"version": "1.0.0",
+	"main": "./index.ts",
+	"description": "A test workflow package for integration testing of the registry module",
+	"author": "Test Author",
+	"license": "MIT",
+	"keywords": [
+		"workflow",
+		"test",
+		"integration"
+	],
+	"workflows": {
+		"default": {
+			"description": "The default test workflow",
+			"tags": [
+				"test",
+				"default"
+			]
+		},
+		"alternate": {
+			"description": "An alternate workflow export for testing named exports",
+			"tags": [
+				"test",
+				"alternate"
+			]
+		}
+	},
+	"claude-orchestrator": {
+		"minVersion": "0.1.0"
+	}
+}
