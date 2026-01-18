@@ -158,8 +158,6 @@ export class BashTool extends BaseTool {
 	}
 
 	private async waitForCompletion(tmuxManager: TmuxManager): Promise<string> {
-		const startTime = Date.now();
-
 		// Hash-based idle detection state
 		let lastHash = "";
 		let lastHashChangeTime = Date.now();
@@ -169,7 +167,6 @@ export class BashTool extends BaseTool {
 
 		while (true) {
 			const currentTime = Date.now();
-			const elapsed = currentTime - startTime;
 
 			// Idle detection continues in background
 

@@ -343,3 +343,8 @@ export interface WorkflowDefinition {
  * This type is part of the legacy fluent API builder system.
  */
 export type WorkflowFactory = (t: WorkflowBuilder) => WorkflowDefinition;
+
+/**
+ * Re-export Claude Agent types for convenience.
+ */
+export type { ClaudeAgentConfig } from "../core/tools/claudeAgent.types.ts";

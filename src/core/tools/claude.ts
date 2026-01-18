@@ -75,7 +75,6 @@ export class ClaudeTool extends BaseTool {
 	 * Wait for Claude to finish via server completion signal.
 	 */
 	private async waitForCompletion(tmuxManager: TmuxManager): Promise<string> {
-		const startTime = Date.now();
 		const paneId = tmuxManager.currentPane;
 		const autoApprove = this.claudeConfig?.autoApprovePlan ?? true;
 		let lastApprovalCheck = Date.now();
@@ -88,8 +87,6 @@ export class ClaudeTool extends BaseTool {
 		}
 
 		while (true) {
-			const elapsed = Date.now() - startTime;
-
 			// Track elapsed time for timeout detection
 			if (Date.now() - lastUpdateTime > updateInterval) {
 				lastUpdateTime = Date.now();

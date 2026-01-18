@@ -16,6 +16,30 @@ export { LinearTasksTool } from "./linearTasks.ts";
 export { LinearManageTool } from "./linearManage.ts";
 export { HookTool } from "./hook.ts";
 export { GitTool } from "./git/GitTool.ts";
+export { ClaudeAgentTool } from "./claudeAgent.ts";
+export type {
+	AgentMessage,
+	AgentSessionResult,
+	AgentSessionOptions,
+} from "./claudeAgent.ts";
+export {
+	type ModelAlias,
+	type ModelSpec,
+	type BuiltInTool,
+	type ToolsConfig,
+	type PermissionMode,
+	type SubagentDefinition,
+	type AgentHookResult,
+	type PreToolUseHook,
+	type PostToolUseHook,
+	type CanUseToolFn,
+	type ClaudeAgentConfig,
+	type AgentErrorType,
+	type AgentMessageType,
+	type AgentMessageSubtype,
+	resolveModel,
+	MODEL_ALIASES,
+} from "./claudeAgent.types.ts";
 
 // Import and register all tools
 import { ToolRegistry } from "./registry.ts";

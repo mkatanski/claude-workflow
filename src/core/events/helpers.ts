@@ -37,6 +37,11 @@ import type {
   ToolClaudeSdkCompletePayload,
   ToolClaudeSdkErrorPayload,
   ToolClaudeSdkRetryPayload,
+  // AgentSession events
+  ToolAgentSessionStartPayload,
+  ToolAgentSessionMessagePayload,
+  ToolAgentSessionCompletePayload,
+  ToolAgentSessionErrorPayload,
   ToolHookStartPayload,
   ToolHookCompletePayload,
   ToolChecklistStartPayload,
@@ -235,6 +240,27 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
     claudeSdkError(payload: ToolClaudeSdkErrorPayload) {
       return emitter.emit('tool:claudeSdk:error', payload);
+    },
+
+    // ========================================================================
+    // Tool: AgentSession Events
+    // ========================================================================
+
+    agentSessionStart(payload: ToolAgentSessionStartPayload) {
+      emitter.setContext({ toolName: 'agentSession' });
+      return emitter.emit('tool:agentSession:start', payload);
+    },
+
+    agentSessionMessage(payload: ToolAgentSessionMessagePayload) {
+      return emitter.emit('tool:agentSession:message', payload);
+    },
+
+    agentSessionComplete(payload: ToolAgentSessionCompletePayload) {
+      return emitter.emit('tool:agentSession:complete', payload);
+    },
+
+    agentSessionError(payload: ToolAgentSessionErrorPayload) {
+      return emitter.emit('tool:agentSession:error', payload);
     },
 
     // ========================================================================

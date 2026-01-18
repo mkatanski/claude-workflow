@@ -36,6 +36,16 @@ import type {
 	StashOptions,
 	StashPopOptions,
 } from "../tools/git/types.js";
+import type {
+	ModelSpec,
+	ToolsConfig,
+	BuiltInTool,
+	PermissionMode,
+	SubagentDefinition,
+	AgentMessageType,
+	AgentMessageSubtype,
+	AgentErrorType,
+} from "../tools/claudeAgent.types.js";
 
 /**
  * Options for bash command execution.
@@ -216,6 +226,76 @@ export interface HookResult {
 }
 
 /**
+ * Options for agent session execution.
+ */
+export interface AgentSessionOptions {
+	/** Model to use (alias or full ID) */
+	model?: ModelSpec;
+	/** Tools to allow */
+	tools?: ToolsConfig;
+	/** Tools to disallow */
+	disallowedTools?: BuiltInTool[];
+	/** System prompt to use */
+	systemPrompt?: string;
+	/** Permission mode for tool execution */
+	permissionMode?: PermissionMode;
+	/** Working directory for file operations */
+	workingDirectory?: string;
+	/** Subagent definitions */
+	agents?: Record<string, SubagentDefinition>;
+	/** Maximum budget in USD */
+	maxBudgetUsd?: number;
+	/** Session ID to resume */
+	resume?: string;
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Message from an agent session conversation.
+ */
+export interface AgentMessage {
+	/** Type of the message */
+	type: AgentMessageType;
+	/** Text content (for assistant/error messages) */
+	content?: string;
+	/** Tool name (for tool_call/tool_result) */
+	toolName?: string;
+	/** Tool input parameters */
+	toolInput?: unknown;
+	/** Tool execution result */
+	toolResult?: unknown;
+	/** Error message */
+	error?: string;
+	/** Session ID for tracking */
+	sessionId?: string;
+	/** Message subtype for system messages */
+	subtype?: AgentMessageSubtype;
+	/** Agent name for subagent messages */
+	agentName?: string;
+}
+
+/**
+ * Result of an agent session execution.
+ */
+export interface AgentSessionResult {
+	/** Whether the session completed successfully */
+	success: boolean;
+	/** Final output text from the session */
+	output: string;
+	/** All messages from the session */
+	messages: AgentMessage[];
+	/** Session ID for resume capability */
+	sessionId?: string;
+	/** Duration of the session in milliseconds */
+	duration: number;
+	/** Error message if session failed */
+	error?: string;
+	/** Error type category */
+	errorType?: AgentErrorType;
+}
+
+/**
  * WorkflowTools interface - the facade for all workflow tools.
  *
  * This interface is passed to node functions, providing a clean API
@@ -278,6 +358,19 @@ export interface WorkflowTools {
 	 * Execute a project hook by name.
 	 */
 	hook(name: string, options?: HookOptions): Promise<HookResult>;
+
+	/**
+	 * Execute a multi-turn agent session using Claude Agent SDK.
+	 * Supports tool use, subagents, and session resume capability.
+	 *
+	 * @param prompt - The prompt to send to the agent
+	 * @param options - Agent session configuration options
+	 * @returns Promise resolving to the session result with messages and sessionId
+	 */
+	agentSession(
+		prompt: string,
+		options?: AgentSessionOptions,
+	): Promise<AgentSessionResult>;
 
 	/**
 	 * Git operations for repository management.

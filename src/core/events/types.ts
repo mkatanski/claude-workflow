@@ -364,6 +364,58 @@ export type ToolClaudeSdkEvent =
   | ToolClaudeSdkErrorEvent;
 
 // ============================================================================
+// Tool Events - AgentSession
+// ============================================================================
+
+export interface ToolAgentSessionStartPayload {
+  prompt: string;
+  label?: string;
+  model: string;
+  tools?: string[];
+  workingDirectory?: string;
+  hasSubagents: boolean;
+  isResume: boolean;
+  resumeSessionId?: string;
+}
+
+export interface ToolAgentSessionMessagePayload {
+  label?: string;
+  messageType: 'assistant' | 'tool_call' | 'tool_result' | 'error' | 'system';
+  content?: string;
+  toolName?: string;
+  sessionId?: string;
+  subtype?: string;
+  agentName?: string;
+}
+
+export interface ToolAgentSessionCompletePayload {
+  label?: string;
+  success: boolean;
+  output: string;
+  sessionId?: string;
+  messageCount: number;
+  duration: number;
+}
+
+export interface ToolAgentSessionErrorPayload {
+  label?: string;
+  error: string;
+  errorType?: 'AUTHENTICATION_FAILED' | 'RATE_LIMIT_EXCEEDED' | 'CONTEXT_LENGTH_EXCEEDED' | 'PERMISSION_DENIED' | 'BUDGET_EXCEEDED' | 'SESSION_NOT_FOUND' | 'UNKNOWN';
+  sessionId?: string;
+}
+
+export type ToolAgentSessionStartEvent = BaseEvent<'tool:agentSession:start', ToolAgentSessionStartPayload>;
+export type ToolAgentSessionMessageEvent = BaseEvent<'tool:agentSession:message', ToolAgentSessionMessagePayload>;
+export type ToolAgentSessionCompleteEvent = BaseEvent<'tool:agentSession:complete', ToolAgentSessionCompletePayload>;
+export type ToolAgentSessionErrorEvent = BaseEvent<'tool:agentSession:error', ToolAgentSessionErrorPayload>;
+
+export type ToolAgentSessionEvent =
+  | ToolAgentSessionStartEvent
+  | ToolAgentSessionMessageEvent
+  | ToolAgentSessionCompleteEvent
+  | ToolAgentSessionErrorEvent;
+
+// ============================================================================
 // Tool Events - JSON
 // ============================================================================
 
@@ -661,6 +713,7 @@ export type ToolEvent =
   | ToolBashEvent
   | ToolClaudeEvent
   | ToolClaudeSdkEvent
+  | ToolAgentSessionEvent
   | ToolJsonEvent
   | ToolChecklistEvent
   | ToolHookEvent
@@ -871,7 +924,7 @@ export type EventHandler<T extends WorkflowEventType = WorkflowEventType> = (
 ) => void | Promise<void>;
 
 /** Pattern matcher for event categories */
-export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'tool:git:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'debug:*' | 'log';
+export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:agentSession:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'tool:git:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'debug:*' | 'log';
 
 /** Subscription handle for cleanup */
 export interface Subscription {
@@ -936,4 +989,8 @@ export function isCircuitBreakerEvent(event: WorkflowEvent): event is CircuitBre
 
 export function isGitEvent(event: WorkflowEvent): event is ToolGitEvent {
   return event.type.startsWith('tool:git:');
+}
+
+export function isToolAgentSessionEvent(event: WorkflowEvent): event is ToolAgentSessionEvent {
+  return event.type.startsWith('tool:agentSession:');
 }

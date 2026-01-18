@@ -23,6 +23,8 @@ import type {
 	HookOptions,
 	HookResult,
 	LogLevel,
+	AgentSessionOptions,
+	AgentSessionResult,
 } from "./tools.ts";
 import { ExecutionContext } from "../context/execution.ts";
 import type { TmuxManager } from "../tmux/manager.ts";
@@ -37,6 +39,9 @@ import { ClaudeSdkTool } from "../tools/claudeSdk.ts";
 import { JsonTool } from "../tools/json.ts";
 import { ChecklistTool } from "../tools/checklist.ts";
 import { HookTool } from "../tools/hook.ts";
+import { ClaudeAgentTool } from "../tools/claudeAgent.ts";
+import { resolveModel } from "../tools/claudeAgent.types.ts";
+import type { ClaudeAgentConfig } from "../tools/claudeAgent.types.ts";
 import {
 	type WorkflowEmitter,
 	createEventHelpers,
@@ -84,6 +89,7 @@ export interface WorkflowToolsConfig {
 	tempDir: string;
 	claudeConfig?: ClaudeConfig;
 	claudeSdkConfig?: ClaudeSdkConfig;
+	claudeAgentConfig?: ClaudeAgentConfig;
 }
 
 /**
@@ -132,6 +138,7 @@ export function createWorkflowTools(
 	const bashTool = new BashTool();
 	const claudeTool = new ClaudeTool(config.claudeConfig);
 	const claudeSdkTool = new ClaudeSdkTool(config.claudeSdkConfig);
+	const claudeAgentTool = new ClaudeAgentTool(config.claudeAgentConfig);
 	const jsonTool = new JsonTool();
 	const checklistTool = new ChecklistTool();
 	const hookTool = new HookTool();
@@ -570,6 +577,111 @@ export function createWorkflowTools(
 					success: false,
 					output: "",
 					error: message,
+				};
+			}
+		},
+
+		async agentSession(
+			prompt: string,
+			options?: AgentSessionOptions,
+		): Promise<AgentSessionResult> {
+			const timer = createTimer();
+			const label = options?.label;
+			const model = resolveModel(options?.model ?? "sonnet");
+
+			// Determine tools list for event payload
+			const toolsList = Array.isArray(options?.tools)
+				? options.tools
+				: options?.tools?.type === "preset"
+					? [options.tools.preset]
+					: undefined;
+
+			// Emit start event
+			events?.agentSessionStart({
+				prompt,
+				label,
+				model,
+				tools: toolsList,
+				workingDirectory: options?.workingDirectory,
+				hasSubagents: options?.agents ? Object.keys(options.agents).length > 0 : false,
+				isResume: !!options?.resume,
+				resumeSessionId: options?.resume,
+			});
+
+			try {
+				// Execute the agent session
+				const result = await claudeAgentTool.executeSession(prompt, {
+					model: options?.model,
+					tools: Array.isArray(options?.tools) ? options.tools : undefined,
+					disallowedTools: options?.disallowedTools,
+					systemPrompt: options?.systemPrompt,
+					permissionMode: options?.permissionMode,
+					workingDirectory: options?.workingDirectory ?? config.projectPath,
+					agents: options?.agents,
+					maxBudgetUsd: options?.maxBudgetUsd,
+					resume: options?.resume,
+					label,
+				});
+
+				// Emit message events for each message in the session
+				for (const message of result.messages) {
+					events?.agentSessionMessage({
+						label,
+						messageType: message.type,
+						content: message.content,
+						toolName: message.toolName,
+						sessionId: message.sessionId,
+						subtype: message.subtype,
+						agentName: message.agentName,
+					});
+				}
+
+				if (result.success) {
+					// Emit complete event
+					events?.agentSessionComplete({
+						label,
+						success: true,
+						output: result.output,
+						sessionId: result.sessionId,
+						messageCount: result.messages.length,
+						duration: timer.elapsed(),
+					});
+				} else {
+					// Emit error event
+					events?.agentSessionError({
+						label,
+						error: result.error ?? "Agent session failed",
+						errorType: result.errorType,
+						sessionId: result.sessionId,
+					});
+				}
+
+				return {
+					success: result.success,
+					output: result.output,
+					messages: result.messages,
+					sessionId: result.sessionId,
+					duration: timer.elapsed(),
+					error: result.error,
+					errorType: result.errorType,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				// Emit error event
+				events?.agentSessionError({
+					label,
+					error: message,
+					errorType: "UNKNOWN",
+				});
+
+				return {
+					success: false,
+					output: "",
+					messages: [],
+					duration: timer.elapsed(),
+					error: message,
+					errorType: "UNKNOWN",
 				};
 			}
 		},
