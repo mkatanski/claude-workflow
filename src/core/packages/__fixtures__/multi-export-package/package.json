@@ -1,0 +1,55 @@
+{
+	"name": "@test-org/multi-export-workflow",
+	"version": "2.1.0",
+	"main": "./index.ts",
+	"description": "A multi-export workflow package for integration testing",
+	"author": {
+		"name": "Test Author",
+		"email": "test@example.com",
+		"url": "https://example.com"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/test-org/multi-export-workflow.git"
+	},
+	"license": "Apache-2.0",
+	"keywords": [
+		"workflow",
+		"test",
+		"multi-export",
+		"integration"
+	],
+	"workflows": {
+		"default": {
+			"description": "The default deployment workflow",
+			"tags": [
+				"deploy",
+				"production"
+			]
+		},
+		"createStagingWorkflow": {
+			"description": "Workflow for staging deployments",
+			"tags": [
+				"deploy",
+				"staging"
+			]
+		},
+		"createRollbackWorkflow": {
+			"description": "Workflow for rolling back deployments",
+			"tags": [
+				"deploy",
+				"rollback",
+				"recovery"
+			]
+		}
+	},
+	"dependencies": {
+		"simple-workflow-package": "^1.0.0"
+	},
+	"claude-orchestrator": {
+		"minVersion": "0.5.0",
+		"requires": [
+			"git"
+		]
+	}
+}

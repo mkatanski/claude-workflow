@@ -38,7 +38,7 @@
  * - breakpoint: Breakpoint changed (verified/unverified)
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from "crypto";
 import type {
 	DebuggerConfig,
 	NodeBreakpoint,
@@ -48,9 +48,9 @@ import type {
 	DapRequestType,
 	DapEventType,
 	StoppedReason,
-} from './types';
-import { Debugger, createDebugger } from './debugger';
-import type { DebugEventCallbacks } from './debugger';
+} from "./types";
+import { Debugger, createDebugger } from "./debugger";
+import type { DebugEventCallbacks } from "./debugger";
 
 // ============================================================================
 // DAP Protocol Types
@@ -61,14 +61,14 @@ import type { DebugEventCallbacks } from './debugger';
  */
 interface DapMessage {
 	seq: number;
-	type: 'request' | 'response' | 'event';
+	type: "request" | "response" | "event";
 }
 
 /**
  * DAP request message
  */
 interface DapRequest extends DapMessage {
-	type: 'request';
+	type: "request";
 	command: DapRequestType;
 	arguments?: Record<string, unknown>;
 }
@@ -77,7 +77,7 @@ interface DapRequest extends DapMessage {
  * DAP response message
  */
 interface DapResponseMessage extends DapMessage {
-	type: 'response';
+	type: "response";
 	request_seq: number;
 	success: boolean;
 	command: string;
@@ -89,7 +89,7 @@ interface DapResponseMessage extends DapMessage {
  * DAP event message
  */
 interface DapEvent extends DapMessage {
-	type: 'event';
+	type: "event";
 	event: DapEventType;
 	body?: unknown;
 }
@@ -207,7 +207,7 @@ export class VsCodeDebugAdapter {
 	private debugger: Debugger;
 	private sequenceNumber = 1;
 	private disposed = false;
-	private pendingOutput: string = '';
+	private pendingOutput: string = "";
 	private variableReferences = new Map<number, VariableInfo>();
 	private nextVariableReference = 1;
 	private breakpointMap = new Map<string, DapBreakpoint>();
@@ -248,9 +248,9 @@ export class VsCodeDebugAdapter {
 		this.checkDisposed();
 
 		// Set up protocol communication
-		this.inputStream.on('data', this.handleInput.bind(this));
+		this.inputStream.on("data", this.handleInput.bind(this));
 
-		this.debug('Debug adapter started');
+		this.debug("Debug adapter started");
 	}
 
 	/**
@@ -260,9 +260,9 @@ export class VsCodeDebugAdapter {
 		if (this.disposed) return;
 
 		await this.debugger.stop();
-		this.sendEvent('terminated', {});
+		this.sendEvent("terminated", {});
 
-		this.debug('Debug adapter stopped');
+		this.debug("Debug adapter stopped");
 	}
 
 	/**
@@ -275,7 +275,7 @@ export class VsCodeDebugAdapter {
 		this.debugger.dispose();
 
 		this.disposed = true;
-		this.debug('Debug adapter disposed');
+		this.debug("Debug adapter disposed");
 	}
 
 	// ==========================================================================
@@ -290,7 +290,9 @@ export class VsCodeDebugAdapter {
 
 		// Process complete messages (Content-Length protocol)
 		while (true) {
-			const headerMatch = this.pendingOutput.match(/Content-Length: (\d+)\r?\n\r?\n/);
+			const headerMatch = this.pendingOutput.match(
+				/Content-Length: (\d+)\r?\n\r?\n/,
+			);
 			if (!headerMatch) break;
 
 			const contentLength = parseInt(headerMatch[1], 10);
@@ -304,7 +306,10 @@ export class VsCodeDebugAdapter {
 			}
 
 			// Extract complete message
-			const messageText = this.pendingOutput.substring(messageStart, messageEnd);
+			const messageText = this.pendingOutput.substring(
+				messageStart,
+				messageEnd,
+			);
 			this.pendingOutput = this.pendingOutput.substring(messageEnd);
 
 			// Parse and handle message
@@ -324,11 +329,11 @@ export class VsCodeDebugAdapter {
 		request: DapRequest,
 		success: boolean,
 		body?: unknown,
-		message?: string
+		message?: string,
 	): void {
 		const response: DapResponseMessage = {
 			seq: this.sequenceNumber++,
-			type: 'response',
+			type: "response",
 			request_seq: request.seq,
 			success,
 			command: request.command,
@@ -345,7 +350,7 @@ export class VsCodeDebugAdapter {
 	private sendEvent(event: DapEventType, body: unknown): void {
 		const eventMessage: DapEvent = {
 			seq: this.sequenceNumber++,
-			type: 'event',
+			type: "event",
 			event,
 			body,
 		};
@@ -358,7 +363,7 @@ export class VsCodeDebugAdapter {
 	 */
 	private sendMessage(message: DapMessage): void {
 		const json = JSON.stringify(message);
-		const data = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\n\r\n${json}`;
+		const data = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`;
 
 		this.outputStream.write(data);
 		this.debug(`Sent ${message.type}: ${json.substring(0, 100)}`);
@@ -376,63 +381,63 @@ export class VsCodeDebugAdapter {
 
 		try {
 			switch (request.command) {
-				case 'initialize':
+				case "initialize":
 					this.handleInitialize(request);
 					break;
 
-				case 'launch':
+				case "launch":
 					await this.handleLaunch(request);
 					break;
 
-				case 'attach':
-					this.sendResponse(request, false, undefined, 'Attach not supported');
+				case "attach":
+					this.sendResponse(request, false, undefined, "Attach not supported");
 					break;
 
-				case 'disconnect':
+				case "disconnect":
 					await this.handleDisconnect(request);
 					break;
 
-				case 'setBreakpoints':
+				case "setBreakpoints":
 					this.handleSetBreakpoints(request);
 					break;
 
-				case 'setExceptionBreakpoints':
+				case "setExceptionBreakpoints":
 					this.handleSetExceptionBreakpoints(request);
 					break;
 
-				case 'continue':
+				case "continue":
 					this.handleContinue(request);
 					break;
 
-				case 'next':
+				case "next":
 					this.handleNext(request);
 					break;
 
-				case 'stepIn':
+				case "stepIn":
 					this.handleStepIn(request);
 					break;
 
-				case 'stepOut':
+				case "stepOut":
 					this.handleStepOut(request);
 					break;
 
-				case 'pause':
+				case "pause":
 					this.handlePauseRequest(request);
 					break;
 
-				case 'stackTrace':
+				case "stackTrace":
 					this.handleStackTrace(request);
 					break;
 
-				case 'scopes':
+				case "scopes":
 					this.handleScopes(request);
 					break;
 
-				case 'variables':
+				case "variables":
 					this.handleVariables(request);
 					break;
 
-				case 'evaluate':
+				case "evaluate":
 					this.handleEvaluate(request);
 					break;
 
@@ -441,11 +446,12 @@ export class VsCodeDebugAdapter {
 						request,
 						false,
 						undefined,
-						`Unknown command: ${request.command}`
+						`Unknown command: ${request.command}`,
 					);
 			}
 		} catch (error) {
-			const errorMessage = error instanceof Error ? error.message : String(error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
 			this.sendResponse(request, false, undefined, errorMessage);
 		}
 	}
@@ -486,7 +492,7 @@ export class VsCodeDebugAdapter {
 		};
 
 		this.sendResponse(request, true, capabilities);
-		this.sendEvent('initialized', {});
+		this.sendEvent("initialized", {});
 	}
 
 	/**
@@ -496,7 +502,7 @@ export class VsCodeDebugAdapter {
 		const args = request.arguments as unknown as LaunchConfiguration;
 
 		if (!args?.workflowPath) {
-			this.sendResponse(request, false, undefined, 'Missing workflowPath');
+			this.sendResponse(request, false, undefined, "Missing workflowPath");
 			return;
 		}
 
@@ -513,15 +519,15 @@ export class VsCodeDebugAdapter {
 		// Initialize workflow
 		this.debugger.initializeWorkflow(
 			args.workflowName ?? args.workflowPath,
-			args.variables ?? {}
+			args.variables ?? {},
 		);
 
 		this.sendResponse(request, true);
 
 		// If stopOnEntry, send stopped event
 		if (args.stopOnEntry) {
-			this.sendEvent('stopped', {
-				reason: 'entry' as StoppedReason,
+			this.sendEvent("stopped", {
+				reason: "entry" as StoppedReason,
 				threadId: this.threadId,
 				allThreadsStopped: true,
 			});
@@ -556,10 +562,10 @@ export class VsCodeDebugAdapter {
 				const breakpointId = randomUUID();
 				const breakpoint: NodeBreakpoint = {
 					id: breakpointId,
-					type: 'node',
+					type: "node",
 					enabled: true,
 					nodeName: `line_${sourceBreakpoint.line}`, // Map line to node name
-					when: 'before',
+					when: "before",
 					condition: sourceBreakpoint.condition,
 					logMessage: sourceBreakpoint.logMessage,
 				};
@@ -592,7 +598,7 @@ export class VsCodeDebugAdapter {
 		// Clear existing exception breakpoints
 		const allBreakpoints = this.debugger.getBreakpoints();
 		for (const bp of allBreakpoints) {
-			if (bp.type === 'exception') {
+			if (bp.type === "exception") {
 				this.debugger.removeBreakpoint(bp.id);
 			}
 		}
@@ -601,9 +607,9 @@ export class VsCodeDebugAdapter {
 		for (const filter of args.filters) {
 			const breakpoint: ExceptionBreakpoint = {
 				id: randomUUID(),
-				type: 'exception',
+				type: "exception",
 				enabled: true,
-				mode: filter === 'uncaught' ? 'uncaught' : 'all',
+				mode: filter === "uncaught" ? "uncaught" : "all",
 			};
 
 			this.debugger.setBreakpoint(breakpoint);
@@ -707,18 +713,18 @@ export class VsCodeDebugAdapter {
 
 		const scopes: DapScope[] = [
 			{
-				name: 'Workflow',
-				variablesReference: this.getVariableReference('workflow', args.frameId),
+				name: "Workflow",
+				variablesReference: this.getVariableReference("workflow", args.frameId),
 				expensive: false,
 			},
 			{
-				name: 'Node',
-				variablesReference: this.getVariableReference('node', args.frameId),
+				name: "Node",
+				variablesReference: this.getVariableReference("node", args.frameId),
 				expensive: false,
 			},
 			{
-				name: 'Local',
-				variablesReference: this.getVariableReference('local', args.frameId),
+				name: "Local",
+				variablesReference: this.getVariableReference("local", args.frameId),
 				expensive: false,
 			},
 		];
@@ -769,12 +775,12 @@ export class VsCodeDebugAdapter {
 		// For now, simple variable lookup
 		const context = this.debugger.context;
 		if (!context) {
-			this.sendResponse(request, false, undefined, 'No active context');
+			this.sendResponse(request, false, undefined, "No active context");
 			return;
 		}
 
 		const value = context.variables[args.expression];
-		const result = value !== undefined ? String(value) : 'undefined';
+		const result = value !== undefined ? String(value) : "undefined";
 
 		this.sendResponse(request, true, {
 			result,
@@ -797,7 +803,7 @@ export class VsCodeDebugAdapter {
 	 * Handle resume event from debugger
 	 */
 	private handleResume(): void {
-		this.sendEvent('continued', {
+		this.sendEvent("continued", {
 			threadId: this.threadId,
 			allThreadsContinued: true,
 		});
@@ -807,8 +813,8 @@ export class VsCodeDebugAdapter {
 	 * Handle breakpoint hit event from debugger
 	 */
 	private handleBreakpointHit(): void {
-		this.sendEvent('stopped', {
-			reason: 'breakpoint' as StoppedReason,
+		this.sendEvent("stopped", {
+			reason: "breakpoint" as StoppedReason,
 			threadId: this.threadId,
 			allThreadsStopped: true,
 		});
@@ -819,22 +825,22 @@ export class VsCodeDebugAdapter {
 	 */
 	private handleStateChange(state: DebugExecutionState): void {
 		switch (state) {
-			case 'paused':
-			case 'stepping':
-				this.sendEvent('stopped', {
-					reason: 'step' as StoppedReason,
+			case "paused":
+			case "stepping":
+				this.sendEvent("stopped", {
+					reason: "step" as StoppedReason,
 					threadId: this.threadId,
 					allThreadsStopped: true,
 				});
 				break;
 
-			case 'stopped':
-				this.sendEvent('exited', { exitCode: 0 });
+			case "stopped":
+				this.sendEvent("exited", { exitCode: 0 });
 				break;
 
-			case 'error':
-				this.sendEvent('stopped', {
-					reason: 'exception' as StoppedReason,
+			case "error":
+				this.sendEvent("stopped", {
+					reason: "exception" as StoppedReason,
 					threadId: this.threadId,
 					allThreadsStopped: true,
 				});
@@ -852,14 +858,14 @@ export class VsCodeDebugAdapter {
 	 * Get or create a variable reference for a scope
 	 */
 	private getVariableReference(
-		scope: 'workflow' | 'node' | 'local',
-		_frameId: number
+		scope: "workflow" | "node" | "local",
+		_frameId: number,
 	): number {
 		const ref = this.nextVariableReference++;
 		const varInfo: VariableInfo = {
 			name: scope,
 			value: null,
-			type: 'scope',
+			type: "scope",
 			scope,
 			readonly: true,
 		};
@@ -893,10 +899,10 @@ export class VsCodeDebugAdapter {
 	 * Format a value for display
 	 */
 	private formatValue(value: unknown): string {
-		if (value === null) return 'null';
-		if (value === undefined) return 'undefined';
-		if (typeof value === 'string') return `"${value}"`;
-		if (typeof value === 'object') {
+		if (value === null) return "null";
+		if (value === undefined) return "undefined";
+		if (typeof value === "string") return `"${value}"`;
+		if (typeof value === "object") {
 			if (Array.isArray(value)) return `Array(${value.length})`;
 			return Object.prototype.toString.call(value);
 		}
@@ -908,7 +914,7 @@ export class VsCodeDebugAdapter {
 	 */
 	private checkDisposed(): void {
 		if (this.disposed) {
-			throw new Error('Debug adapter has been disposed');
+			throw new Error("Debug adapter has been disposed");
 		}
 	}
 
@@ -949,7 +955,7 @@ export class VsCodeDebugAdapter {
  * Create a VS Code debug adapter
  */
 export function createVsCodeDebugAdapter(
-	config?: VsCodeAdapterConfig
+	config?: VsCodeAdapterConfig,
 ): VsCodeDebugAdapter {
 	return new VsCodeDebugAdapter(config);
 }

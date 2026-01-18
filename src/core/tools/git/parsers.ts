@@ -191,8 +191,7 @@ export function parseStatusPorcelain(output: string): GitStatus {
  * Log format used for parsing.
  * Fields separated by record separator (0x1E), commits separated by group separator (0x1D).
  */
-export const LOG_FORMAT =
-	"%H%x1E%h%x1E%an%x1E%ae%x1E%aI%x1E%s%x1E%b%x1E%P%x1D";
+export const LOG_FORMAT = "%H%x1E%h%x1E%an%x1E%ae%x1E%aI%x1E%s%x1E%b%x1E%P%x1D";
 
 /**
  * Parse git log output with custom format.
@@ -653,10 +652,7 @@ export function parseRemotes(output: string): GitRemote[] {
 		return [];
 	}
 
-	const remoteMap = new Map<
-		string,
-		{ fetchUrl?: string; pushUrl?: string }
-	>();
+	const remoteMap = new Map<string, { fetchUrl?: string; pushUrl?: string }>();
 
 	const lines = output.split("\n").filter((line) => line.trim());
 

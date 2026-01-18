@@ -275,7 +275,8 @@ describe("parseBranchList", () => {
 	});
 
 	it("should parse ahead-only tracking", () => {
-		const output = " \x1Efeature\x1Eabc123\x1Eorigin/feature\x1Eahead 5\x1ETest";
+		const output =
+			" \x1Efeature\x1Eabc123\x1Eorigin/feature\x1Eahead 5\x1ETest";
 
 		const result = parseBranchList(output);
 
@@ -672,7 +673,8 @@ describe("parseStashList", () => {
 	});
 
 	it("should parse single stash entry", () => {
-		const output = "stash@{0}\x1EWIP on main: abc123 Initial commit\x1E2024-01-15T10:30:00Z";
+		const output =
+			"stash@{0}\x1EWIP on main: abc123 Initial commit\x1E2024-01-15T10:30:00Z";
 
 		const result = parseStashList(output);
 
@@ -698,7 +700,8 @@ stash@{2}\x1EWIP on main: ghi789 Oldest\x1E2024-01-14T08:00:00Z`;
 	});
 
 	it("should extract branch from 'On branch' format", () => {
-		const output = "stash@{0}\x1EOn feature-branch: my stash message\x1E2024-01-15T10:30:00Z";
+		const output =
+			"stash@{0}\x1EOn feature-branch: my stash message\x1E2024-01-15T10:30:00Z";
 
 		const result = parseStashList(output);
 
@@ -706,7 +709,8 @@ stash@{2}\x1EWIP on main: ghi789 Oldest\x1E2024-01-14T08:00:00Z`;
 	});
 
 	it("should handle custom stash message", () => {
-		const output = "stash@{0}\x1EOn main: My custom stash message\x1E2024-01-15T10:30:00Z";
+		const output =
+			"stash@{0}\x1EOn main: My custom stash message\x1E2024-01-15T10:30:00Z";
 
 		const result = parseStashList(output);
 
@@ -715,7 +719,8 @@ stash@{2}\x1EWIP on main: ghi789 Oldest\x1E2024-01-14T08:00:00Z`;
 	});
 
 	it("should default branch to unknown when not parseable", () => {
-		const output = "stash@{0}\x1ESome weird message format\x1E2024-01-15T10:30:00Z";
+		const output =
+			"stash@{0}\x1ESome weird message format\x1E2024-01-15T10:30:00Z";
 
 		const result = parseStashList(output);
 
@@ -789,7 +794,8 @@ origin\tgit@github.com:user/repo.git (push)`;
 
 describe("detectGitError", () => {
 	it("should detect NotARepository error", () => {
-		const stderr = "fatal: not a git repository (or any of the parent directories): .git";
+		const stderr =
+			"fatal: not a git repository (or any of the parent directories): .git";
 
 		const result = detectGitError(stderr);
 
@@ -806,7 +812,8 @@ describe("detectGitError", () => {
 
 	it("should detect BranchExists error with 'named' variant", () => {
 		// Note: Git may output different formats, pattern checks for "branch 'xxx' already exists"
-		const stderr = "error: cannot create branch 'feature': branch 'feature' already exists";
+		const stderr =
+			"error: cannot create branch 'feature': branch 'feature' already exists";
 
 		const result = detectGitError(stderr);
 
@@ -822,7 +829,8 @@ describe("detectGitError", () => {
 	});
 
 	it("should detect DirtyWorkingTree from 'please commit' message", () => {
-		const stderr = "error: Your local changes to the following files would be overwritten by checkout:\n\tfile.txt\nPlease commit your changes or stash them before you switch branches.";
+		const stderr =
+			"error: Your local changes to the following files would be overwritten by checkout:\n\tfile.txt\nPlease commit your changes or stash them before you switch branches.";
 
 		const result = detectGitError(stderr);
 
@@ -846,7 +854,8 @@ describe("detectGitError", () => {
 	});
 
 	it("should detect MergeConflict error", () => {
-		const stderr = "error: Automatic merge failed; fix conflicts and then commit the result.";
+		const stderr =
+			"error: Automatic merge failed; fix conflicts and then commit the result.";
 
 		const result = detectGitError(stderr);
 

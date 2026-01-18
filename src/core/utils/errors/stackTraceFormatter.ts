@@ -132,9 +132,7 @@ function parseStackFrame(line: string): StackFrame | null {
 	const trimmed = line.trim();
 
 	// V8 format: "at functionName (file.ts:10:5)" or "at file.ts:10:5"
-	const v8Match = trimmed.match(
-		/^at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?$/,
-	);
+	const v8Match = trimmed.match(/^at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?$/);
 	if (v8Match) {
 		const [, functionName, fileName, lineNumber, columnNumber] = v8Match;
 		return {
@@ -387,7 +385,5 @@ export function combineStackTraces(
 	errors: Error[],
 	separator = "\nCaused by:\n",
 ): string {
-	return errors
-		.map((error) => formatErrorStack(error))
-		.join(separator);
+	return errors.map((error) => formatErrorStack(error)).join(separator);
 }

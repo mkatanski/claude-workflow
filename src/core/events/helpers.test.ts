@@ -31,7 +31,10 @@ describe("createEventHelpers", () => {
 
 	describe("graph events", () => {
 		it("should emit graph:compile:start", () => {
-			helpers.graphCompileStart({ workflowName: "test-workflow", nodeCount: 3 });
+			helpers.graphCompileStart({
+				workflowName: "test-workflow",
+				nodeCount: 3,
+			});
 
 			expect(emittedEvents).toHaveLength(1);
 			expect(emittedEvents[0].type).toBe("graph:compile:start");

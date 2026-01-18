@@ -198,10 +198,12 @@ export class ClaudeAgentTool extends BaseTool {
 					model,
 					cwd: options?.workingDirectory ?? this.config?.workingDirectory,
 					systemPrompt: options?.systemPrompt ?? this.config?.systemPrompt,
-					allowedTools: options?.tools ?? this.config?.tools as string[] | undefined,
+					allowedTools:
+						options?.tools ?? (this.config?.tools as string[] | undefined),
 					disallowedTools:
 						options?.disallowedTools ?? this.config?.disallowedTools,
-					permissionMode: options?.permissionMode ?? this.config?.permissionMode,
+					permissionMode:
+						options?.permissionMode ?? this.config?.permissionMode,
 					maxBudgetUsd: options?.maxBudgetUsd ?? this.config?.maxBudgetUsd,
 					resume: options?.resume ?? this.config?.resume,
 					agents,
@@ -374,15 +376,40 @@ export class ClaudeAgentTool extends BaseTool {
 	 */
 	private buildHooks(
 		options?: AgentSessionOptions,
-	): Record<string, Array<{ hooks: Array<(input: unknown, toolUseId: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>> }>> | undefined {
+	):
+		| Record<
+				string,
+				Array<{
+					hooks: Array<
+						(
+							input: unknown,
+							toolUseId: string | undefined,
+							opts: { signal: AbortSignal },
+						) => Promise<unknown>
+					>;
+				}>
+		  >
+		| undefined {
 		const preHooks = options?.preToolUseHooks ?? this.config?.preToolUseHooks;
-		const postHooks = options?.postToolUseHooks ?? this.config?.postToolUseHooks;
+		const postHooks =
+			options?.postToolUseHooks ?? this.config?.postToolUseHooks;
 
 		if (!preHooks?.length && !postHooks?.length) {
 			return undefined;
 		}
 
-		const hooks: Record<string, Array<{ hooks: Array<(input: unknown, toolUseId: string | undefined, opts: { signal: AbortSignal }) => Promise<unknown>> }>> = {};
+		const hooks: Record<
+			string,
+			Array<{
+				hooks: Array<
+					(
+						input: unknown,
+						toolUseId: string | undefined,
+						opts: { signal: AbortSignal },
+					) => Promise<unknown>
+				>;
+			}>
+		> = {};
 
 		if (preHooks?.length) {
 			hooks.PreToolUse = [
@@ -476,14 +503,32 @@ export class ClaudeAgentTool extends BaseTool {
 	 */
 	private buildAgents(
 		options?: AgentSessionOptions,
-	): Record<string, { description: string; tools?: string[]; prompt: string; model?: "sonnet" | "opus" | "haiku" | "inherit" }> | undefined {
+	):
+		| Record<
+				string,
+				{
+					description: string;
+					tools?: string[];
+					prompt: string;
+					model?: "sonnet" | "opus" | "haiku" | "inherit";
+				}
+		  >
+		| undefined {
 		const agents = options?.agents ?? this.config?.agents;
 
 		if (!agents) {
 			return undefined;
 		}
 
-		const result: Record<string, { description: string; tools?: string[]; prompt: string; model?: "sonnet" | "opus" | "haiku" | "inherit" }> = {};
+		const result: Record<
+			string,
+			{
+				description: string;
+				tools?: string[];
+				prompt: string;
+				model?: "sonnet" | "opus" | "haiku" | "inherit";
+			}
+		> = {};
 
 		for (const [name, definition] of Object.entries(agents)) {
 			// Pass model alias directly to SDK - it expects short names like 'sonnet', 'opus', 'haiku', or 'inherit'
@@ -526,10 +571,7 @@ export class ClaudeAgentTool extends BaseTool {
 	/**
 	 * Categorize an error result subtype to our error type.
 	 */
-	private categorizeError(
-		subtype: string,
-		errors?: string[],
-	): AgentErrorType {
+	private categorizeError(subtype: string, errors?: string[]): AgentErrorType {
 		switch (subtype) {
 			case "error_max_budget_usd":
 				return "BUDGET_EXCEEDED";
@@ -577,7 +619,10 @@ export class ClaudeAgentTool extends BaseTool {
 	/**
 	 * Parse an error and extract message and type.
 	 */
-	private parseError(error: unknown): { message: string; errorType: AgentErrorType } {
+	private parseError(error: unknown): {
+		message: string;
+		errorType: AgentErrorType;
+	} {
 		const message = error instanceof Error ? error.message : String(error);
 		const lowerMessage = message.toLowerCase();
 

@@ -71,20 +71,20 @@ export interface BaseBreakpoint {
  * Node breakpoint - breaks before/after a specific node executes.
  */
 export interface NodeBreakpoint extends BaseBreakpoint {
-	type: 'node';
+	type: "node";
 
 	/** Node name to break on */
 	nodeName: string;
 
 	/** When to break: before or after node execution */
-	when: 'before' | 'after';
+	when: "before" | "after";
 }
 
 /**
  * Event breakpoint - breaks when a specific event is emitted.
  */
 export interface EventBreakpoint extends BaseBreakpoint {
-	type: 'event';
+	type: "event";
 
 	/** Event type to break on (supports wildcards like 'tool:*') */
 	eventType: string;
@@ -94,10 +94,10 @@ export interface EventBreakpoint extends BaseBreakpoint {
  * Exception breakpoint - breaks when errors occur.
  */
 export interface ExceptionBreakpoint extends BaseBreakpoint {
-	type: 'exception';
+	type: "exception";
 
 	/** Break on all exceptions or only uncaught */
-	mode: 'all' | 'uncaught';
+	mode: "all" | "uncaught";
 }
 
 /**
@@ -133,21 +133,21 @@ export interface BreakpointHit {
  * Current execution state of the debugger.
  */
 export type DebugExecutionState =
-	| 'running'      // Normal execution, no debugging
-	| 'paused'       // Execution paused at breakpoint or step
-	| 'stepping'     // Stepping through execution
-	| 'stopped'      // Execution stopped/terminated
-	| 'error';       // Debugger encountered an error
+	| "running" // Normal execution, no debugging
+	| "paused" // Execution paused at breakpoint or step
+	| "stepping" // Stepping through execution
+	| "stopped" // Execution stopped/terminated
+	| "error"; // Debugger encountered an error
 
 /**
  * Step execution modes.
  */
 export type StepMode =
-	| 'continue'     // Continue until next breakpoint
-	| 'step-over'    // Execute current node and pause at next
-	| 'step-into'    // Step into node function (for nested workflows)
-	| 'step-out'     // Step out of current node/scope
-	| 'pause';       // Pause execution
+	| "continue" // Continue until next breakpoint
+	| "step-over" // Execute current node and pause at next
+	| "step-into" // Step into node function (for nested workflows)
+	| "step-out" // Step out of current node/scope
+	| "pause"; // Pause execution
 
 /**
  * Debug execution context - current state during debugging.
@@ -205,7 +205,7 @@ export interface StackFrame {
 /**
  * Variable scope for inspection.
  */
-export type VariableScope = 'workflow' | 'node' | 'local';
+export type VariableScope = "workflow" | "node" | "local";
 
 /**
  * Variable information for inspection.
@@ -320,7 +320,7 @@ export interface ExecutionTrace {
 	endTime?: string;
 
 	/** Execution status */
-	status: 'running' | 'completed' | 'failed';
+	status: "running" | "completed" | "failed";
 
 	/** Error information (if failed) */
 	error?: {
@@ -370,21 +370,21 @@ export interface ReplayOptions {
  * Debug Adapter Protocol request types.
  */
 export type DapRequestType =
-	| 'initialize'
-	| 'launch'
-	| 'attach'
-	| 'disconnect'
-	| 'setBreakpoints'
-	| 'setExceptionBreakpoints'
-	| 'continue'
-	| 'next'
-	| 'stepIn'
-	| 'stepOut'
-	| 'pause'
-	| 'stackTrace'
-	| 'scopes'
-	| 'variables'
-	| 'evaluate';
+	| "initialize"
+	| "launch"
+	| "attach"
+	| "disconnect"
+	| "setBreakpoints"
+	| "setExceptionBreakpoints"
+	| "continue"
+	| "next"
+	| "stepIn"
+	| "stepOut"
+	| "pause"
+	| "stackTrace"
+	| "scopes"
+	| "variables"
+	| "evaluate";
 
 /**
  * Debug Adapter Protocol response.
@@ -407,26 +407,26 @@ export interface DapResponse<T = unknown> {
  * Debug Adapter Protocol event types.
  */
 export type DapEventType =
-	| 'initialized'
-	| 'stopped'
-	| 'continued'
-	| 'exited'
-	| 'terminated'
-	| 'output'
-	| 'breakpoint';
+	| "initialized"
+	| "stopped"
+	| "continued"
+	| "exited"
+	| "terminated"
+	| "output"
+	| "breakpoint";
 
 /**
  * Stopped event reason.
  */
 export type StoppedReason =
-	| 'step'
-	| 'breakpoint'
-	| 'exception'
-	| 'pause'
-	| 'entry'
-	| 'goto'
-	| 'function breakpoint'
-	| 'data breakpoint';
+	| "step"
+	| "breakpoint"
+	| "exception"
+	| "pause"
+	| "entry"
+	| "goto"
+	| "function breakpoint"
+	| "data breakpoint";
 
 // ============================================================================
 // Debugger Interface
@@ -494,32 +494,46 @@ export interface IDebugger {
 	afterNodeExecution(nodeName: string, context: DebugContext): Promise<void>;
 
 	/** Called when an event is emitted (for event breakpoints) */
-	onEventEmitted(eventType: string, payload: unknown, context: DebugContext): Promise<void>;
+	onEventEmitted(
+		eventType: string,
+		payload: unknown,
+		context: DebugContext,
+	): Promise<void>;
 
 	/** Called when an exception occurs (for exception breakpoints) */
-	onException(error: Error, isUncaught: boolean, context: DebugContext): Promise<void>;
+	onException(
+		error: Error,
+		isUncaught: boolean,
+		context: DebugContext,
+	): Promise<void>;
 }
 
 // ============================================================================
 // Type Guards
 // ============================================================================
 
-export function isNodeBreakpoint(breakpoint: Breakpoint): breakpoint is NodeBreakpoint {
-	return breakpoint.type === 'node';
+export function isNodeBreakpoint(
+	breakpoint: Breakpoint,
+): breakpoint is NodeBreakpoint {
+	return breakpoint.type === "node";
 }
 
-export function isEventBreakpoint(breakpoint: Breakpoint): breakpoint is EventBreakpoint {
-	return breakpoint.type === 'event';
+export function isEventBreakpoint(
+	breakpoint: Breakpoint,
+): breakpoint is EventBreakpoint {
+	return breakpoint.type === "event";
 }
 
-export function isExceptionBreakpoint(breakpoint: Breakpoint): breakpoint is ExceptionBreakpoint {
-	return breakpoint.type === 'exception';
+export function isExceptionBreakpoint(
+	breakpoint: Breakpoint,
+): breakpoint is ExceptionBreakpoint {
+	return breakpoint.type === "exception";
 }
 
 export function isDebuggerPaused(state: DebugExecutionState): boolean {
-	return state === 'paused' || state === 'stepping';
+	return state === "paused" || state === "stepping";
 }
 
 export function isDebuggerActive(state: DebugExecutionState): boolean {
-	return state !== 'stopped' && state !== 'error';
+	return state !== "stopped" && state !== "error";
 }

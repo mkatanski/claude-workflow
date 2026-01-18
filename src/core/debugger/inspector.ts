@@ -17,7 +17,7 @@ import type {
 	VariableScope,
 	DebugContext,
 	StackFrame,
-} from './types';
+} from "./types";
 
 // ============================================================================
 // Types
@@ -51,15 +51,15 @@ interface VariableReference {
  * Get the type string for a value
  */
 function getValueType(value: unknown): string {
-	if (value === null) return 'null';
-	if (value === undefined) return 'undefined';
-	if (Array.isArray(value)) return 'array';
-	if (value instanceof Date) return 'Date';
-	if (value instanceof RegExp) return 'RegExp';
-	if (value instanceof Error) return 'Error';
-	if (value instanceof Map) return 'Map';
-	if (value instanceof Set) return 'Set';
-	if (typeof value === 'object') return 'object';
+	if (value === null) return "null";
+	if (value === undefined) return "undefined";
+	if (Array.isArray(value)) return "array";
+	if (value instanceof Date) return "Date";
+	if (value instanceof RegExp) return "RegExp";
+	if (value instanceof Error) return "Error";
+	if (value instanceof Map) return "Map";
+	if (value instanceof Set) return "Set";
+	if (typeof value === "object") return "object";
 	return typeof value;
 }
 
@@ -70,7 +70,7 @@ function getChildCount(value: unknown): number | undefined {
 	if (Array.isArray(value)) {
 		return value.length;
 	}
-	if (value !== null && typeof value === 'object') {
+	if (value !== null && typeof value === "object") {
 		if (value instanceof Map) {
 			return value.size;
 		}
@@ -89,7 +89,7 @@ function isExpandable(value: unknown): boolean {
 	if (Array.isArray(value)) return value.length > 0;
 	if (value instanceof Map) return value.size > 0;
 	if (value instanceof Set) return value.size > 0;
-	if (value !== null && typeof value === 'object') {
+	if (value !== null && typeof value === "object") {
 		return Object.keys(value).length > 0;
 	}
 	return false;
@@ -103,11 +103,11 @@ function matchesPattern(name: string, pattern: string): boolean {
 	if (!pattern) return true;
 
 	// Support wildcards
-	if (pattern === '*') return true;
+	if (pattern === "*") return true;
 
 	// Convert glob-like pattern to regex
-	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-	const regexStr = escaped.replace(/\*/g, '.*');
+	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+	const regexStr = escaped.replace(/\*/g, ".*");
 	const regex = new RegExp(`^${regexStr}$`);
 
 	return regex.test(name);
@@ -136,7 +136,7 @@ function getChildren(value: unknown): Array<{ name: string; value: unknown }> {
 			children.push({ name: `[${index}]`, value: val });
 			index++;
 		}
-	} else if (value !== null && typeof value === 'object') {
+	} else if (value !== null && typeof value === "object") {
 		// Object properties as children
 		for (const [key, val] of Object.entries(value)) {
 			children.push({ name: key, value: val });
@@ -170,12 +170,15 @@ export class VariableInspector {
 	/**
 	 * Inspect variables based on a request
 	 */
-	inspect(context: DebugContext, request: VariableInspectionRequest = {}): VariableInfo[] {
+	inspect(
+		context: DebugContext,
+		request: VariableInspectionRequest = {},
+	): VariableInfo[] {
 		this.checkDisposed();
 
 		const {
 			scope,
-			namePattern = '*',
+			namePattern = "*",
 			frameId,
 			maxDepth = this.config.defaultMaxDepth,
 		} = request;
@@ -187,11 +190,15 @@ export class VariableInspector {
 		const result: VariableInfo[] = [];
 		for (const [name, value] of Object.entries(variables)) {
 			if (matchesPattern(name, namePattern)) {
-				result.push(this.createVariableInfo(name, value, scope ?? 'workflow', maxDepth));
+				result.push(
+					this.createVariableInfo(name, value, scope ?? "workflow", maxDepth),
+				);
 			}
 		}
 
-		this.debug(`Inspected ${result.length} variables (scope: ${scope ?? 'all'}, pattern: ${namePattern})`);
+		this.debug(
+			`Inspected ${result.length} variables (scope: ${scope ?? "all"}, pattern: ${namePattern})`,
+		);
 		return result;
 	}
 
@@ -210,7 +217,7 @@ export class VariableInspector {
 	inspectVariable(
 		context: DebugContext,
 		name: string,
-		scope?: VariableScope
+		scope?: VariableScope,
 	): VariableInfo | null {
 		this.checkDisposed();
 
@@ -222,7 +229,12 @@ export class VariableInspector {
 		}
 
 		const value = variables[name];
-		return this.createVariableInfo(name, value, scope ?? 'workflow', this.config.defaultMaxDepth);
+		return this.createVariableInfo(
+			name,
+			value,
+			scope ?? "workflow",
+			this.config.defaultMaxDepth,
+		);
 	}
 
 	/**
@@ -243,8 +255,8 @@ export class VariableInspector {
 				child.value,
 				ref.scope,
 				this.config.defaultMaxDepth - ref.path.length,
-				[...ref.path, child.name]
-			)
+				[...ref.path, child.name],
+			),
 		);
 	}
 
@@ -256,7 +268,14 @@ export class VariableInspector {
 
 		const result: VariableInfo[] = [];
 		for (const [name, value] of Object.entries(frame.variables)) {
-			result.push(this.createVariableInfo(name, value, 'local', this.config.defaultMaxDepth));
+			result.push(
+				this.createVariableInfo(
+					name,
+					value,
+					"local",
+					this.config.defaultMaxDepth,
+				),
+			);
 		}
 
 		this.debug(`Inspected frame ${frame.id}: ${result.length} variables`);
@@ -271,7 +290,7 @@ export class VariableInspector {
 
 		this.variableRefs.clear();
 		this.nextVariableRef = 1;
-		this.debug('Cleared all variable references');
+		this.debug("Cleared all variable references");
 	}
 
 	// ==========================================================================
@@ -284,7 +303,7 @@ export class VariableInspector {
 	private getVariablesForScope(
 		context: DebugContext,
 		scope?: VariableScope,
-		frameId?: number
+		frameId?: number,
 	): Record<string, unknown> {
 		// If frameId is specified, get variables from that stack frame
 		if (frameId !== undefined) {
@@ -297,17 +316,17 @@ export class VariableInspector {
 
 		// Otherwise, get variables based on scope
 		switch (scope) {
-			case 'workflow':
+			case "workflow":
 				return context.variables;
 
-			case 'node':
+			case "node":
 				// Node scope is the current top of the call stack
 				if (context.callStack.length > 0) {
 					return context.callStack[context.callStack.length - 1].variables;
 				}
 				return {};
 
-			case 'local':
+			case "local":
 				// Local scope is also the top of the call stack
 				if (context.callStack.length > 0) {
 					return context.callStack[context.callStack.length - 1].variables;
@@ -328,7 +347,7 @@ export class VariableInspector {
 		value: unknown,
 		scope: VariableScope,
 		maxDepth: number,
-		path: string[] = []
+		path: string[] = [],
 	): VariableInfo {
 		const type = getValueType(value);
 		const childCount = getChildCount(value);
@@ -358,8 +377,8 @@ export class VariableInspector {
 						child.value,
 						scope,
 						maxDepth - 1,
-						[...path, child.name]
-					)
+						[...path, child.name],
+					),
 				);
 			}
 		}
@@ -373,7 +392,7 @@ export class VariableInspector {
 	private createVariableReference(
 		value: unknown,
 		scope: VariableScope,
-		path: string[]
+		path: string[],
 	): number {
 		const refId = this.nextVariableRef++;
 
@@ -392,7 +411,7 @@ export class VariableInspector {
 	 */
 	private checkDisposed(): void {
 		if (this.disposed) {
-			throw new Error('VariableInspector has been disposed');
+			throw new Error("VariableInspector has been disposed");
 		}
 	}
 
@@ -418,7 +437,7 @@ export class VariableInspector {
 
 		this.variableRefs.clear();
 		this.disposed = true;
-		this.debug('Disposed');
+		this.debug("Disposed");
 	}
 
 	/**
@@ -437,63 +456,57 @@ export class VariableInspector {
  * Format a value for display (truncate long strings, etc.)
  */
 export function formatValueForDisplay(value: unknown, maxLength = 100): string {
-	if (value === null) return 'null';
-	if (value === undefined) return 'undefined';
+	if (value === null) return "null";
+	if (value === undefined) return "undefined";
 
 	const type = getValueType(value);
 
 	switch (type) {
-		case 'string':
-			{
-				const str = String(value);
-				if (str.length > maxLength) {
-					return `"${str.substring(0, maxLength)}..."`;
-				}
-				return `"${str}"`;
+		case "string": {
+			const str = String(value);
+			if (str.length > maxLength) {
+				return `"${str.substring(0, maxLength)}..."`;
 			}
+			return `"${str}"`;
+		}
 
-		case 'array':
-			{
-				const arr = value as unknown[];
-				return `Array(${arr.length})`;
-			}
+		case "array": {
+			const arr = value as unknown[];
+			return `Array(${arr.length})`;
+		}
 
-		case 'object':
-			{
-				const obj = value as Record<string, unknown>;
-				const keys = Object.keys(obj);
-				return `Object {${keys.length} properties}`;
-			}
+		case "object": {
+			const obj = value as Record<string, unknown>;
+			const keys = Object.keys(obj);
+			return `Object {${keys.length} properties}`;
+		}
 
-		case 'Map':
-			{
-				const map = value as Map<unknown, unknown>;
-				return `Map(${map.size})`;
-			}
+		case "Map": {
+			const map = value as Map<unknown, unknown>;
+			return `Map(${map.size})`;
+		}
 
-		case 'Set':
-			{
-				const set = value as Set<unknown>;
-				return `Set(${set.size})`;
-			}
+		case "Set": {
+			const set = value as Set<unknown>;
+			return `Set(${set.size})`;
+		}
 
-		case 'Date':
+		case "Date":
 			return (value as Date).toISOString();
 
-		case 'RegExp':
+		case "RegExp":
 			return String(value);
 
-		case 'Error':
+		case "Error":
 			return (value as Error).message;
 
-		default:
-			{
-				const str = String(value);
-				if (str.length > maxLength) {
-					return `${str.substring(0, maxLength)}...`;
-				}
-				return str;
+		default: {
+			const str = String(value);
+			if (str.length > maxLength) {
+				return `${str.substring(0, maxLength)}...`;
 			}
+			return str;
+		}
 	}
 }
 
@@ -503,7 +516,7 @@ export function formatValueForDisplay(value: unknown, maxLength = 100): string {
 export function createSimpleVariableInfo(
 	name: string,
 	value: unknown,
-	scope: VariableScope = 'workflow'
+	scope: VariableScope = "workflow",
 ): VariableInfo {
 	return {
 		name,

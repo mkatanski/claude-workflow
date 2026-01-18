@@ -11,14 +11,14 @@
  * - Event playback
  */
 
-import { randomUUID } from 'crypto';
-import { readFile, writeFile } from 'fs/promises';
+import { randomUUID } from "crypto";
+import { readFile, writeFile } from "fs/promises";
 import type {
 	ExecutionCheckpoint,
 	ExecutionTrace,
 	CheckpointEvent,
 	ReplayOptions,
-} from './types';
+} from "./types";
 
 // ============================================================================
 // Types
@@ -65,7 +65,7 @@ interface ReplayState {
 // ============================================================================
 
 export class ReplayEngine {
-	private config: Required<Omit<ReplayEngineConfig, 'traceOutputPath'>> & {
+	private config: Required<Omit<ReplayEngineConfig, "traceOutputPath">> & {
 		traceOutputPath?: string;
 	};
 	private trace: ExecutionTrace | null = null;
@@ -94,7 +94,10 @@ export class ReplayEngine {
 	/**
 	 * Start a new execution trace
 	 */
-	startTrace(workflowName: string, initialVariables: Record<string, unknown>): void {
+	startTrace(
+		workflowName: string,
+		initialVariables: Record<string, unknown>,
+	): void {
 		this.checkDisposed();
 
 		const traceId = randomUUID();
@@ -104,7 +107,7 @@ export class ReplayEngine {
 			id: traceId,
 			workflowName,
 			startTime,
-			status: 'running',
+			status: "running",
 			checkpoints: [],
 			events: [],
 			initialVariables: { ...initialVariables },
@@ -121,13 +124,13 @@ export class ReplayEngine {
 	 */
 	completeTrace(
 		finalVariables: Record<string, unknown>,
-		success = true
+		success = true,
 	): ExecutionTrace {
 		this.checkDisposed();
 		this.checkTraceActive();
 
 		if (!this.trace) {
-			throw new Error('No active trace');
+			throw new Error("No active trace");
 		}
 
 		const endTime = new Date().toISOString();
@@ -135,12 +138,12 @@ export class ReplayEngine {
 			new Date(endTime).getTime() - new Date(this.trace.startTime).getTime();
 
 		this.trace.endTime = endTime;
-		this.trace.status = success ? 'completed' : 'failed';
+		this.trace.status = success ? "completed" : "failed";
 		this.trace.finalVariables = { ...finalVariables };
 		this.trace.duration = duration;
 
 		this.debug(
-			`Completed trace: ${this.trace.id} (status: ${this.trace.status}, duration: ${duration}ms)`
+			`Completed trace: ${this.trace.id} (status: ${this.trace.status}, duration: ${duration}ms)`,
 		);
 
 		// Auto-save if configured
@@ -159,7 +162,7 @@ export class ReplayEngine {
 		this.checkTraceActive();
 
 		if (!this.trace) {
-			throw new Error('No active trace');
+			throw new Error("No active trace");
 		}
 
 		this.trace.error = {
@@ -183,7 +186,7 @@ export class ReplayEngine {
 	 * Check if a trace is currently active
 	 */
 	isTraceActive(): boolean {
-		return this.trace !== null && this.trace.status === 'running';
+		return this.trace !== null && this.trace.status === "running";
 	}
 
 	// ==========================================================================
@@ -197,13 +200,13 @@ export class ReplayEngine {
 		workflowName: string,
 		nodeName: string,
 		variables: Record<string, unknown>,
-		options: CheckpointOptions = {}
+		options: CheckpointOptions = {},
 	): ExecutionCheckpoint {
 		this.checkDisposed();
 		this.checkTraceActive();
 
 		if (!this.trace) {
-			throw new Error('No active trace');
+			throw new Error("No active trace");
 		}
 
 		const checkpointId = randomUUID();
@@ -224,7 +227,7 @@ export class ReplayEngine {
 		this.trace.checkpoints.push(checkpoint);
 
 		this.debug(
-			`Created checkpoint: ${checkpointId} at node: ${nodeName} (seq: ${checkpoint.sequenceNumber})`
+			`Created checkpoint: ${checkpointId} at node: ${nodeName} (seq: ${checkpoint.sequenceNumber})`,
 		);
 
 		return checkpoint;
@@ -244,7 +247,7 @@ export class ReplayEngine {
 	getAllCheckpoints(): ExecutionCheckpoint[] {
 		this.checkDisposed();
 		return Array.from(this.checkpoints.values()).sort(
-			(a, b) => a.sequenceNumber - b.sequenceNumber
+			(a, b) => a.sequenceNumber - b.sequenceNumber,
 		);
 	}
 
@@ -285,13 +288,13 @@ export class ReplayEngine {
 	recordEvent(
 		eventType: string,
 		payload: unknown,
-		nodeName?: string
+		nodeName?: string,
 	): CheckpointEvent {
 		this.checkDisposed();
 		this.checkTraceActive();
 
 		if (!this.trace) {
-			throw new Error('No active trace');
+			throw new Error("No active trace");
 		}
 
 		const event: CheckpointEvent = {
@@ -303,7 +306,7 @@ export class ReplayEngine {
 
 		this.trace.events.push(event);
 
-		this.debug(`Recorded event: ${eventType} (node: ${nodeName ?? 'none'})`);
+		this.debug(`Recorded event: ${eventType} (node: ${nodeName ?? "none"})`);
 
 		return event;
 	}
@@ -343,16 +346,16 @@ export class ReplayEngine {
 		this.checkDisposed();
 
 		if (!this.trace) {
-			throw new Error('No trace to save');
+			throw new Error("No trace to save");
 		}
 
 		try {
 			const json = JSON.stringify(this.trace, null, 2);
-			await writeFile(filePath, json, 'utf-8');
+			await writeFile(filePath, json, "utf-8");
 			this.debug(`Saved trace to: ${filePath}`);
 		} catch (error) {
 			throw new Error(
-				`Failed to save trace: ${error instanceof Error ? error.message : String(error)}`
+				`Failed to save trace: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 	}
@@ -364,12 +367,17 @@ export class ReplayEngine {
 		this.checkDisposed();
 
 		try {
-			const json = await readFile(filePath, 'utf-8');
+			const json = await readFile(filePath, "utf-8");
 			const trace = JSON.parse(json) as ExecutionTrace;
 
 			// Validate trace structure
-			if (!trace.id || !trace.workflowName || !trace.checkpoints || !trace.events) {
-				throw new Error('Invalid trace file format');
+			if (
+				!trace.id ||
+				!trace.workflowName ||
+				!trace.checkpoints ||
+				!trace.events
+			) {
+				throw new Error("Invalid trace file format");
 			}
 
 			this.trace = trace;
@@ -382,12 +390,14 @@ export class ReplayEngine {
 
 			this.sequenceNumber = trace.checkpoints.length;
 
-			this.debug(`Loaded trace from: ${filePath} (${trace.checkpoints.length} checkpoints)`);
+			this.debug(
+				`Loaded trace from: ${filePath} (${trace.checkpoints.length} checkpoints)`,
+			);
 
 			return trace;
 		} catch (error) {
 			throw new Error(
-				`Failed to load trace: ${error instanceof Error ? error.message : String(error)}`
+				`Failed to load trace: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
 	}
@@ -402,7 +412,12 @@ export class ReplayEngine {
 	async startReplay(options: ReplayOptions): Promise<void> {
 		this.checkDisposed();
 
-		const { fromCheckpoint, trace, stepThroughReplay = false, variableOverrides = {} } = options;
+		const {
+			fromCheckpoint,
+			trace,
+			stepThroughReplay = false,
+			variableOverrides = {},
+		} = options;
 
 		// Load the trace
 		this.trace = trace;
@@ -418,7 +433,9 @@ export class ReplayEngine {
 		}
 
 		// Find checkpoint index
-		const checkpointIndex = trace.checkpoints.findIndex((cp) => cp.id === fromCheckpoint);
+		const checkpointIndex = trace.checkpoints.findIndex(
+			(cp) => cp.id === fromCheckpoint,
+		);
 		if (checkpointIndex === -1) {
 			throw new Error(`Checkpoint not found in trace: ${fromCheckpoint}`);
 		}
@@ -435,7 +452,7 @@ export class ReplayEngine {
 		};
 
 		this.debug(
-			`Started replay from checkpoint: ${fromCheckpoint} (node: ${checkpoint.nodeName}, seq: ${checkpoint.sequenceNumber})`
+			`Started replay from checkpoint: ${fromCheckpoint} (node: ${checkpoint.nodeName}, seq: ${checkpoint.sequenceNumber})`,
 		);
 	}
 
@@ -452,7 +469,7 @@ export class ReplayEngine {
 			stepThrough: false,
 		};
 
-		this.debug('Stopped replay');
+		this.debug("Stopped replay");
 	}
 
 	/**
@@ -507,7 +524,7 @@ export class ReplayEngine {
 			this.replayState.currentCheckpoint = next;
 			this.replayState.checkpointIndex++;
 			this.debug(
-				`Advanced replay to checkpoint: ${next.id} (node: ${next.nodeName}, seq: ${next.sequenceNumber})`
+				`Advanced replay to checkpoint: ${next.id} (node: ${next.nodeName}, seq: ${next.sequenceNumber})`,
 			);
 		}
 
@@ -525,7 +542,9 @@ export class ReplayEngine {
 		}
 
 		// Events are stored in the checkpoint
-		return this.replayState.currentCheckpoint.events.slice(this.replayState.eventsReplayed);
+		return this.replayState.currentCheckpoint.events.slice(
+			this.replayState.eventsReplayed,
+		);
 	}
 
 	/**
@@ -534,7 +553,9 @@ export class ReplayEngine {
 	markEventsReplayed(count: number): void {
 		this.checkDisposed();
 		this.replayState.eventsReplayed += count;
-		this.debug(`Marked ${count} events as replayed (total: ${this.replayState.eventsReplayed})`);
+		this.debug(
+			`Marked ${count} events as replayed (total: ${this.replayState.eventsReplayed})`,
+		);
 	}
 
 	// ==========================================================================
@@ -546,7 +567,7 @@ export class ReplayEngine {
 	 */
 	private checkTraceActive(): void {
 		if (!this.isTraceActive()) {
-			throw new Error('No active trace. Call startTrace() first.');
+			throw new Error("No active trace. Call startTrace() first.");
 		}
 	}
 
@@ -555,7 +576,7 @@ export class ReplayEngine {
 	 */
 	private checkDisposed(): void {
 		if (this.disposed) {
-			throw new Error('ReplayEngine has been disposed');
+			throw new Error("ReplayEngine has been disposed");
 		}
 	}
 
@@ -588,7 +609,7 @@ export class ReplayEngine {
 			stepThrough: false,
 		};
 		this.disposed = true;
-		this.debug('Disposed');
+		this.debug("Disposed");
 	}
 
 	/**
@@ -609,7 +630,7 @@ export class ReplayEngine {
 export function createCheckpointEvent(
 	type: string,
 	payload: unknown,
-	nodeName?: string
+	nodeName?: string,
 ): CheckpointEvent {
 	return {
 		type,
@@ -622,7 +643,10 @@ export function createCheckpointEvent(
 /**
  * Compare two checkpoints by sequence number
  */
-export function compareCheckpoints(a: ExecutionCheckpoint, b: ExecutionCheckpoint): number {
+export function compareCheckpoints(
+	a: ExecutionCheckpoint,
+	b: ExecutionCheckpoint,
+): number {
 	return a.sequenceNumber - b.sequenceNumber;
 }
 
@@ -630,7 +654,7 @@ export function compareCheckpoints(a: ExecutionCheckpoint, b: ExecutionCheckpoin
  * Find the last successful checkpoint before a failure
  */
 export function findLastSuccessfulCheckpoint(
-	trace: ExecutionTrace
+	trace: ExecutionTrace,
 ): ExecutionCheckpoint | undefined {
 	if (!trace.error) {
 		// No error, return last checkpoint

@@ -12,7 +12,7 @@
  * - Breakpoint hit callbacks
  */
 
-import { randomUUID } from 'crypto';
+import { randomUUID } from "crypto";
 import type {
 	Breakpoint,
 	NodeBreakpoint,
@@ -20,7 +20,7 @@ import type {
 	ExceptionBreakpoint,
 	BreakpointHit,
 	DebugContext,
-} from './types';
+} from "./types";
 
 // ============================================================================
 // Types
@@ -29,7 +29,9 @@ import type {
 /**
  * Callback when a breakpoint is hit
  */
-export type BreakpointHitCallback = (hit: BreakpointHit) => void | Promise<void>;
+export type BreakpointHitCallback = (
+	hit: BreakpointHit,
+) => void | Promise<void>;
 
 /**
  * Configuration for BreakpointManager
@@ -57,10 +59,7 @@ interface BreakpointEntry {
 /**
  * Safely evaluate a breakpoint condition in the context of current variables
  */
-function evaluateCondition(
-	condition: string,
-	context: DebugContext
-): boolean {
+function evaluateCondition(condition: string, context: DebugContext): boolean {
 	try {
 		// Create a safe evaluation context with current variables
 		const variables = context.variables;
@@ -71,17 +70,17 @@ function evaluateCondition(
 		// Use Function constructor for safer evaluation than eval
 		// eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
 		const evalFn = new Function(
-			'variables',
-			'currentNode',
-			'previousNode',
-			'nextNode',
+			"variables",
+			"currentNode",
+			"previousNode",
+			"nextNode",
 			`
 			// Allow direct variable access
 			const vars = variables;
 
 			// Evaluate condition
 			return (${condition});
-		`
+		`,
 		);
 
 		return Boolean(evalFn(variables, currentNode, previousNode, nextNode));
@@ -97,13 +96,13 @@ function evaluateCondition(
  */
 function matchesNodeName(nodeName: string, pattern: string): boolean {
 	// Support wildcards in node names
-	if (pattern === '*') {
+	if (pattern === "*") {
 		return true;
 	}
 
 	// Convert glob-like pattern to regex
-	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-	const regexStr = escaped.replace(/\*/g, '.*');
+	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+	const regexStr = escaped.replace(/\*/g, ".*");
 	const regex = new RegExp(`^${regexStr}$`);
 
 	return regex.test(nodeName);
@@ -114,13 +113,13 @@ function matchesNodeName(nodeName: string, pattern: string): boolean {
  */
 function matchesEventType(eventType: string, pattern: string): boolean {
 	// Support wildcards in event types (e.g., 'tool:*', 'node:*')
-	if (pattern === '*') {
+	if (pattern === "*") {
 		return true;
 	}
 
 	// Convert glob-like pattern to regex
-	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-	const regexStr = escaped.replace(/\*/g, '[^:]+');
+	const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&");
+	const regexStr = escaped.replace(/\*/g, "[^:]+");
 	const regex = new RegExp(`^${regexStr}$`);
 
 	return regex.test(eventType);
@@ -129,10 +128,7 @@ function matchesEventType(eventType: string, pattern: string): boolean {
 /**
  * Format a log message by replacing variable placeholders
  */
-function formatLogMessage(
-	message: string,
-	context: DebugContext
-): string {
+function formatLogMessage(message: string, context: DebugContext): string {
 	let formatted = message;
 
 	// Replace {variableName} with variable values
@@ -143,7 +139,7 @@ function formatLogMessage(
 	});
 
 	// Replace {node} with current node
-	formatted = formatted.replace(/\{node\}/g, context.currentNode || 'unknown');
+	formatted = formatted.replace(/\{node\}/g, context.currentNode || "unknown");
 
 	return formatted;
 }
@@ -222,20 +218,23 @@ export class BreakpointManager {
 	getAll(): Breakpoint[] {
 		this.checkDisposed();
 
-		return Array.from(this.breakpoints.values()).map((entry) => entry.breakpoint);
+		return Array.from(this.breakpoints.values()).map(
+			(entry) => entry.breakpoint,
+		);
 	}
 
 	/**
 	 * Get breakpoints by type
 	 */
-	getByType<T extends Breakpoint['type']>(
-		type: T
+	getByType<T extends Breakpoint["type"]>(
+		type: T,
 	): Extract<Breakpoint, { type: T }>[] {
 		this.checkDisposed();
 
-		return this.getAll().filter(
-			(bp) => bp.type === type
-		) as Extract<Breakpoint, { type: T }>[];
+		return this.getAll().filter((bp) => bp.type === type) as Extract<
+			Breakpoint,
+			{ type: T }
+		>[];
 	}
 
 	/**
@@ -274,7 +273,7 @@ export class BreakpointManager {
 		if (entry) {
 			entry.breakpoint.enabled = !entry.breakpoint.enabled;
 			this.debug(
-				`Toggled breakpoint: ${id} (enabled: ${entry.breakpoint.enabled})`
+				`Toggled breakpoint: ${id} (enabled: ${entry.breakpoint.enabled})`,
 			);
 			return entry.breakpoint.enabled;
 		}
@@ -291,7 +290,7 @@ export class BreakpointManager {
 			entry.hitCount = 0;
 			entry.lastHit = undefined;
 		}
-		this.debug('Reset all breakpoint hit counts');
+		this.debug("Reset all breakpoint hit counts");
 	}
 
 	// ==========================================================================
@@ -303,12 +302,12 @@ export class BreakpointManager {
 	 */
 	checkNodeBreakpoint(
 		nodeName: string,
-		when: 'before' | 'after',
-		context: DebugContext
+		when: "before" | "after",
+		context: DebugContext,
 	): BreakpointHit | null {
 		this.checkDisposed();
 
-		const nodeBreakpoints = this.getByType('node');
+		const nodeBreakpoints = this.getByType("node");
 
 		for (const bp of nodeBreakpoints) {
 			if (!bp.enabled) continue;
@@ -318,7 +317,11 @@ export class BreakpointManager {
 			// Check if this breakpoint should trigger
 			const shouldBreak = this.shouldBreakpoint(bp, context);
 			if (shouldBreak) {
-				return this.createBreakpointHit(bp, context, `Node ${when}: ${nodeName}`);
+				return this.createBreakpointHit(
+					bp,
+					context,
+					`Node ${when}: ${nodeName}`,
+				);
 			}
 		}
 
@@ -330,11 +333,11 @@ export class BreakpointManager {
 	 */
 	checkEventBreakpoint(
 		eventType: string,
-		context: DebugContext
+		context: DebugContext,
 	): BreakpointHit | null {
 		this.checkDisposed();
 
-		const eventBreakpoints = this.getByType('event');
+		const eventBreakpoints = this.getByType("event");
 
 		for (const bp of eventBreakpoints) {
 			if (!bp.enabled) continue;
@@ -355,24 +358,24 @@ export class BreakpointManager {
 	checkExceptionBreakpoint(
 		error: Error,
 		isUncaught: boolean,
-		context: DebugContext
+		context: DebugContext,
 	): BreakpointHit | null {
 		this.checkDisposed();
 
-		const exceptionBreakpoints = this.getByType('exception');
+		const exceptionBreakpoints = this.getByType("exception");
 
 		for (const bp of exceptionBreakpoints) {
 			if (!bp.enabled) continue;
 
 			// Check mode: 'all' breaks on any exception, 'uncaught' only on uncaught
-			if (bp.mode === 'uncaught' && !isUncaught) continue;
+			if (bp.mode === "uncaught" && !isUncaught) continue;
 
 			const shouldBreak = this.shouldBreakpoint(bp, context);
 			if (shouldBreak) {
 				return this.createBreakpointHit(
 					bp,
 					context,
-					`Exception: ${error.message}`
+					`Exception: ${error.message}`,
 				);
 			}
 		}
@@ -389,7 +392,7 @@ export class BreakpointManager {
 	 */
 	private shouldBreakpoint(
 		breakpoint: Breakpoint,
-		context: DebugContext
+		context: DebugContext,
 	): boolean {
 		const entry = this.breakpoints.get(breakpoint.id);
 		if (!entry) return false;
@@ -420,7 +423,7 @@ export class BreakpointManager {
 	private createBreakpointHit(
 		breakpoint: Breakpoint,
 		context: DebugContext,
-		reason: string
+		reason: string,
 	): BreakpointHit {
 		const entry = this.breakpoints.get(breakpoint.id);
 		if (!entry) {
@@ -454,7 +457,7 @@ export class BreakpointManager {
 	 */
 	private checkDisposed(): void {
 		if (this.disposed) {
-			throw new Error('BreakpointManager has been disposed');
+			throw new Error("BreakpointManager has been disposed");
 		}
 	}
 
@@ -488,7 +491,7 @@ export class BreakpointManager {
 
 		this.breakpoints.clear();
 		this.disposed = true;
-		this.debug('Disposed');
+		this.debug("Disposed");
 	}
 
 	/**
@@ -508,17 +511,17 @@ export class BreakpointManager {
  */
 export function createNodeBreakpoint(
 	nodeName: string,
-	when: 'before' | 'after' = 'before',
+	when: "before" | "after" = "before",
 	options?: {
 		condition?: string;
 		hitCount?: number;
 		logMessage?: string;
 		enabled?: boolean;
-	}
+	},
 ): NodeBreakpoint {
 	return {
 		id: randomUUID(),
-		type: 'node',
+		type: "node",
 		nodeName,
 		when,
 		enabled: options?.enabled ?? true,
@@ -538,11 +541,11 @@ export function createEventBreakpoint(
 		hitCount?: number;
 		logMessage?: string;
 		enabled?: boolean;
-	}
+	},
 ): EventBreakpoint {
 	return {
 		id: randomUUID(),
-		type: 'event',
+		type: "event",
 		eventType,
 		enabled: options?.enabled ?? true,
 		condition: options?.condition,
@@ -555,17 +558,17 @@ export function createEventBreakpoint(
  * Create an exception breakpoint
  */
 export function createExceptionBreakpoint(
-	mode: 'all' | 'uncaught' = 'uncaught',
+	mode: "all" | "uncaught" = "uncaught",
 	options?: {
 		condition?: string;
 		hitCount?: number;
 		logMessage?: string;
 		enabled?: boolean;
-	}
+	},
 ): ExceptionBreakpoint {
 	return {
 		id: randomUUID(),
-		type: 'exception',
+		type: "exception",
 		mode,
 		enabled: options?.enabled ?? true,
 		condition: options?.condition,

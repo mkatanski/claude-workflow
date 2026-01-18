@@ -448,7 +448,9 @@ export interface WorkflowTools {
 		/**
 		 * Parse JSON string safely.
 		 */
-		parseJson<T>(json: string): import("../utils/result/index.js").ResultBox<T, string>;
+		parseJson<T>(
+			json: string,
+		): import("../utils/result/index.js").ResultBox<T, string>;
 
 		/**
 		 * Parse JSON with fallback value.
@@ -481,7 +483,7 @@ export interface WorkflowTools {
 }
 
 /** Log level type */
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+export type LogLevel = "debug" | "info" | "warn" | "error";
 
 // =============================================================================
 // Git Type Re-exports

@@ -291,7 +291,6 @@ async function runLangGraphWorkflow(
 			// Error already displayed via workflow:error event
 			process.exit(1);
 		}
-
 	} finally {
 		// Flush any pending events before cleanup
 		await emitter.flush();

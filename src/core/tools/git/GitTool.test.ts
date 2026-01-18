@@ -53,23 +53,32 @@ async function createTestFixture(): Promise<TestFixture> {
 	await initProc.exited;
 
 	// Configure Git user for commits (required for commits to work)
-	const configNameProc = Bun.spawn(["git", "config", "user.name", "Test User"], {
-		cwd: repoPath,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const configNameProc = Bun.spawn(
+		["git", "config", "user.name", "Test User"],
+		{
+			cwd: repoPath,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	await configNameProc.exited;
 
-	const configEmailProc = Bun.spawn(["git", "config", "user.email", "test@example.com"], {
-		cwd: repoPath,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const configEmailProc = Bun.spawn(
+		["git", "config", "user.email", "test@example.com"],
+		{
+			cwd: repoPath,
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	await configEmailProc.exited;
 
 	// Create initial commit (required for some Git operations)
 	const readmePath = join(repoPath, "README.md");
-	await writeFile(readmePath, "# Test Repository\n\nThis is a test repository for GitTool tests.\n");
+	await writeFile(
+		readmePath,
+		"# Test Repository\n\nThis is a test repository for GitTool tests.\n",
+	);
 
 	const addProc = Bun.spawn(["git", "add", "README.md"], {
 		cwd: repoPath,
@@ -204,14 +213,20 @@ describe("GitTool Branch Lifecycle", () => {
 		const config = { cwd: fixture.repoPath };
 
 		// Step 1: Create a new branch
-		const createResult = await fixture.git.createBranch({ name: branchName }, config);
+		const createResult = await fixture.git.createBranch(
+			{ name: branchName },
+			config,
+		);
 		expect(createResult._tag).toBe("ok");
 
 		// Step 2: Verify branch exists via getBranch after switching (more reliable than listBranches)
 		// Note: listBranches output format can vary across Git versions, so we use switch + getBranch
 
 		// Step 3: Switch to the new branch
-		const switchResult = await fixture.git.switchBranch({ name: branchName }, config);
+		const switchResult = await fixture.git.switchBranch(
+			{ name: branchName },
+			config,
+		);
 		expect(switchResult._tag).toBe("ok");
 
 		// Step 4: Verify current branch changed
@@ -223,24 +238,38 @@ describe("GitTool Branch Lifecycle", () => {
 
 		// Step 5: Switch back to main/master
 		// Get the original branch using git directly for reliability
-		const origBranchProc = Bun.spawn(["git", "branch", "--list", "main", "master"], {
-			cwd: fixture.repoPath,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const origBranchProc = Bun.spawn(
+			["git", "branch", "--list", "main", "master"],
+			{
+				cwd: fixture.repoPath,
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
 		const origBranchOutput = await new Response(origBranchProc.stdout).text();
 		await origBranchProc.exited;
-		const mainBranch = origBranchOutput.trim().includes("main") ? "main" : "master";
+		const mainBranch = origBranchOutput.trim().includes("main")
+			? "main"
+			: "master";
 
-		const switchBackResult = await fixture.git.switchBranch({ name: mainBranch }, config);
+		const switchBackResult = await fixture.git.switchBranch(
+			{ name: mainBranch },
+			config,
+		);
 		expect(switchBackResult._tag).toBe("ok");
 
 		// Step 6: Delete the test branch
-		const deleteResult = await fixture.git.deleteBranch({ name: branchName, force: true }, config);
+		const deleteResult = await fixture.git.deleteBranch(
+			{ name: branchName, force: true },
+			config,
+		);
 		expect(deleteResult._tag).toBe("ok");
 
 		// Step 7: Verify branch is deleted by attempting to switch (should fail)
-		const switchFailResult = await fixture.git.switchBranch({ name: branchName }, config);
+		const switchFailResult = await fixture.git.switchBranch(
+			{ name: branchName },
+			config,
+		);
 		expect(switchFailResult._tag).toBe("err");
 	});
 
@@ -249,17 +278,27 @@ describe("GitTool Branch Lifecycle", () => {
 		const branchName = "duplicate-branch";
 
 		// Create the branch first
-		const createResult = await fixture.git.createBranch({ name: branchName }, config);
+		const createResult = await fixture.git.createBranch(
+			{ name: branchName },
+			config,
+		);
 		expect(createResult._tag).toBe("ok");
 
 		// Try to create it again
-		const duplicateResult = await fixture.git.createBranch({ name: branchName }, config);
+		const duplicateResult = await fixture.git.createBranch(
+			{ name: branchName },
+			config,
+		);
 		expect(duplicateResult._tag).toBe("err");
 		if (duplicateResult._tag === "err") {
 			// Git may report this as BranchExists or WorktreeExists (both indicate "already exists")
 			// The exact error depends on Git version and error message format
-			expect(["BranchExists", "WorktreeExists"]).toContain(duplicateResult.error.type);
-			expect(duplicateResult.error.message.toLowerCase()).toContain("already exists");
+			expect(["BranchExists", "WorktreeExists"]).toContain(
+				duplicateResult.error.type,
+			);
+			expect(duplicateResult.error.message.toLowerCase()).toContain(
+				"already exists",
+			);
 		}
 
 		// Clean up
@@ -271,7 +310,10 @@ describe("GitTool Branch Lifecycle", () => {
 		const branchName = "checkout-on-create";
 
 		// Create branch with checkout: true
-		const createResult = await fixture.git.createBranch({ name: branchName, checkout: true }, config);
+		const createResult = await fixture.git.createBranch(
+			{ name: branchName, checkout: true },
+			config,
+		);
 		expect(createResult._tag).toBe("ok");
 
 		// Verify we're on the new branch
@@ -282,14 +324,19 @@ describe("GitTool Branch Lifecycle", () => {
 		}
 
 		// Switch back and clean up - use git directly for reliability
-		const origBranchProc = Bun.spawn(["git", "branch", "--list", "main", "master"], {
-			cwd: fixture.repoPath,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const origBranchProc = Bun.spawn(
+			["git", "branch", "--list", "main", "master"],
+			{
+				cwd: fixture.repoPath,
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
 		const origBranchOutput = await new Response(origBranchProc.stdout).text();
 		await origBranchProc.exited;
-		const mainBranch = origBranchOutput.trim().includes("main") ? "main" : "master";
+		const mainBranch = origBranchOutput.trim().includes("main")
+			? "main"
+			: "master";
 
 		await fixture.git.switchBranch({ name: mainBranch }, config);
 		await fixture.git.deleteBranch({ name: branchName, force: true }, config);
@@ -328,11 +375,16 @@ describe("GitTool Commit Workflow", () => {
 		const statusResult = await fixture.git.status(config);
 		expect(statusResult._tag).toBe("ok");
 		if (statusResult._tag === "ok") {
-			expect(statusResult.value.staged.map((f) => f.path)).toContain(testFileName);
+			expect(statusResult.value.staged.map((f) => f.path)).toContain(
+				testFileName,
+			);
 		}
 
 		// Step 4: Commit the changes
-		const commitResult = await fixture.git.commit({ message: commitMessage }, config);
+		const commitResult = await fixture.git.commit(
+			{ message: commitMessage },
+			config,
+		);
 		expect(commitResult._tag).toBe("ok");
 		if (commitResult._tag === "ok") {
 			// Should return the commit hash
@@ -412,18 +464,25 @@ describe("GitTool Commit Workflow", () => {
 		let statusResult = await fixture.git.status(config);
 		expect(statusResult._tag).toBe("ok");
 		if (statusResult._tag === "ok") {
-			expect(statusResult.value.staged.map((f) => f.path)).toContain("reset-test.txt");
+			expect(statusResult.value.staged.map((f) => f.path)).toContain(
+				"reset-test.txt",
+			);
 		}
 
 		// Reset the file
-		const resetResult = await fixture.git.reset({ paths: ["reset-test.txt"] }, config);
+		const resetResult = await fixture.git.reset(
+			{ paths: ["reset-test.txt"] },
+			config,
+		);
 		expect(resetResult._tag).toBe("ok");
 
 		// Verify file is no longer staged (but is untracked)
 		statusResult = await fixture.git.status(config);
 		expect(statusResult._tag).toBe("ok");
 		if (statusResult._tag === "ok") {
-			expect(statusResult.value.staged.map((f) => f.path)).not.toContain("reset-test.txt");
+			expect(statusResult.value.staged.map((f) => f.path)).not.toContain(
+				"reset-test.txt",
+			);
 			expect(statusResult.value.untracked).toContain("reset-test.txt");
 		}
 
@@ -476,7 +535,9 @@ describe("GitTool Diff Operations", () => {
 		expect(diffResult._tag).toBe("ok");
 		if (diffResult._tag === "ok") {
 			expect(diffResult.value.files.length).toBeGreaterThan(0);
-			const diffFile = diffResult.value.files.find((f) => f.path === "diff-test.txt");
+			const diffFile = diffResult.value.files.find(
+				(f) => f.path === "diff-test.txt",
+			);
 			expect(diffFile).toBeDefined();
 			expect(diffFile?.additions).toBeGreaterThan(0);
 		}
@@ -502,7 +563,9 @@ describe("GitTool Diff Operations", () => {
 		const diffResult = await fixture.git.diff({ staged: true }, config);
 		expect(diffResult._tag).toBe("ok");
 		if (diffResult._tag === "ok") {
-			const stagedFile = diffResult.value.files.find((f) => f.path === "staged-diff.txt");
+			const stagedFile = diffResult.value.files.find(
+				(f) => f.path === "staged-diff.txt",
+			);
 			expect(stagedFile).toBeDefined();
 		}
 
@@ -520,10 +583,15 @@ describe("GitTool Diff Operations", () => {
 		await fixture.git.add({ paths: ["name-only-test.txt"] }, config);
 
 		// Check diff with nameOnly
-		const diffResult = await fixture.git.diff({ staged: true, nameOnly: true }, config);
+		const diffResult = await fixture.git.diff(
+			{ staged: true, nameOnly: true },
+			config,
+		);
 		expect(diffResult._tag).toBe("ok");
 		if (diffResult._tag === "ok") {
-			const file = diffResult.value.files.find((f) => f.path === "name-only-test.txt");
+			const file = diffResult.value.files.find(
+				(f) => f.path === "name-only-test.txt",
+			);
 			expect(file).toBeDefined();
 			// When nameOnly is true, additions/deletions are 0
 			expect(file?.additions).toBe(0);
@@ -643,7 +711,10 @@ describe("GitTool Worktree Lifecycle", () => {
 	afterAll(async () => {
 		// Clean up worktree if it exists
 		try {
-			await fixture.git.worktreeRemove({ path: worktreePath, force: true }, { cwd: fixture.repoPath });
+			await fixture.git.worktreeRemove(
+				{ path: worktreePath, force: true },
+				{ cwd: fixture.repoPath },
+			);
 		} catch {
 			// Ignore errors
 		}
@@ -695,7 +766,10 @@ describe("GitTool Worktree Lifecycle", () => {
 		}
 
 		// Clean up the branch
-		await fixture.git.deleteBranch({ name: worktreeBranch, force: true }, config);
+		await fixture.git.deleteBranch(
+			{ name: worktreeBranch, force: true },
+			config,
+		);
 	});
 });
 
@@ -734,7 +808,10 @@ describe("GitTool Stash Operations", () => {
 		}
 
 		// Stash the changes
-		const stashResult = await fixture.git.stash({ message: "Test stash" }, config);
+		const stashResult = await fixture.git.stash(
+			{ message: "Test stash" },
+			config,
+		);
 		expect(stashResult._tag).toBe("ok");
 
 		// Verify working tree is clean
@@ -763,11 +840,14 @@ describe("GitTool Stash Operations", () => {
 		}
 
 		// Clean up - discard changes
-		const checkoutProc = Bun.spawn(["git", "checkout", "--", "stash-test.txt"], {
-			cwd: fixture.repoPath,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
+		const checkoutProc = Bun.spawn(
+			["git", "checkout", "--", "stash-test.txt"],
+			{
+				cwd: fixture.repoPath,
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
 		await checkoutProc.exited;
 	});
 
@@ -826,7 +906,9 @@ describe("GitTool Error Handling", () => {
 		if (switchResult._tag === "err") {
 			// Git may report this as BranchNotFound or CommandFailed depending on version
 			// The key assertion is that it fails with an error
-			expect(["BranchNotFound", "CommandFailed"]).toContain(switchResult.error.type);
+			expect(["BranchNotFound", "CommandFailed"]).toContain(
+				switchResult.error.type,
+			);
 		}
 	});
 
@@ -890,9 +972,13 @@ describe("GitTool Basic Properties", () => {
 		const git = new GitTool();
 
 		// Should not throw for correct tool type
-		expect(() => git.validateStep({ name: "test-step", tool: "git" })).not.toThrow();
+		expect(() =>
+			git.validateStep({ name: "test-step", tool: "git" }),
+		).not.toThrow();
 
 		// Should throw for incorrect tool type
-		expect(() => git.validateStep({ name: "test-step", tool: "bash" })).toThrow();
+		expect(() =>
+			git.validateStep({ name: "test-step", tool: "bash" }),
+		).toThrow();
 	});
 });

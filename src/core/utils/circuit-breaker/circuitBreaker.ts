@@ -30,8 +30,10 @@ export class CircuitBreakerOpenError extends CircuitBreakerError {
 			{
 				circuitName: serviceName,
 				failures: metrics.consecutiveFailures,
-				resetTime: metrics.lastOpenedAt ? new Date(metrics.lastOpenedAt) : undefined,
-			}
+				resetTime: metrics.lastOpenedAt
+					? new Date(metrics.lastOpenedAt)
+					: undefined,
+			},
 		);
 		this.name = "CircuitBreakerOpenError";
 	}
@@ -50,7 +52,7 @@ export class CircuitBreakerTimeoutError extends CircuitBreakerError {
 			{
 				circuitName: serviceName,
 				failures: 1,
-			}
+			},
 		);
 		this.name = "CircuitBreakerTimeoutError";
 	}
@@ -87,7 +89,9 @@ export class CircuitBreaker {
 	private readonly serviceName: string;
 	private readonly config: Required<CircuitBreakerConfig>;
 	private readonly emitter: WorkflowEmitter | undefined;
-	private readonly eventHelpers: ReturnType<typeof createEventHelpers> | undefined;
+	private readonly eventHelpers:
+		| ReturnType<typeof createEventHelpers>
+		| undefined;
 
 	private state: CircuitBreakerState = "closed";
 	private metrics: CircuitBreakerMetrics = {
@@ -189,9 +193,7 @@ export class CircuitBreaker {
 		if (this.state === "half-open") {
 			this.metrics.consecutiveSuccesses++;
 
-			if (
-				this.metrics.consecutiveSuccesses >= this.config.successThreshold
-			) {
+			if (this.metrics.consecutiveSuccesses >= this.config.successThreshold) {
 				this.transitionToClosed();
 			}
 		}

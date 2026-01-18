@@ -55,7 +55,7 @@ export {
 	type ExecutionResumeCallback,
 	type BreakpointHitEventCallback,
 	type DebugEventCallbacks,
-} from './debugger';
+} from "./debugger";
 
 // ============================================================================
 // Types
@@ -69,7 +69,6 @@ export type {
 	DebugContext,
 	StepMode,
 	StackFrame,
-
 	// Breakpoints
 	Breakpoint,
 	BaseBreakpoint,
@@ -77,24 +76,21 @@ export type {
 	EventBreakpoint,
 	ExceptionBreakpoint,
 	BreakpointHit,
-
 	// Variables
 	VariableInfo,
 	VariableInspectionRequest,
 	VariableScope,
-
 	// Checkpoints and replay
 	ExecutionCheckpoint,
 	ExecutionTrace,
 	CheckpointEvent,
 	ReplayOptions,
-
 	// Debug Adapter Protocol
 	DapRequestType,
 	DapResponse,
 	DapEventType,
 	StoppedReason,
-} from './types';
+} from "./types";
 
 export {
 	// Type guards
@@ -103,7 +99,7 @@ export {
 	isExceptionBreakpoint,
 	isDebuggerPaused,
 	isDebuggerActive,
-} from './types';
+} from "./types";
 
 // ============================================================================
 // Breakpoint Manager
@@ -116,7 +112,7 @@ export {
 	createExceptionBreakpoint,
 	type BreakpointManagerConfig,
 	type BreakpointHitCallback,
-} from './breakpoints';
+} from "./breakpoints";
 
 // ============================================================================
 // Variable Inspector
@@ -127,7 +123,7 @@ export {
 	formatValueForDisplay,
 	createSimpleVariableInfo,
 	type VariableInspectorConfig,
-} from './inspector';
+} from "./inspector";
 
 // ============================================================================
 // Replay Engine
@@ -140,7 +136,7 @@ export {
 	findLastSuccessfulCheckpoint,
 	type ReplayEngineConfig,
 	type CheckpointOptions,
-} from './replay';
+} from "./replay";
 
 // ============================================================================
 // VS Code Debug Adapter
@@ -151,4 +147,4 @@ export {
 	createVsCodeDebugAdapter,
 	type VsCodeAdapterConfig,
 	type LaunchConfiguration,
-} from './vscode-adapter';
+} from "./vscode-adapter";

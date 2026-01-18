@@ -49,7 +49,11 @@ import {
 	type EventHelpers,
 } from "../events/index.ts";
 import { FileOperations } from "../utils/files/index.js";
-import { parseJson, parseJsonSafe, SchemaValidator } from "../utils/schema/index.js";
+import {
+	parseJson,
+	parseJsonSafe,
+	SchemaValidator,
+} from "../utils/schema/index.js";
 import type { JsonSchema } from "../utils/schema/index.js";
 import { RetryableOperation } from "../utils/retry/index.js";
 import type { RetryConfig } from "../utils/retry/index.js";
@@ -132,7 +136,9 @@ export function createWorkflowTools(
 	let filesInstance: FileOperations | undefined;
 
 	// Create event helpers if emitter is provided
-	const events: EventHelpers | null = emitter ? createEventHelpers(emitter) : null;
+	const events: EventHelpers | null = emitter
+		? createEventHelpers(emitter)
+		: null;
 
 	// Create tool instances
 	const bashTool = new BashTool();
@@ -233,7 +239,8 @@ export function createWorkflowTools(
 			const label = options?.label;
 
 			if (!tmuxManager) {
-				const errorMessage = "Claude tool requires tmux manager (interactive mode)";
+				const errorMessage =
+					"Claude tool requires tmux manager (interactive mode)";
 
 				events?.claudeError({
 					prompt,
@@ -426,7 +433,8 @@ export function createWorkflowTools(
 						events?.jsonComplete(action, result.success, result.output, label);
 					})
 					.catch((error) => {
-						const message = error instanceof Error ? error.message : String(error);
+						const message =
+							error instanceof Error ? error.message : String(error);
 						syncResult = {
 							success: false,
 							output: "",
@@ -603,7 +611,9 @@ export function createWorkflowTools(
 				model,
 				tools: toolsList,
 				workingDirectory: options?.workingDirectory,
-				hasSubagents: options?.agents ? Object.keys(options.agents).length > 0 : false,
+				hasSubagents: options?.agents
+					? Object.keys(options.agents).length > 0
+					: false,
 				isResume: !!options?.resume,
 				resumeSessionId: options?.resume,
 			});
@@ -687,8 +697,12 @@ export function createWorkflowTools(
 		},
 
 		// --- Logging ---
-		log(message: string, level: LogLevel = 'info', data?: Record<string, unknown>): void {
-			events?.emit('log', { message, level, data });
+		log(
+			message: string,
+			level: LogLevel = "info",
+			data?: Record<string, unknown>,
+		): void {
+			events?.emit("log", { message, level, data });
 		},
 
 		emit(name: string, data: Record<string, unknown>): void {
@@ -726,11 +740,17 @@ export function createWorkflowTools(
 		},
 
 		// --- Utility factories ---
-		createRetry<T>(name: string, retryConfig: RetryConfig): RetryableOperation<T> {
+		createRetry<T>(
+			name: string,
+			retryConfig: RetryConfig,
+		): RetryableOperation<T> {
 			return new RetryableOperation<T>(name, retryConfig, emitter);
 		},
 
-		createIterator<T>(items: readonly T[], stateKey: string): IterationHelper<T> {
+		createIterator<T>(
+			items: readonly T[],
+			stateKey: string,
+		): IterationHelper<T> {
 			return new IterationHelper<T>(items, stateKey, tools);
 		},
 
@@ -969,9 +989,7 @@ function createGitOperationsWrapper(
 			// Get status to count files before commit
 			const statusResult = await gitTool.status(mergedConfig);
 			const filesCount =
-				statusResult._tag === "ok"
-					? statusResult.value.staged.length
-					: 0;
+				statusResult._tag === "ok" ? statusResult.value.staged.length : 0;
 
 			const result = await gitTool.commit(options, mergedConfig);
 
@@ -1088,9 +1106,7 @@ function createGitOperationsWrapper(
 			return result;
 		},
 
-		async worktreeList(
-			config?: GitConfig,
-		): Promise<GitResult<GitWorktree[]>> {
+		async worktreeList(config?: GitConfig): Promise<GitResult<GitWorktree[]>> {
 			return gitTool.worktreeList(mergeConfig(config));
 		},
 
@@ -1150,9 +1166,7 @@ function createGitOperationsWrapper(
 			return result;
 		},
 
-		async stashList(
-			config?: GitConfig,
-		): Promise<GitResult<GitStashEntry[]>> {
+		async stashList(config?: GitConfig): Promise<GitResult<GitStashEntry[]>> {
 			return gitTool.stashList(mergeConfig(config));
 		},
 	};

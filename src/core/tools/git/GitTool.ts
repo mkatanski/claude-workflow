@@ -39,7 +39,19 @@ import type {
 	StashPopOptions,
 } from "./types.ts";
 import { createGitError } from "./types.ts";
-import { detectGitError, parseStatusPorcelain, parseRemotes, parseBranchList, BRANCH_FORMAT, parseLogOutput, LOG_FORMAT, parseDiffNumstat, parseWorktreeList, parseStashList, STASH_FORMAT } from "./parsers.ts";
+import {
+	detectGitError,
+	parseStatusPorcelain,
+	parseRemotes,
+	parseBranchList,
+	BRANCH_FORMAT,
+	parseLogOutput,
+	LOG_FORMAT,
+	parseDiffNumstat,
+	parseWorktreeList,
+	parseStashList,
+	STASH_FORMAT,
+} from "./parsers.ts";
 
 // =============================================================================
 // Command Execution Types
@@ -795,10 +807,7 @@ export class GitTool extends BaseTool implements GitOperations {
 
 		// Extract commit hash from output
 		// After a successful commit, we can get the hash with rev-parse
-		const hashResult = await this.runGitCommand(
-			["rev-parse", "HEAD"],
-			config,
-		);
+		const hashResult = await this.runGitCommand(["rev-parse", "HEAD"], config);
 
 		if (!hashResult.success) {
 			// Commit succeeded but couldn't get hash - return a partial success message
@@ -829,10 +838,7 @@ export class GitTool extends BaseTool implements GitOperations {
 	 * const result = await gitTool.add({ paths: ["build/"], force: true });
 	 * ```
 	 */
-	async add(
-		options: AddOptions,
-		config?: GitConfig,
-	): Promise<GitResult<void>> {
+	async add(options: AddOptions, config?: GitConfig): Promise<GitResult<void>> {
 		const { paths, all, force } = options;
 
 		// Build the command arguments
@@ -1046,7 +1052,14 @@ export class GitTool extends BaseTool implements GitOperations {
 		// If stat was requested, get the raw output as well
 		if (stat) {
 			const statResult = await this.runGitCommand(
-				["diff", "--stat", ...(staged ? ["--cached"] : []), ...(ref ? [ref] : []), ...(refTo ? [`...${refTo}`] : []), ...(paths && paths.length > 0 ? ["--", ...paths] : [])],
+				[
+					"diff",
+					"--stat",
+					...(staged ? ["--cached"] : []),
+					...(ref ? [ref] : []),
+					...(refTo ? [`...${refTo}`] : []),
+					...(paths && paths.length > 0 ? ["--", ...paths] : []),
+				],
 				config,
 			);
 			if (statResult.success) {
@@ -1138,14 +1151,12 @@ export class GitTool extends BaseTool implements GitOperations {
 
 		// Add date filters
 		if (since) {
-			const sinceStr =
-				since instanceof Date ? since.toISOString() : since;
+			const sinceStr = since instanceof Date ? since.toISOString() : since;
 			args.push(`--since=${sinceStr}`);
 		}
 
 		if (until) {
-			const untilStr =
-				until instanceof Date ? until.toISOString() : until;
+			const untilStr = until instanceof Date ? until.toISOString() : until;
 			args.push(`--until=${untilStr}`);
 		}
 
@@ -1394,7 +1405,8 @@ export class GitTool extends BaseTool implements GitOperations {
 		options?: StashOptions,
 		config?: GitConfig,
 	): Promise<GitResult<void>> {
-		const { message, includeUntracked, includeIgnored, keepIndex } = options ?? {};
+		const { message, includeUntracked, includeIgnored, keepIndex } =
+			options ?? {};
 
 		// Build the command arguments
 		const args: string[] = ["stash", "push"];

@@ -123,7 +123,9 @@ describe("ClaudeAgentTool", () => {
 				{
 					type: "assistant",
 					message: {
-						content: [{ type: "text", text: "Hello! I can help you with that." }],
+						content: [
+							{ type: "text", text: "Hello! I can help you with that." },
+						],
 					},
 					session_id: "test-session-123",
 				},
@@ -290,8 +292,16 @@ describe("ClaudeAgentTool", () => {
 			const result = await tool.executeSession("Hello");
 			// User message should be skipped, only result message should be captured
 			// Since user is not a valid AgentMessageType, we check that only valid types are present
-			const validTypes = ["assistant", "tool_call", "tool_result", "error", "system"];
-			const allMessagesValid = result.messages.every((m) => validTypes.includes(m.type));
+			const validTypes = [
+				"assistant",
+				"tool_call",
+				"tool_result",
+				"error",
+				"system",
+			];
+			const allMessagesValid = result.messages.every((m) =>
+				validTypes.includes(m.type),
+			);
 			expect(allMessagesValid).toBe(true);
 		});
 	});
@@ -399,9 +409,13 @@ describe("ClaudeAgentTool", () => {
 			const throwingTool = new ClaudeAgentTool();
 
 			// Override to throw
-			const originalExecuteSession = throwingTool.executeSession.bind(throwingTool);
+			const originalExecuteSession =
+				throwingTool.executeSession.bind(throwingTool);
 			let callCount = 0;
-			throwingTool.executeSession = async (prompt: string, options?: AgentSessionOptions) => {
+			throwingTool.executeSession = async (
+				prompt: string,
+				options?: AgentSessionOptions,
+			) => {
 				callCount++;
 				if (callCount === 1) {
 					// Return a mocked error result for the first call
@@ -465,7 +479,12 @@ describe("ClaudeAgentTool", () => {
 		});
 
 		it("should accept post tool use hooks", async () => {
-			const postHook: PostToolUseHook = async (_toolName, _input, _response, _sessionId) => {
+			const postHook: PostToolUseHook = async (
+				_toolName,
+				_input,
+				_response,
+				_sessionId,
+			) => {
 				// Post-hook function is configured - verifying it doesn't throw when created
 			};
 

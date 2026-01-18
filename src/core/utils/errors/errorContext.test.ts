@@ -109,10 +109,7 @@ describe("enrichErrorContext", () => {
 	});
 
 	it("should generate valid ISO timestamp", () => {
-		const context = enrichErrorContext(
-			{ workflowName: "test" },
-			"error-id",
-		);
+		const context = enrichErrorContext({ workflowName: "test" }, "error-id");
 
 		// Should be valid ISO format
 		const parsedDate = new Date(context.timestamp);
@@ -120,10 +117,7 @@ describe("enrichErrorContext", () => {
 	});
 
 	it("should work without optional correlation info", () => {
-		const enriched = enrichErrorContext(
-			{ workflowName: "test" },
-			"error-id",
-		);
+		const enriched = enrichErrorContext({ workflowName: "test" }, "error-id");
 
 		expect(enriched.errorId).toBe("error-id");
 		expect(enriched.correlationId).toBeUndefined();

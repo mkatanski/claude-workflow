@@ -30,10 +30,10 @@ import type {
 	ReplayOptions,
 	StepMode,
 	StackFrame,
-} from './types';
-import { BreakpointManager } from './breakpoints';
-import { VariableInspector } from './inspector';
-import { ReplayEngine } from './replay';
+} from "./types";
+import { BreakpointManager } from "./breakpoints";
+import { VariableInspector } from "./inspector";
+import { ReplayEngine } from "./replay";
 
 // ============================================================================
 // Types
@@ -44,7 +44,9 @@ import { ReplayEngine } from './replay';
  */
 export type ExecutionControlCallback = () => void | Promise<void>;
 export type ExecutionResumeCallback = (mode: StepMode) => void | Promise<void>;
-export type BreakpointHitEventCallback = (hit: BreakpointHit) => void | Promise<void>;
+export type BreakpointHitEventCallback = (
+	hit: BreakpointHit,
+) => void | Promise<void>;
 
 /**
  * Debug event callbacks
@@ -84,7 +86,7 @@ interface ExecutionControl {
 
 export class Debugger implements IDebugger {
 	private config: DebuggerConfig | null = null;
-	private _state: DebugExecutionState = 'stopped';
+	private _state: DebugExecutionState = "stopped";
 	private _context: DebugContext | null = null;
 	private breakpointManager: BreakpointManager;
 	private variableInspector: VariableInspector;
@@ -92,7 +94,7 @@ export class Debugger implements IDebugger {
 	private disposed = false;
 	private eventCallbacks: DebugEventCallbacks = {};
 	private executionControl: ExecutionControl = {
-		stepMode: 'continue',
+		stepMode: "continue",
 		resumeResolver: null,
 		shouldPause: false,
 		stepTarget: null,
@@ -142,7 +144,7 @@ export class Debugger implements IDebugger {
 		this.checkDisposed();
 
 		this.config = config;
-		this._state = config.enabled ? 'paused' : 'running';
+		this._state = config.enabled ? "paused" : "running";
 
 		// Initialize trace if configured
 		if (config.traceOutputPath) {
@@ -176,7 +178,7 @@ export class Debugger implements IDebugger {
 		this.checkDisposed();
 
 		// Resume execution if paused
-		if (this._state === 'paused') {
+		if (this._state === "paused") {
 			this.resume();
 		}
 
@@ -185,7 +187,7 @@ export class Debugger implements IDebugger {
 			this.replayEngine.completeTrace(this._context.variables);
 		}
 
-		this._state = 'stopped';
+		this._state = "stopped";
 		this._context = null;
 		this.config = null;
 
@@ -193,7 +195,7 @@ export class Debugger implements IDebugger {
 		this.breakpointManager.clear();
 		this.variableInspector.clearReferences();
 
-		this.debug('Stopped debugging session');
+		this.debug("Stopped debugging session");
 		await this.notifyStateChange(this._state);
 	}
 
@@ -216,7 +218,7 @@ export class Debugger implements IDebugger {
 	clearBreakpoints(): void {
 		this.checkDisposed();
 		this.breakpointManager.clear();
-		this.debug('Cleared all breakpoints');
+		this.debug("Cleared all breakpoints");
 	}
 
 	getBreakpoints(): Breakpoint[] {
@@ -230,30 +232,30 @@ export class Debugger implements IDebugger {
 
 	continue(): void {
 		this.checkDisposed();
-		this.resume('continue');
+		this.resume("continue");
 	}
 
 	stepOver(): void {
 		this.checkDisposed();
-		this.resume('step-over');
+		this.resume("step-over");
 	}
 
 	stepIn(): void {
 		this.checkDisposed();
-		this.resume('step-into');
+		this.resume("step-into");
 	}
 
 	stepOut(): void {
 		this.checkDisposed();
-		this.resume('step-out');
+		this.resume("step-out");
 	}
 
 	pause(): void {
 		this.checkDisposed();
 
-		if (this._state === 'running') {
+		if (this._state === "running") {
 			this.executionControl.shouldPause = true;
-			this.debug('Pause requested');
+			this.debug("Pause requested");
 		}
 	}
 
@@ -279,21 +281,21 @@ export class Debugger implements IDebugger {
 		this.checkDisposed();
 
 		if (!this._context) {
-			throw new Error('Cannot create checkpoint without active context');
+			throw new Error("Cannot create checkpoint without active context");
 		}
 
 		// Ensure trace is started
 		if (!this.replayEngine.isTraceActive()) {
 			this.replayEngine.startTrace(
 				this._context.workflowName,
-				this._context.variables
+				this._context.variables,
 			);
 		}
 
 		const checkpoint = this.replayEngine.createCheckpoint(
 			this._context.workflowName,
 			nodeName,
-			this._context.variables
+			this._context.variables,
 		);
 
 		void this.eventCallbacks.onCheckpoint?.(checkpoint);
@@ -307,7 +309,7 @@ export class Debugger implements IDebugger {
 
 		const trace = this.replayEngine.getTrace();
 		if (!trace) {
-			throw new Error('No active trace');
+			throw new Error("No active trace");
 		}
 
 		return trace;
@@ -321,8 +323,8 @@ export class Debugger implements IDebugger {
 
 		// If step-through replay, pause at first checkpoint
 		if (options.stepThroughReplay) {
-			this.executionControl.stepMode = 'step-over';
-			await this.pauseExecution('Replay started');
+			this.executionControl.stepMode = "step-over";
+			await this.pauseExecution("Replay started");
 		}
 	}
 
@@ -333,8 +335,8 @@ export class Debugger implements IDebugger {
 	/**
 	 * Resume execution with a specific step mode
 	 */
-	private resume(mode: StepMode = 'continue'): void {
-		if (this._state !== 'paused') {
+	private resume(mode: StepMode = "continue"): void {
+		if (this._state !== "paused") {
 			return;
 		}
 
@@ -342,9 +344,9 @@ export class Debugger implements IDebugger {
 		this.executionControl.shouldPause = false;
 
 		// Set step target for step-over/out
-		if (mode === 'step-over' && this._context) {
+		if (mode === "step-over" && this._context) {
 			this.executionControl.stepTarget = this._context.currentNode ?? null;
-		} else if (mode === 'step-out' && this._context) {
+		} else if (mode === "step-out" && this._context) {
 			this.executionControl.stepStackDepth = this._context.callStack.length - 1;
 		}
 
@@ -354,7 +356,7 @@ export class Debugger implements IDebugger {
 			this.executionControl.resumeResolver = null;
 		}
 
-		this._state = mode === 'continue' ? 'running' : 'stepping';
+		this._state = mode === "continue" ? "running" : "stepping";
 
 		void this.eventCallbacks.onResume?.(mode);
 		void this.notifyStateChange(this._state);
@@ -366,19 +368,19 @@ export class Debugger implements IDebugger {
 	 * Pause execution
 	 */
 	private async pauseExecution(reason: string): Promise<void> {
-		if (this._state === 'paused') {
+		if (this._state === "paused") {
 			return;
 		}
 
 		const previousState = this._state;
-		this._state = 'paused';
+		this._state = "paused";
 
 		this.debug(`Paused execution: ${reason}`);
 
 		// Create the wait promise BEFORE any async operations
 		// This ensures resumeResolver is set before continue() can be called
 		let waitPromise: Promise<void> | undefined;
-		if (previousState !== 'stopped') {
+		if (previousState !== "stopped") {
 			waitPromise = new Promise<void>((resolve) => {
 				this.executionControl.resumeResolver = resolve;
 			});
@@ -419,7 +421,7 @@ export class Debugger implements IDebugger {
 	 */
 	async beforeNodeExecution(
 		nodeName: string,
-		context: DebugContext
+		context: DebugContext,
 	): Promise<void> {
 		this.checkDisposed();
 
@@ -432,8 +434,8 @@ export class Debugger implements IDebugger {
 		// Check node breakpoints (before)
 		const breakpointHit = this.breakpointManager.checkNodeBreakpoint(
 			nodeName,
-			'before',
-			context
+			"before",
+			context,
 		);
 
 		if (breakpointHit) {
@@ -447,12 +449,12 @@ export class Debugger implements IDebugger {
 		// Check if pause requested
 		if (this.executionControl.shouldPause) {
 			this.executionControl.shouldPause = false;
-			await this.pauseExecution('Pause requested');
+			await this.pauseExecution("Pause requested");
 		}
 
 		// Record event in trace
 		if (this.replayEngine.isTraceActive()) {
-			this.replayEngine.recordEvent('node:before', { nodeName }, nodeName);
+			this.replayEngine.recordEvent("node:before", { nodeName }, nodeName);
 		}
 	}
 
@@ -461,7 +463,7 @@ export class Debugger implements IDebugger {
 	 */
 	async afterNodeExecution(
 		nodeName: string,
-		context: DebugContext
+		context: DebugContext,
 	): Promise<void> {
 		this.checkDisposed();
 
@@ -477,8 +479,8 @@ export class Debugger implements IDebugger {
 		// Check node breakpoints (after)
 		const breakpointHit = this.breakpointManager.checkNodeBreakpoint(
 			nodeName,
-			'after',
-			context
+			"after",
+			context,
 		);
 
 		if (breakpointHit) {
@@ -487,7 +489,7 @@ export class Debugger implements IDebugger {
 
 		// Record event in trace
 		if (this.replayEngine.isTraceActive()) {
-			this.replayEngine.recordEvent('node:after', { nodeName }, nodeName);
+			this.replayEngine.recordEvent("node:after", { nodeName }, nodeName);
 		}
 	}
 
@@ -497,7 +499,7 @@ export class Debugger implements IDebugger {
 	async onEventEmitted(
 		eventType: string,
 		payload: unknown,
-		context: DebugContext
+		context: DebugContext,
 	): Promise<void> {
 		this.checkDisposed();
 
@@ -510,7 +512,7 @@ export class Debugger implements IDebugger {
 		// Check event breakpoints
 		const breakpointHit = this.breakpointManager.checkEventBreakpoint(
 			eventType,
-			context
+			context,
 		);
 
 		if (breakpointHit) {
@@ -519,11 +521,7 @@ export class Debugger implements IDebugger {
 
 		// Record event in trace
 		if (this.replayEngine.isTraceActive()) {
-			this.replayEngine.recordEvent(
-				eventType,
-				payload,
-				context.currentNode
-			);
+			this.replayEngine.recordEvent(eventType, payload, context.currentNode);
 		}
 	}
 
@@ -533,7 +531,7 @@ export class Debugger implements IDebugger {
 	async onException(
 		error: Error,
 		isUncaught: boolean,
-		context: DebugContext
+		context: DebugContext,
 	): Promise<void> {
 		this.checkDisposed();
 
@@ -547,7 +545,7 @@ export class Debugger implements IDebugger {
 		const breakpointHit = this.breakpointManager.checkExceptionBreakpoint(
 			error,
 			isUncaught,
-			context
+			context,
 		);
 
 		if (breakpointHit) {
@@ -572,36 +570,36 @@ export class Debugger implements IDebugger {
 	 */
 	private async checkStepMode(
 		nodeName: string,
-		context: DebugContext
+		context: DebugContext,
 	): Promise<void> {
 		const { stepMode, stepTarget, stepStackDepth } = this.executionControl;
 
 		switch (stepMode) {
-			case 'step-over':
+			case "step-over":
 				// Pause at every node at the same level
 				if (!stepTarget || nodeName !== stepTarget) {
 					await this.pauseExecution(`Step over to: ${nodeName}`);
 				}
 				break;
 
-			case 'step-into':
+			case "step-into":
 				// Pause at every node (including nested)
 				await this.pauseExecution(`Step into: ${nodeName}`);
 				break;
 
-			case 'step-out':
+			case "step-out":
 				// Pause when we've stepped out to parent level
 				if (context.callStack.length <= stepStackDepth) {
 					await this.pauseExecution(`Step out to: ${nodeName}`);
 				}
 				break;
 
-			case 'pause':
+			case "pause":
 				// Pause immediately
-				await this.pauseExecution('Paused');
+				await this.pauseExecution("Paused");
 				break;
 
-			case 'continue':
+			case "continue":
 			default:
 				// Continue - only pause at breakpoints
 				break;
@@ -617,7 +615,7 @@ export class Debugger implements IDebugger {
 	 */
 	initializeWorkflow(
 		workflowName: string,
-		initialVariables: Record<string, unknown>
+		initialVariables: Record<string, unknown>,
 	): void {
 		this.checkDisposed();
 
@@ -643,7 +641,7 @@ export class Debugger implements IDebugger {
 	 */
 	finalizeWorkflow(
 		finalVariables: Record<string, unknown>,
-		success = true
+		success = true,
 	): ExecutionTrace | null {
 		this.checkDisposed();
 
@@ -652,7 +650,9 @@ export class Debugger implements IDebugger {
 		}
 
 		const trace = this.replayEngine.completeTrace(finalVariables, success);
-		this.debug(`Finalized workflow: ${trace.workflowName} (status: ${trace.status})`);
+		this.debug(
+			`Finalized workflow: ${trace.workflowName} (status: ${trace.status})`,
+		);
 
 		return trace;
 	}
@@ -705,7 +705,7 @@ export class Debugger implements IDebugger {
 	 */
 	private checkDisposed(): void {
 		if (this.disposed) {
-			throw new Error('Debugger has been disposed');
+			throw new Error("Debugger has been disposed");
 		}
 	}
 
@@ -732,7 +732,7 @@ export class Debugger implements IDebugger {
 		if (this.disposed) return;
 
 		// Stop session if active
-		if (this._state !== 'stopped') {
+		if (this._state !== "stopped") {
 			void this.stop();
 		}
 
@@ -742,7 +742,7 @@ export class Debugger implements IDebugger {
 		this.replayEngine.dispose();
 
 		this.disposed = true;
-		this.debug('Disposed');
+		this.debug("Disposed");
 	}
 
 	/**
@@ -770,7 +770,7 @@ export function createDebugger(callbacks?: DebugEventCallbacks): Debugger {
 export function createDebugContext(
 	workflowName: string,
 	variables: Record<string, unknown> = {},
-	currentNode?: string
+	currentNode?: string,
 ): DebugContext {
 	return {
 		workflowName,
@@ -787,7 +787,7 @@ export function createStackFrame(
 	id: number,
 	name: string,
 	source: string,
-	variables: Record<string, unknown> = {}
+	variables: Record<string, unknown> = {},
 ): StackFrame {
 	return {
 		id,

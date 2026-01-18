@@ -572,7 +572,6 @@ export function getRetrySuggestion(error: unknown): RetrySuggestion {
 		maxAttempts: 2,
 		backoffStrategy: "linear",
 		baseDelayMs: 1000,
-		reason:
-			"Error category unknown; attempting conservative retry strategy",
+		reason: "Error category unknown; attempting conservative retry strategy",
 	};
 }

@@ -154,7 +154,7 @@ export class WorkflowGraph {
 		// Initialize emitter (use provided or create new)
 		this.emitter = config.emitter ?? createEmitter();
 		this.events = createEventHelpers(this.emitter);
-		this.workflowName = config.workflowName ?? 'unnamed-workflow';
+		this.workflowName = config.workflowName ?? "unnamed-workflow";
 		this.emitter.setContext({ workflowName: this.workflowName });
 
 		// Initialize debugger (if provided)
@@ -162,7 +162,7 @@ export class WorkflowGraph {
 
 		// Wire up debugger event listener
 		if (this.debugger) {
-			this.emitter.onPattern('*', async (event) => {
+			this.emitter.onPattern("*", async (event) => {
 				if (this.debugger && this._context) {
 					try {
 						await this.debugger.onEventEmitted(
@@ -171,7 +171,8 @@ export class WorkflowGraph {
 							this._context,
 						);
 					} catch (error) {
-						const message = error instanceof Error ? error.message : String(error);
+						const message =
+							error instanceof Error ? error.message : String(error);
 						console.error(`Debugger onEventEmitted failed:`, message);
 					}
 				}
@@ -272,7 +273,7 @@ export class WorkflowGraph {
 			// When paths are not specified, emit a generic conditional edge event
 			this.events.graphEdgeRegistered({
 				from: source,
-				to: '*', // Indicates dynamic routing
+				to: "*", // Indicates dynamic routing
 				isConditional: true,
 			});
 		}
@@ -349,7 +350,8 @@ export class WorkflowGraph {
 				try {
 					await this.debugger.beforeNodeExecution(nodeName, debugContext);
 				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
+					const message =
+						error instanceof Error ? error.message : String(error);
 					console.error(`Debugger beforeNodeExecution failed:`, message);
 				}
 			}
@@ -369,12 +371,12 @@ export class WorkflowGraph {
 
 			// Emit tools created event
 			this.events.nodeToolsCreated(nodeName, [
-				'bash',
-				'claude',
-				'claudeSdk',
-				'json',
-				'checklist',
-				'hook',
+				"bash",
+				"claude",
+				"claudeSdk",
+				"json",
+				"checklist",
+				"hook",
 			]);
 
 			try {
@@ -386,7 +388,7 @@ export class WorkflowGraph {
 				const variableUpdates =
 					Object.keys(varUpdates).length > 0
 						? { ...result.variables, ...varUpdates }
-						: result.variables ?? {};
+						: (result.variables ?? {});
 
 				// Update debug context with new variables
 				const updatedDebugContext = this.buildDebugContext(
@@ -401,9 +403,13 @@ export class WorkflowGraph {
 				// Call debugger afterNodeExecution hook
 				if (this.debugger) {
 					try {
-						await this.debugger.afterNodeExecution(nodeName, updatedDebugContext);
+						await this.debugger.afterNodeExecution(
+							nodeName,
+							updatedDebugContext,
+						);
 					} catch (error) {
-						const message = error instanceof Error ? error.message : String(error);
+						const message =
+							error instanceof Error ? error.message : String(error);
 						console.error(`Debugger afterNodeExecution failed:`, message);
 					}
 				}
@@ -419,7 +425,11 @@ export class WorkflowGraph {
 					const existingVars = result.variables ?? {};
 					return {
 						...result,
-						variables: { ...existingVars, ...varUpdates, _previousNode: nodeName },
+						variables: {
+							...existingVars,
+							...varUpdates,
+							_previousNode: nodeName,
+						},
 					};
 				}
 
@@ -436,7 +446,10 @@ export class WorkflowGraph {
 					try {
 						await this.debugger.onException(error, true, debugContext);
 					} catch (debugError) {
-						const debugMsg = debugError instanceof Error ? debugError.message : String(debugError);
+						const debugMsg =
+							debugError instanceof Error
+								? debugError.message
+								: String(debugError);
 						console.error(`Debugger onException failed:`, debugMsg);
 					}
 				}

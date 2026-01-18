@@ -305,7 +305,9 @@ describe("validateRefFormat", () => {
 			expect(validateRefFormat("abcd1234")).toEqual({ valid: true });
 			expect(validateRefFormat("abc123def456789")).toEqual({ valid: true });
 			expect(validateRefFormat("ABCD1234")).toEqual({ valid: true });
-			expect(validateRefFormat("1234567890abcdef1234567890abcdef12345678")).toEqual({
+			expect(
+				validateRefFormat("1234567890abcdef1234567890abcdef12345678"),
+			).toEqual({
 				valid: true,
 			});
 		});
@@ -330,7 +332,9 @@ describe("validateRefFormat", () => {
 		});
 
 		it("should accept refspec notation with colon", () => {
-			expect(validateRefFormat("main:refs/heads/main")).toEqual({ valid: true });
+			expect(validateRefFormat("main:refs/heads/main")).toEqual({
+				valid: true,
+			});
 		});
 	});
 

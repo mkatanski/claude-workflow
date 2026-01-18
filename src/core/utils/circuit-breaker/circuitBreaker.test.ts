@@ -494,6 +494,8 @@ describe("DEFAULT_CIRCUIT_BREAKER_CONFIG", () => {
 		expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.successThreshold).toBeGreaterThan(0);
 		expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.resetTimeoutMs).toBeGreaterThan(0);
 		expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.timeWindowMs).toBeGreaterThan(0);
-		expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.operationTimeoutMs).toBeGreaterThan(0);
+		expect(DEFAULT_CIRCUIT_BREAKER_CONFIG.operationTimeoutMs).toBeGreaterThan(
+			0,
+		);
 	});
 });

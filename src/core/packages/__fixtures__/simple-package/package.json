@@ -1,0 +1,25 @@
+{
+	"name": "simple-workflow-package",
+	"version": "1.0.0",
+	"main": "./workflow.ts",
+	"description": "A simple workflow package for integration testing",
+	"author": "Test Author",
+	"license": "MIT",
+	"keywords": [
+		"workflow",
+		"test",
+		"simple"
+	],
+	"workflows": {
+		"default": {
+			"description": "The default simple workflow",
+			"tags": [
+				"simple",
+				"test"
+			]
+		}
+	},
+	"claude-orchestrator": {
+		"minVersion": "0.1.0"
+	}
+}

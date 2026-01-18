@@ -2,18 +2,15 @@
  * Tests for VsCodeDebugAdapter - Debug Adapter Protocol implementation
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { Readable, Writable } from 'stream';
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { Readable, Writable } from "stream";
 import {
 	VsCodeDebugAdapter,
 	createVsCodeDebugAdapter,
 	type LaunchConfiguration,
 	type VsCodeAdapterConfig,
-} from './vscode-adapter';
-import type {
-	DapRequestType,
-	StoppedReason,
-} from './types';
+} from "./vscode-adapter";
+import type { DapRequestType, StoppedReason } from "./types";
 
 // ============================================================================
 // Test Utilities
@@ -29,7 +26,7 @@ class MockInputStream extends Readable {
 
 	sendMessage(message: unknown): void {
 		const json = JSON.stringify(message);
-		const data = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\n\r\n${json}`;
+		const data = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json}`;
 		this.push(data);
 	}
 }
@@ -43,7 +40,7 @@ class MockOutputStream extends Writable {
 	_write(
 		chunk: Buffer | string,
 		_encoding: string,
-		callback: (error?: Error | null) => void
+		callback: (error?: Error | null) => void,
 	): void {
 		const text = chunk.toString();
 		const headerMatch = text.match(/Content-Length: (\d+)\r?\n\r?\n/);
@@ -51,7 +48,10 @@ class MockOutputStream extends Writable {
 		if (headerMatch) {
 			const contentLength = parseInt(headerMatch[1], 10);
 			const headerLength = headerMatch[0].length;
-			const messageText = text.substring(headerLength, headerLength + contentLength);
+			const messageText = text.substring(
+				headerLength,
+				headerLength + contentLength,
+			);
 
 			try {
 				const message = JSON.parse(messageText);
@@ -68,7 +68,7 @@ class MockOutputStream extends Writable {
 		return this.messages[this.messages.length - 1];
 	}
 
-	getMessageOfType(type: 'request' | 'response' | 'event'): unknown {
+	getMessageOfType(type: "request" | "response" | "event"): unknown {
 		for (let i = this.messages.length - 1; i >= 0; i--) {
 			const msg = this.messages[i] as { type: string };
 			if (msg.type === type) {
@@ -81,7 +81,7 @@ class MockOutputStream extends Writable {
 	getEventOfType(eventType: string): unknown {
 		for (let i = this.messages.length - 1; i >= 0; i--) {
 			const msg = this.messages[i] as { type: string; event?: string };
-			if (msg.type === 'event' && msg.event === eventType) {
+			if (msg.type === "event" && msg.event === eventType) {
 				return msg;
 			}
 		}
@@ -120,11 +120,11 @@ function sendRequest(
 	inputStream: MockInputStream,
 	seq: number,
 	command: DapRequestType,
-	args?: Record<string, unknown>
+	args?: Record<string, unknown>,
 ): void {
 	const request = {
 		seq,
-		type: 'request',
+		type: "request",
 		command,
 		arguments: args,
 	};
@@ -143,8 +143,8 @@ async function wait(ms = 10): Promise<void> {
 // Adapter Creation and Lifecycle
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
-	it('should create adapter instance', () => {
+describe("VsCodeDebugAdapter - Creation and Lifecycle", () => {
+	it("should create adapter instance", () => {
 		const { adapter } = createTestAdapter();
 
 		expect(adapter).toBeDefined();
@@ -153,7 +153,7 @@ describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
 		adapter.dispose();
 	});
 
-	it('should start adapter', () => {
+	it("should start adapter", () => {
 		const { adapter } = createTestAdapter();
 
 		expect(() => adapter.start()).not.toThrow();
@@ -161,7 +161,7 @@ describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
 		adapter.dispose();
 	});
 
-	it('should stop adapter', async () => {
+	it("should stop adapter", async () => {
 		const { adapter } = createTestAdapter();
 
 		adapter.start();
@@ -172,7 +172,7 @@ describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
 		adapter.dispose();
 	});
 
-	it('should dispose adapter', () => {
+	it("should dispose adapter", () => {
 		const { adapter } = createTestAdapter();
 
 		adapter.dispose();
@@ -181,7 +181,7 @@ describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
 		expect(() => adapter.start()).toThrow();
 	});
 
-	it('should handle multiple dispose calls', () => {
+	it("should handle multiple dispose calls", () => {
 		const { adapter } = createTestAdapter();
 
 		adapter.dispose();
@@ -195,7 +195,7 @@ describe('VsCodeDebugAdapter - Creation and Lifecycle', () => {
 // Protocol Communication
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Protocol Communication', () => {
+describe("VsCodeDebugAdapter - Protocol Communication", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -212,19 +212,19 @@ describe('VsCodeDebugAdapter - Protocol Communication', () => {
 		adapter.dispose();
 	});
 
-	it('should receive and parse DAP messages', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should receive and parse DAP messages", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response');
+		const response = outputStream.getMessageOfType("response");
 		expect(response).toBeDefined();
 	});
 
-	it('should send responses with correct format', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should send responses with correct format", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			seq: number;
 			type: string;
 			request_seq: number;
@@ -232,37 +232,41 @@ describe('VsCodeDebugAdapter - Protocol Communication', () => {
 			command: string;
 		};
 
-		expect(response.type).toBe('response');
+		expect(response.type).toBe("response");
 		expect(response.request_seq).toBe(1);
 		expect(response.success).toBe(true);
-		expect(response.command).toBe('initialize');
+		expect(response.command).toBe("initialize");
 	});
 
-	it('should send events', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should send events", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const event = outputStream.getEventOfType('initialized');
+		const event = outputStream.getEventOfType("initialized");
 		expect(event).toBeDefined();
 	});
 
-	it('should handle multiple messages in sequence', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should handle multiple messages in sequence", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		sendRequest(inputStream, 2, 'launch', {
-			workflowPath: 'test.ts',
-			workflowName: 'test',
+		sendRequest(inputStream, 2, "launch", {
+			workflowPath: "test.ts",
+			workflowName: "test",
 		});
 		await wait();
 
 		expect(outputStream.messages.length).toBeGreaterThanOrEqual(2);
 	});
 
-	it('should handle incomplete messages', async () => {
+	it("should handle incomplete messages", async () => {
 		// Send partial message
-		const json = JSON.stringify({ seq: 1, type: 'request', command: 'initialize' });
-		const partial = `Content-Length: ${Buffer.byteLength(json, 'utf8')}\r\n\r\n${json.substring(0, 10)}`;
+		const json = JSON.stringify({
+			seq: 1,
+			type: "request",
+			command: "initialize",
+		});
+		const partial = `Content-Length: ${Buffer.byteLength(json, "utf8")}\r\n\r\n${json.substring(0, 10)}`;
 
 		inputStream.push(partial);
 		await wait();
@@ -276,7 +280,7 @@ describe('VsCodeDebugAdapter - Protocol Communication', () => {
 // Initialize Request
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Initialize Request', () => {
+describe("VsCodeDebugAdapter - Initialize Request", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -293,11 +297,11 @@ describe('VsCodeDebugAdapter - Initialize Request', () => {
 		adapter.dispose();
 	});
 
-	it('should handle initialize request', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should handle initialize request", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: Record<string, boolean>;
 		};
@@ -307,19 +311,19 @@ describe('VsCodeDebugAdapter - Initialize Request', () => {
 		expect(response.body.supportsConfigurationDoneRequest).toBe(true);
 	});
 
-	it('should send initialized event', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should send initialized event", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const event = outputStream.getEventOfType('initialized');
+		const event = outputStream.getEventOfType("initialized");
 		expect(event).toBeDefined();
 	});
 
-	it('should report correct capabilities', async () => {
-		sendRequest(inputStream, 1, 'initialize', {});
+	it("should report correct capabilities", async () => {
+		sendRequest(inputStream, 1, "initialize", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			body: {
 				supportsConfigurationDoneRequest: boolean;
 				supportsEvaluateForHovers: boolean;
@@ -337,7 +341,7 @@ describe('VsCodeDebugAdapter - Initialize Request', () => {
 // Launch Request
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Launch Request', () => {
+describe("VsCodeDebugAdapter - Launch Request", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -354,60 +358,75 @@ describe('VsCodeDebugAdapter - Launch Request', () => {
 		adapter.dispose();
 	});
 
-	it('should handle launch request', async () => {
+	it("should handle launch request", async () => {
 		const launchConfig: LaunchConfiguration = {
-			workflowPath: 'test-workflow.ts',
-			workflowName: 'test',
+			workflowPath: "test-workflow.ts",
+			workflowName: "test",
 			variables: { x: 1 },
 		};
 
-		sendRequest(inputStream, 1, 'launch', launchConfig as unknown as Record<string, unknown>);
+		sendRequest(
+			inputStream,
+			1,
+			"launch",
+			launchConfig as unknown as Record<string, unknown>,
+		);
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should reject launch without workflowPath', async () => {
-		sendRequest(inputStream, 1, 'launch', {});
+	it("should reject launch without workflowPath", async () => {
+		sendRequest(inputStream, 1, "launch", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			message?: string;
 		};
 
 		expect(response.success).toBe(false);
-		expect(response.message).toContain('workflowPath');
+		expect(response.message).toContain("workflowPath");
 	});
 
-	it('should send stopped event when stopOnEntry is true', async () => {
+	it("should send stopped event when stopOnEntry is true", async () => {
 		const launchConfig: LaunchConfiguration = {
-			workflowPath: 'test.ts',
+			workflowPath: "test.ts",
 			stopOnEntry: true,
 		};
 
-		sendRequest(inputStream, 1, 'launch', launchConfig as unknown as Record<string, unknown>);
+		sendRequest(
+			inputStream,
+			1,
+			"launch",
+			launchConfig as unknown as Record<string, unknown>,
+		);
 		await wait(50);
 
-		const event = outputStream.getEventOfType('stopped') as {
+		const event = outputStream.getEventOfType("stopped") as {
 			body: { reason: StoppedReason };
 		};
 
 		expect(event).toBeDefined();
-		expect(event?.body?.reason).toBe('entry');
+		expect(event?.body?.reason).toBe("entry");
 	});
 
-	it('should initialize debugger with workflow variables', async () => {
+	it("should initialize debugger with workflow variables", async () => {
 		const launchConfig: LaunchConfiguration = {
-			workflowPath: 'test.ts',
+			workflowPath: "test.ts",
 			variables: { x: 1, y: 2 },
 		};
 
-		sendRequest(inputStream, 1, 'launch', launchConfig as unknown as Record<string, unknown>);
+		sendRequest(
+			inputStream,
+			1,
+			"launch",
+			launchConfig as unknown as Record<string, unknown>,
+		);
 		await wait();
 
 		const dbg = adapter.getDebugger();
@@ -419,7 +438,7 @@ describe('VsCodeDebugAdapter - Launch Request', () => {
 // Breakpoint Requests
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Breakpoint Requests', () => {
+describe("VsCodeDebugAdapter - Breakpoint Requests", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -436,19 +455,16 @@ describe('VsCodeDebugAdapter - Breakpoint Requests', () => {
 		adapter.dispose();
 	});
 
-	it('should handle setBreakpoints request', async () => {
+	it("should handle setBreakpoints request", async () => {
 		const args = {
-			source: { path: 'test.ts' },
-			breakpoints: [
-				{ line: 10 },
-				{ line: 20, condition: 'x > 5' },
-			],
+			source: { path: "test.ts" },
+			breakpoints: [{ line: 10 }, { line: 20, condition: "x > 5" }],
 		};
 
-		sendRequest(inputStream, 1, 'setBreakpoints', args);
+		sendRequest(inputStream, 1, "setBreakpoints", args);
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { breakpoints: Array<{ id: number; verified: boolean }> };
 		};
@@ -458,72 +474,68 @@ describe('VsCodeDebugAdapter - Breakpoint Requests', () => {
 		expect(response.body.breakpoints[0].verified).toBe(true);
 	});
 
-	it('should handle conditional breakpoints', async () => {
+	it("should handle conditional breakpoints", async () => {
 		const args = {
-			source: { path: 'test.ts' },
-			breakpoints: [
-				{ line: 10, condition: 'x > 5' },
-			],
+			source: { path: "test.ts" },
+			breakpoints: [{ line: 10, condition: "x > 5" }],
 		};
 
-		sendRequest(inputStream, 1, 'setBreakpoints', args);
+		sendRequest(inputStream, 1, "setBreakpoints", args);
 		await wait();
 
 		const dbg = adapter.getDebugger();
 		const breakpoints = dbg.getBreakpoints();
 
 		expect(breakpoints.length).toBeGreaterThan(0);
-		expect(breakpoints[0].condition).toBe('x > 5');
+		expect(breakpoints[0].condition).toBe("x > 5");
 	});
 
-	it('should handle logpoints', async () => {
+	it("should handle logpoints", async () => {
 		const args = {
-			source: { path: 'test.ts' },
-			breakpoints: [
-				{ line: 10, logMessage: 'Value of x: {x}' },
-			],
+			source: { path: "test.ts" },
+			breakpoints: [{ line: 10, logMessage: "Value of x: {x}" }],
 		};
 
-		sendRequest(inputStream, 1, 'setBreakpoints', args);
+		sendRequest(inputStream, 1, "setBreakpoints", args);
 		await wait();
 
 		const dbg = adapter.getDebugger();
 		const breakpoints = dbg.getBreakpoints();
 
-		expect(breakpoints[0].logMessage).toBe('Value of x: {x}');
+		expect(breakpoints[0].logMessage).toBe("Value of x: {x}");
 	});
 
-	it('should handle setExceptionBreakpoints request', async () => {
+	it("should handle setExceptionBreakpoints request", async () => {
 		const args = {
-			filters: ['all', 'uncaught'],
+			filters: ["all", "uncaught"],
 		};
 
-		sendRequest(inputStream, 1, 'setExceptionBreakpoints', args);
+		sendRequest(inputStream, 1, "setExceptionBreakpoints", args);
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should clear breakpoints when setting empty array', async () => {
+	it("should clear breakpoints when setting empty array", async () => {
 		// Set breakpoints first
-		sendRequest(inputStream, 1, 'setBreakpoints', {
-			source: { path: 'test.ts' },
+		sendRequest(inputStream, 1, "setBreakpoints", {
+			source: { path: "test.ts" },
 			breakpoints: [{ line: 10 }],
 		});
 		await wait();
 
 		// Clear breakpoints
-		sendRequest(inputStream, 2, 'setBreakpoints', {
-			source: { path: 'test.ts' },
+		sendRequest(inputStream, 2, "setBreakpoints", {
+			source: { path: "test.ts" },
 			breakpoints: [],
 		});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			body: { breakpoints: unknown[] };
 		};
 
@@ -535,7 +547,7 @@ describe('VsCodeDebugAdapter - Breakpoint Requests', () => {
 // Execution Control Requests
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Execution Control', () => {
+describe("VsCodeDebugAdapter - Execution Control", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -552,11 +564,11 @@ describe('VsCodeDebugAdapter - Execution Control', () => {
 		adapter.dispose();
 	});
 
-	it('should handle continue request', async () => {
-		sendRequest(inputStream, 1, 'continue', { threadId: 1 });
+	it("should handle continue request", async () => {
+		sendRequest(inputStream, 1, "continue", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { allThreadsContinued: boolean };
 		};
@@ -565,44 +577,44 @@ describe('VsCodeDebugAdapter - Execution Control', () => {
 		expect(response.body.allThreadsContinued).toBe(true);
 	});
 
-	it('should handle next (step over) request', async () => {
-		sendRequest(inputStream, 1, 'next', { threadId: 1 });
+	it("should handle next (step over) request", async () => {
+		sendRequest(inputStream, 1, "next", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should handle stepIn request', async () => {
-		sendRequest(inputStream, 1, 'stepIn', { threadId: 1 });
+	it("should handle stepIn request", async () => {
+		sendRequest(inputStream, 1, "stepIn", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should handle stepOut request', async () => {
-		sendRequest(inputStream, 1, 'stepOut', { threadId: 1 });
+	it("should handle stepOut request", async () => {
+		sendRequest(inputStream, 1, "stepOut", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should handle pause request', async () => {
-		sendRequest(inputStream, 1, 'pause', { threadId: 1 });
+	it("should handle pause request", async () => {
+		sendRequest(inputStream, 1, "pause", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
@@ -614,7 +626,7 @@ describe('VsCodeDebugAdapter - Execution Control', () => {
 // Stack Trace and Scopes
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
+describe("VsCodeDebugAdapter - Stack Trace and Scopes", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -627,9 +639,9 @@ describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
 		adapter.start();
 
 		// Launch workflow
-		sendRequest(inputStream, 1, 'launch', {
-			workflowPath: 'test.ts',
-			workflowName: 'test',
+		sendRequest(inputStream, 1, "launch", {
+			workflowPath: "test.ts",
+			workflowName: "test",
 		});
 		await wait();
 	});
@@ -638,11 +650,11 @@ describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
 		adapter.dispose();
 	});
 
-	it('should handle stackTrace request with no context', async () => {
-		sendRequest(inputStream, 1, 'stackTrace', { threadId: 1 });
+	it("should handle stackTrace request with no context", async () => {
+		sendRequest(inputStream, 1, "stackTrace", { threadId: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { stackFrames: unknown[]; totalFrames: number };
 		};
@@ -652,11 +664,11 @@ describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
 		expect(response.body.totalFrames).toBe(0);
 	});
 
-	it('should handle scopes request', async () => {
-		sendRequest(inputStream, 1, 'scopes', { frameId: 0 });
+	it("should handle scopes request", async () => {
+		sendRequest(inputStream, 1, "scopes", { frameId: 0 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { scopes: Array<{ name: string; variablesReference: number }> };
 		};
@@ -664,21 +676,21 @@ describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
 		expect(response.success).toBe(true);
 		expect(response.body.scopes).toBeDefined();
 		expect(response.body.scopes.length).toBeGreaterThan(0);
-		expect(response.body.scopes[0].name).toBe('Workflow');
+		expect(response.body.scopes[0].name).toBe("Workflow");
 	});
 
-	it('should create separate scopes for workflow, node, and local', async () => {
-		sendRequest(inputStream, 1, 'scopes', { frameId: 0 });
+	it("should create separate scopes for workflow, node, and local", async () => {
+		sendRequest(inputStream, 1, "scopes", { frameId: 0 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			body: { scopes: Array<{ name: string }> };
 		};
 
 		const scopeNames = response.body.scopes.map((s) => s.name);
-		expect(scopeNames).toContain('Workflow');
-		expect(scopeNames).toContain('Node');
-		expect(scopeNames).toContain('Local');
+		expect(scopeNames).toContain("Workflow");
+		expect(scopeNames).toContain("Node");
+		expect(scopeNames).toContain("Local");
 	});
 });
 
@@ -686,7 +698,7 @@ describe('VsCodeDebugAdapter - Stack Trace and Scopes', () => {
 // Variables
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Variables', () => {
+describe("VsCodeDebugAdapter - Variables", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -699,9 +711,9 @@ describe('VsCodeDebugAdapter - Variables', () => {
 		adapter.start();
 
 		// Launch workflow
-		sendRequest(inputStream, 1, 'launch', {
-			workflowPath: 'test.ts',
-			workflowName: 'test',
+		sendRequest(inputStream, 1, "launch", {
+			workflowPath: "test.ts",
+			workflowName: "test",
 		});
 		await wait();
 	});
@@ -710,11 +722,11 @@ describe('VsCodeDebugAdapter - Variables', () => {
 		adapter.dispose();
 	});
 
-	it('should handle variables request', async () => {
-		sendRequest(inputStream, 1, 'variables', { variablesReference: 1 });
+	it("should handle variables request", async () => {
+		sendRequest(inputStream, 1, "variables", { variablesReference: 1 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { variables: unknown[] };
 		};
@@ -723,11 +735,11 @@ describe('VsCodeDebugAdapter - Variables', () => {
 		expect(response.body.variables).toBeDefined();
 	});
 
-	it('should return empty array for invalid reference', async () => {
-		sendRequest(inputStream, 1, 'variables', { variablesReference: 99999 });
+	it("should return empty array for invalid reference", async () => {
+		sendRequest(inputStream, 1, "variables", { variablesReference: 99999 });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { variables: unknown[] };
 		};
@@ -741,7 +753,7 @@ describe('VsCodeDebugAdapter - Variables', () => {
 // Evaluate Request
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Evaluate', () => {
+describe("VsCodeDebugAdapter - Evaluate", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -754,10 +766,10 @@ describe('VsCodeDebugAdapter - Evaluate', () => {
 		adapter.start();
 
 		// Launch workflow
-		sendRequest(inputStream, 1, 'launch', {
-			workflowPath: 'test.ts',
-			workflowName: 'test',
-			variables: { x: 42, y: 'hello' },
+		sendRequest(inputStream, 1, "launch", {
+			workflowPath: "test.ts",
+			workflowName: "test",
+			variables: { x: 42, y: "hello" },
 		});
 		await wait();
 	});
@@ -766,40 +778,40 @@ describe('VsCodeDebugAdapter - Evaluate', () => {
 		adapter.dispose();
 	});
 
-	it('should handle evaluate request', async () => {
-		sendRequest(inputStream, 1, 'evaluate', { expression: 'x' });
+	it("should handle evaluate request", async () => {
+		sendRequest(inputStream, 1, "evaluate", { expression: "x" });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { result: string };
 		};
 
 		expect(response.success).toBe(true);
-		expect(response.body.result).toBe('42');
+		expect(response.body.result).toBe("42");
 	});
 
-	it('should return undefined for missing variable', async () => {
-		sendRequest(inputStream, 1, 'evaluate', { expression: 'missing' });
+	it("should return undefined for missing variable", async () => {
+		sendRequest(inputStream, 1, "evaluate", { expression: "missing" });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			body: { result: string };
 		};
 
 		expect(response.success).toBe(true);
-		expect(response.body.result).toBe('undefined');
+		expect(response.body.result).toBe("undefined");
 	});
 
-	it('should fail when no context available', async () => {
+	it("should fail when no context available", async () => {
 		// Stop debugger first
 		await adapter.getDebugger().stop();
 
-		sendRequest(inputStream, 1, 'evaluate', { expression: 'x' });
+		sendRequest(inputStream, 1, "evaluate", { expression: "x" });
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
@@ -811,7 +823,7 @@ describe('VsCodeDebugAdapter - Evaluate', () => {
 // Disconnect Request
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Disconnect', () => {
+describe("VsCodeDebugAdapter - Disconnect", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -830,22 +842,22 @@ describe('VsCodeDebugAdapter - Disconnect', () => {
 		}
 	});
 
-	it('should handle disconnect request', async () => {
-		sendRequest(inputStream, 1, 'disconnect', {});
+	it("should handle disconnect request", async () => {
+		sendRequest(inputStream, 1, "disconnect", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 		};
 
 		expect(response.success).toBe(true);
 	});
 
-	it('should send terminated event on disconnect', async () => {
-		sendRequest(inputStream, 1, 'disconnect', {});
+	it("should send terminated event on disconnect", async () => {
+		sendRequest(inputStream, 1, "disconnect", {});
 		await wait(50);
 
-		const event = outputStream.getEventOfType('terminated');
+		const event = outputStream.getEventOfType("terminated");
 		expect(event).toBeDefined();
 	});
 });
@@ -854,7 +866,7 @@ describe('VsCodeDebugAdapter - Disconnect', () => {
 // Error Handling
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Error Handling', () => {
+describe("VsCodeDebugAdapter - Error Handling", () => {
 	let adapter: VsCodeDebugAdapter;
 	let inputStream: MockInputStream;
 	let outputStream: MockOutputStream;
@@ -871,35 +883,35 @@ describe('VsCodeDebugAdapter - Error Handling', () => {
 		adapter.dispose();
 	});
 
-	it('should handle unknown command gracefully', async () => {
-		sendRequest(inputStream, 1, 'unknownCommand' as DapRequestType, {});
+	it("should handle unknown command gracefully", async () => {
+		sendRequest(inputStream, 1, "unknownCommand" as DapRequestType, {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			message?: string;
 		};
 
 		expect(response.success).toBe(false);
-		expect(response.message).toContain('Unknown command');
+		expect(response.message).toContain("Unknown command");
 	});
 
-	it('should handle attach request (not supported)', async () => {
-		sendRequest(inputStream, 1, 'attach', {});
+	it("should handle attach request (not supported)", async () => {
+		sendRequest(inputStream, 1, "attach", {});
 		await wait();
 
-		const response = outputStream.getMessageOfType('response') as {
+		const response = outputStream.getMessageOfType("response") as {
 			success: boolean;
 			message?: string;
 		};
 
 		expect(response.success).toBe(false);
-		expect(response.message).toContain('not supported');
+		expect(response.message).toContain("not supported");
 	});
 
-	it('should handle malformed JSON gracefully', async () => {
+	it("should handle malformed JSON gracefully", async () => {
 		// Send invalid JSON
-		inputStream.push('Content-Length: 20\r\n\r\n{invalid json}');
+		inputStream.push("Content-Length: 20\r\n\r\n{invalid json}");
 		await wait();
 
 		// Should not crash
@@ -911,8 +923,8 @@ describe('VsCodeDebugAdapter - Error Handling', () => {
 // Factory Function
 // ============================================================================
 
-describe('VsCodeDebugAdapter - Factory Function', () => {
-	it('should create adapter with factory', () => {
+describe("VsCodeDebugAdapter - Factory Function", () => {
+	it("should create adapter with factory", () => {
 		const adapter = createVsCodeDebugAdapter();
 
 		expect(adapter).toBeDefined();
@@ -921,7 +933,7 @@ describe('VsCodeDebugAdapter - Factory Function', () => {
 		adapter.dispose();
 	});
 
-	it('should create adapter with custom config', () => {
+	it("should create adapter with custom config", () => {
 		const config: VsCodeAdapterConfig = {
 			port: 8080,
 			debug: true,

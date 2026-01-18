@@ -374,10 +374,7 @@ describe("combineStackTraces", () => {
 		const error1 = new Error("Error 1");
 		const error2 = new Error("Error 2");
 
-		const combined = combineStackTraces(
-			[error1, error2],
-			"\n--- CAUSE ---\n",
-		);
+		const combined = combineStackTraces([error1, error2], "\n--- CAUSE ---\n");
 
 		expect(combined).toContain("--- CAUSE ---");
 	});
