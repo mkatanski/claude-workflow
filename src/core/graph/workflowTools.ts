@@ -59,6 +59,16 @@ import { RetryableOperation } from "../utils/retry/index.js";
 import type { RetryConfig } from "../utils/retry/index.js";
 import { IterationHelper } from "../utils/iteration/index.js";
 import { GitTool } from "../tools/git/index.ts";
+import {
+	executeParallelBash,
+	type ExecuteParallelBashOptions,
+} from "../parallel/index.ts";
+import type {
+	ParallelBashConfig,
+	ParallelBashOptions,
+	ParallelBashResult,
+	BashCommandResult,
+} from "./tools.ts";
 import type {
 	GitConfig,
 	GitOperations,
@@ -228,6 +238,189 @@ export function createWorkflowTools(
 					output: "",
 					error: message,
 				};
+			}
+		},
+
+		async parallelBash(
+			commands: ParallelBashConfig[],
+			options?: ParallelBashOptions,
+		): Promise<ParallelBashResult> {
+			const timer = createTimer();
+			const maxConcurrency = options?.maxConcurrency ?? 5;
+			const continueOnError = options?.continueOnError ?? true;
+
+			// Emit start event with properly typed payload
+			events?.parallelBashStart({
+				commands: commands.map((cmd, index) => ({
+					id: cmd.id ?? `cmd_${index}`,
+					command: cmd.command,
+					label: cmd.label,
+					cwd: cmd.cwd,
+					timeout: cmd.timeout,
+					env: cmd.env,
+				})),
+				maxConcurrency,
+				continueOnError,
+				totalTimeout: options?.totalTimeout,
+			});
+
+			try {
+				// Build execution options with callbacks for event emission
+				const executeOptions: ExecuteParallelBashOptions = {
+					...options,
+					defaultCwd: config.projectPath,
+					onProgress: (progress) => {
+						// Calculate running and queued
+						const running = progress.activeCommandIds.length;
+						const queued =
+							commands.length - progress.completedCommands - running;
+
+						// Emit progress event
+						events?.parallelBashProgress({
+							completed: progress.completedCommands,
+							total: progress.totalCommands,
+							running,
+							queued,
+							succeeded: progress.completedCommands - progress.failedCommands,
+							failed: progress.failedCommands,
+						});
+					},
+					onCommandComplete: (cmdResult) => {
+						// Determine if timed out
+						const timedOut =
+							!cmdResult.success &&
+							cmdResult.error?.includes("timed out") === true;
+
+						// Emit command complete event
+						events?.parallelBashCommandComplete({
+							id: cmdResult.id,
+							command: cmdResult.command,
+							label: cmdResult.label,
+							success: cmdResult.success,
+							stdout: cmdResult.stdout,
+							stderr: cmdResult.stderr,
+							exitCode: cmdResult.exitCode ?? -1,
+							duration: cmdResult.duration,
+							queueWaitTime: cmdResult.queueWaitTime,
+							truncated: cmdResult.truncated,
+							timedOut,
+						});
+					},
+				};
+
+				// Execute parallel commands
+				const internalResult = await executeParallelBash(
+					commands,
+					executeOptions,
+				);
+
+				// Transform internal result to match WorkflowTools interface
+				const transformedResults: BashCommandResult[] =
+					internalResult.commands.map((cmd) => ({
+						id: cmd.id,
+						command: cmd.command,
+						success: cmd.success,
+						stdout: cmd.stdout,
+						stderr: cmd.stderr,
+						exitCode: cmd.exitCode ?? -1,
+						duration: cmd.duration,
+						queueWaitTime: cmd.queueWaitTime,
+						truncated: cmd.truncated,
+						error: cmd.error,
+						label: cmd.label,
+					}));
+
+				// Create result with helper methods matching the interface
+				const result: ParallelBashResult = {
+					success: internalResult.success,
+					results: transformedResults,
+					summary: internalResult.summary,
+					duration: internalResult.totalDuration,
+					getCommand(id: string): BashCommandResult | undefined {
+						return transformedResults.find((r) => r.id === id);
+					},
+					getSuccessfulOutputs(): string[] {
+						return transformedResults
+							.filter((r) => r.success)
+							.map((r) => r.stdout);
+					},
+					getErrors(): Array<{
+						id: string;
+						command: string;
+						error: string;
+						stderr: string;
+					}> {
+						return transformedResults
+							.filter((r) => !r.success)
+							.map((r) => ({
+								id: r.id,
+								command: r.command,
+								error: r.error ?? "",
+								stderr: r.stderr,
+							}));
+					},
+				};
+
+				// Emit complete event
+				events?.parallelBashComplete({
+					success: result.success,
+					total: result.summary.total,
+					succeeded: result.summary.succeeded,
+					failed: result.summary.failed,
+					timedOut: result.summary.timedOut,
+					duration: timer.elapsed(),
+					aborted: false,
+				});
+
+				return result;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const elapsedDuration = timer.elapsed();
+
+				// Create empty error result with helper methods
+				const errorResult: ParallelBashResult = {
+					success: false,
+					results: [],
+					summary: {
+						total: commands.length,
+						succeeded: 0,
+						failed: commands.length,
+						timedOut: 0,
+					},
+					duration: elapsedDuration,
+					getCommand(): BashCommandResult | undefined {
+						return undefined;
+					},
+					getSuccessfulOutputs(): string[] {
+						return [];
+					},
+					getErrors(): Array<{
+						id: string;
+						command: string;
+						error: string;
+						stderr: string;
+					}> {
+						return commands.map((cmd, index) => ({
+							id: cmd.id ?? `cmd_${index}`,
+							command: cmd.command,
+							error: message,
+							stderr: "",
+						}));
+					},
+				};
+
+				// Emit complete event with failure
+				events?.parallelBashComplete({
+					success: false,
+					total: commands.length,
+					succeeded: 0,
+					failed: commands.length,
+					timedOut: 0,
+					duration: elapsedDuration,
+					aborted: true,
+				});
+
+				return errorResult;
 			}
 		},
 

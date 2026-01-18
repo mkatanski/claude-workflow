@@ -29,6 +29,11 @@ import type {
 	ToolBashStartPayload,
 	ToolBashCompletePayload,
 	ToolBashErrorPayload,
+	// Parallel Bash events
+	ToolParallelBashStartPayload,
+	ToolParallelBashProgressPayload,
+	ToolParallelBashCommandCompletePayload,
+	ToolParallelBashCompletePayload,
 	ToolClaudeStartPayload,
 	ToolClaudeCompletePayload,
 	ToolClaudeErrorPayload,
@@ -228,6 +233,29 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
 		bashError(payload: ToolBashErrorPayload) {
 			return emitter.emit("tool:bash:error", payload);
+		},
+
+		// ========================================================================
+		// Tool: Parallel Bash Events
+		// ========================================================================
+
+		parallelBashStart(payload: ToolParallelBashStartPayload) {
+			emitter.setContext({ toolName: "parallelBash" });
+			return emitter.emit("tool:parallel:bash:start", payload);
+		},
+
+		parallelBashProgress(payload: ToolParallelBashProgressPayload) {
+			return emitter.emit("tool:parallel:bash:progress", payload);
+		},
+
+		parallelBashCommandComplete(
+			payload: ToolParallelBashCommandCompletePayload,
+		) {
+			return emitter.emit("tool:parallel:bash:command:complete", payload);
+		},
+
+		parallelBashComplete(payload: ToolParallelBashCompletePayload) {
+			return emitter.emit("tool:parallel:bash:complete", payload);
 		},
 
 		// ========================================================================

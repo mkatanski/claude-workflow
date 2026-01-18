@@ -312,6 +312,82 @@ export type ToolBashEvent =
 	| ToolBashErrorEvent;
 
 // ============================================================================
+// Tool Events - Parallel Bash
+// ============================================================================
+
+export interface ParallelBashCommandConfig {
+	id: string;
+	command: string;
+	label?: string;
+	cwd?: string;
+	timeout?: number;
+	env?: Record<string, string>;
+}
+
+export interface ToolParallelBashStartPayload {
+	commands: ParallelBashCommandConfig[];
+	maxConcurrency: number;
+	continueOnError: boolean;
+	totalTimeout?: number;
+}
+
+export interface ToolParallelBashProgressPayload {
+	completed: number;
+	total: number;
+	running: number;
+	queued: number;
+	succeeded: number;
+	failed: number;
+}
+
+export interface ToolParallelBashCommandCompletePayload {
+	id: string;
+	command: string;
+	label?: string;
+	success: boolean;
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+	duration: number;
+	queueWaitTime: number;
+	truncated: boolean;
+	timedOut: boolean;
+}
+
+export interface ToolParallelBashCompletePayload {
+	success: boolean;
+	total: number;
+	succeeded: number;
+	failed: number;
+	timedOut: number;
+	duration: number;
+	aborted: boolean;
+}
+
+export type ToolParallelBashStartEvent = BaseEvent<
+	"tool:parallel:bash:start",
+	ToolParallelBashStartPayload
+>;
+export type ToolParallelBashProgressEvent = BaseEvent<
+	"tool:parallel:bash:progress",
+	ToolParallelBashProgressPayload
+>;
+export type ToolParallelBashCommandCompleteEvent = BaseEvent<
+	"tool:parallel:bash:command:complete",
+	ToolParallelBashCommandCompletePayload
+>;
+export type ToolParallelBashCompleteEvent = BaseEvent<
+	"tool:parallel:bash:complete",
+	ToolParallelBashCompletePayload
+>;
+
+export type ToolParallelBashEvent =
+	| ToolParallelBashStartEvent
+	| ToolParallelBashProgressEvent
+	| ToolParallelBashCommandCompleteEvent
+	| ToolParallelBashCompleteEvent;
+
+// ============================================================================
 // Tool Events - Claude
 // ============================================================================
 
@@ -874,6 +950,7 @@ export type LogEvent = BaseEvent<"log", LogPayload>;
 
 export type ToolEvent =
 	| ToolBashEvent
+	| ToolParallelBashEvent
 	| ToolClaudeEvent
 	| ToolClaudeSdkEvent
 	| ToolAgentSessionEvent
@@ -1139,6 +1216,7 @@ export type EventPattern =
 	| "edge:*"
 	| "tool:*"
 	| "tool:bash:*"
+	| "tool:parallel:bash:*"
 	| "tool:claude:*"
 	| "tool:claudeSdk:*"
 	| "tool:agentSession:*"
@@ -1233,4 +1311,10 @@ export function isToolAgentSessionEvent(
 	event: WorkflowEvent,
 ): event is ToolAgentSessionEvent {
 	return event.type.startsWith("tool:agentSession:");
+}
+
+export function isToolParallelBashEvent(
+	event: WorkflowEvent,
+): event is ToolParallelBashEvent {
+	return event.type.startsWith("tool:parallel:bash:");
 }

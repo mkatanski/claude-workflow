@@ -7,33 +7,37 @@
 
 import { BaseRenderer, type RendererConfig } from "../renderer";
 import type {
-	WorkflowEvent,
-	WorkflowStartEvent,
-	WorkflowCompleteEvent,
-	NodeStartEvent,
+	CleanupCompleteEvent,
+	CleanupStartEvent,
+	CustomEvent,
+	LogEvent,
 	NodeCompleteEvent,
 	NodeErrorEvent,
+	NodeStartEvent,
 	RouterDecisionEvent,
-	ToolBashStartEvent,
 	ToolBashCompleteEvent,
 	ToolBashErrorEvent,
-	ToolClaudeStartEvent,
+	ToolBashStartEvent,
+	ToolChecklistCompleteEvent,
+	ToolChecklistItemCompleteEvent,
+	ToolChecklistStartEvent,
 	ToolClaudeCompleteEvent,
 	ToolClaudeErrorEvent,
 	ToolClaudePlanApprovalEvent,
-	ToolClaudeSdkStartEvent,
 	ToolClaudeSdkCompleteEvent,
 	ToolClaudeSdkErrorEvent,
 	ToolClaudeSdkRetryEvent,
-	ToolHookStartEvent,
+	ToolClaudeSdkStartEvent,
+	ToolClaudeStartEvent,
 	ToolHookCompleteEvent,
-	ToolChecklistStartEvent,
-	ToolChecklistCompleteEvent,
-	ToolChecklistItemCompleteEvent,
-	CleanupStartEvent,
-	CleanupCompleteEvent,
-	LogEvent,
-	CustomEvent,
+	ToolHookStartEvent,
+	ToolParallelBashCommandCompleteEvent,
+	ToolParallelBashCompleteEvent,
+	ToolParallelBashProgressEvent,
+	ToolParallelBashStartEvent,
+	WorkflowCompleteEvent,
+	WorkflowEvent,
+	WorkflowStartEvent,
 } from "../types";
 
 // ============================================================================
@@ -204,6 +208,20 @@ export class ConsoleRenderer extends BaseRenderer {
 				break;
 			case "tool:bash:error":
 				this.renderBashError(event);
+				break;
+
+			// Tool: Parallel Bash
+			case "tool:parallel:bash:start":
+				this.renderParallelBashStart(event);
+				break;
+			case "tool:parallel:bash:progress":
+				this.renderParallelBashProgress(event);
+				break;
+			case "tool:parallel:bash:command:complete":
+				this.renderParallelBashCommandComplete(event);
+				break;
+			case "tool:parallel:bash:complete":
+				this.renderParallelBashComplete(event);
 				break;
 
 			// Tool: Claude
@@ -433,6 +451,116 @@ export class ConsoleRenderer extends BaseRenderer {
 		console.log(this.colorize(`${INDENT}  Command: ${command}`, "red"));
 		console.log(this.colorize(`${INDENT}  Error: ${error}`, "red"));
 		console.log("");
+	}
+
+	// ==========================================================================
+	// Tool: Parallel Bash Rendering
+	// ==========================================================================
+
+	private renderParallelBashStart(event: ToolParallelBashStartEvent): void {
+		const { commands, maxConcurrency } = event.payload;
+
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.terminal} [parallel] ${commands.length} commands (max ${maxConcurrency} concurrent)`,
+				"brightBlue",
+			),
+		);
+
+		// In verbose mode, show the command list
+		if (this.config.verbose) {
+			for (const cmd of commands) {
+				const label = cmd.label || this.truncate(cmd.command, 40);
+				console.log(this.colorize(`${INDENT}  ${icons.tee} ${label}`, "dim"));
+			}
+		}
+	}
+
+	private renderParallelBashProgress(
+		event: ToolParallelBashProgressEvent,
+	): void {
+		// Only show progress in verbose mode to avoid too much output
+		if (!this.config.verbose) {
+			return;
+		}
+
+		const { completed, total, running, succeeded, failed } = event.payload;
+		const percent = Math.round((completed / total) * 100);
+
+		console.log(
+			this.colorize(
+				`${INDENT}  ${icons.clock} ${percent}% (${completed}/${total}) - ${running} running, ${succeeded} ok, ${failed} failed`,
+				"dim",
+			),
+		);
+	}
+
+	private renderParallelBashCommandComplete(
+		event: ToolParallelBashCommandCompleteEvent,
+	): void {
+		const { id, label, success, duration, timedOut } = event.payload;
+		const displayName = label || id;
+
+		if (this.config.verbose) {
+			// Show individual command results in verbose mode
+			if (success) {
+				console.log(
+					this.colorize(
+						`${INDENT}  ${icons.success} ${displayName} (${this.formatDuration(duration)})`,
+						"green",
+					),
+				);
+			} else if (timedOut) {
+				console.log(
+					this.colorize(
+						`${INDENT}  ${icons.warning} ${displayName} timed out`,
+						"yellow",
+					),
+				);
+			} else {
+				console.log(
+					this.colorize(
+						`${INDENT}  ${icons.error} ${displayName} failed`,
+						"red",
+					),
+				);
+			}
+		}
+	}
+
+	private renderParallelBashComplete(
+		event: ToolParallelBashCompleteEvent,
+	): void {
+		const { success, total, succeeded, failed, timedOut, duration, aborted } =
+			event.payload;
+
+		if (aborted) {
+			console.log(
+				this.colorize(
+					`${INDENT}  ${icons.error} parallel execution aborted`,
+					"brightRed",
+				),
+			);
+			return;
+		}
+
+		const statusIcon = success ? icons.success : icons.error;
+		const statusColor = success ? "green" : "red";
+
+		let summary = `${succeeded}/${total} succeeded`;
+		if (failed > 0) {
+			summary += `, ${failed} failed`;
+		}
+		if (timedOut > 0) {
+			summary += `, ${timedOut} timed out`;
+		}
+
+		console.log(
+			this.colorize(
+				`${INDENT}  ${statusIcon} ${summary} (${this.formatDuration(duration)})`,
+				statusColor,
+			),
+		);
 	}
 
 	// ==========================================================================

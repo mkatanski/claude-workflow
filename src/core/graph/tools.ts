@@ -73,6 +73,107 @@ export interface BashResult {
 }
 
 /**
+ * Configuration for a single command in parallel bash execution.
+ */
+export interface ParallelBashConfig {
+	/** The command to execute */
+	command: string;
+	/** Unique identifier for the command (auto-generated if not provided) */
+	id?: string;
+	/** Working directory for command execution */
+	cwd?: string;
+	/** Timeout in milliseconds for this command (default: 120000ms / 2 minutes) */
+	timeout?: number;
+	/** Environment variables to set for this command */
+	env?: Record<string, string>;
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Options for parallel bash execution.
+ */
+export interface ParallelBashOptions {
+	/** Maximum number of concurrent commands (default: 5, range: 1-10) */
+	maxConcurrency?: number;
+	/** Whether to continue executing remaining commands when one fails (default: true) */
+	continueOnError?: boolean;
+	/** Maximum total timeout for all commands in milliseconds */
+	totalTimeout?: number;
+	/** Maximum output size in bytes before truncation (default: 1MB / 1048576 bytes) */
+	maxOutputSize?: number;
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Result for a single command in parallel bash execution.
+ */
+export interface BashCommandResult {
+	/** Unique identifier for the command */
+	id: string;
+	/** The command that was executed */
+	command: string;
+	/** Whether the command succeeded (exit code 0) */
+	success: boolean;
+	/** Standard output from the command */
+	stdout: string;
+	/** Standard error output from the command */
+	stderr: string;
+	/** Exit code from the command */
+	exitCode: number;
+	/** Execution duration in milliseconds */
+	duration: number;
+	/** Time spent waiting in queue before execution in milliseconds */
+	queueWaitTime: number;
+	/** Whether the output was truncated due to size limits */
+	truncated: boolean;
+	/** Error message if command failed */
+	error?: string;
+	/** Human-readable label (if provided) */
+	label?: string;
+}
+
+/**
+ * Summary statistics for parallel bash execution.
+ */
+export interface ParallelBashSummary {
+	/** Total number of commands */
+	total: number;
+	/** Number of successful commands */
+	succeeded: number;
+	/** Number of failed commands */
+	failed: number;
+	/** Number of commands that timed out */
+	timedOut: number;
+}
+
+/**
+ * Result of parallel bash execution.
+ */
+export interface ParallelBashResult {
+	/** Whether all commands succeeded */
+	success: boolean;
+	/** Individual results for each command */
+	results: BashCommandResult[];
+	/** Summary statistics */
+	summary: ParallelBashSummary;
+	/** Total execution duration in milliseconds */
+	duration: number;
+	/** Get result for a specific command by ID */
+	getCommand(id: string): BashCommandResult | undefined;
+	/** Get outputs from all successful commands */
+	getSuccessfulOutputs(): string[];
+	/** Get error details from all failed commands */
+	getErrors(): Array<{
+		id: string;
+		command: string;
+		error: string;
+		stderr: string;
+	}>;
+}
+
+/**
  * Options for Claude Code execution.
  */
 export interface ClaudeOptions {
@@ -327,6 +428,46 @@ export interface WorkflowTools {
 	 * Execute a bash command.
 	 */
 	bash(command: string, options?: BashOptions): Promise<BashResult>;
+
+	/**
+	 * Execute multiple bash commands in parallel.
+	 *
+	 * Commands execute concurrently with configurable concurrency limits.
+	 * Uses Promise.allSettled semantics by default - individual command
+	 * failures don't abort other commands unless continueOnError is false.
+	 *
+	 * @param commands - Array of command configurations to execute
+	 * @param options - Parallel execution options
+	 * @returns Promise resolving to results with summary and helper methods
+	 *
+	 * @example
+	 * ```typescript
+	 * // Execute multiple builds in parallel
+	 * const result = await tools.parallelBash([
+	 *   { command: 'npm run build', id: 'build', cwd: './frontend' },
+	 *   { command: 'npm run build', id: 'api', cwd: './backend' },
+	 *   { command: 'npm run lint', id: 'lint' },
+	 * ], { maxConcurrency: 3 });
+	 *
+	 * // Check overall success
+	 * if (result.success) {
+	 *   console.log('All commands succeeded');
+	 * }
+	 *
+	 * // Get specific command result
+	 * const buildResult = result.getCommand('build');
+	 *
+	 * // Get all successful outputs
+	 * const outputs = result.getSuccessfulOutputs();
+	 *
+	 * // Get error details
+	 * const errors = result.getErrors();
+	 * ```
+	 */
+	parallelBash(
+		commands: ParallelBashConfig[],
+		options?: ParallelBashOptions,
+	): Promise<ParallelBashResult>;
 
 	/**
 	 * Execute Claude Code with a prompt.
