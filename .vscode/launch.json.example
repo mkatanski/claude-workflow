@@ -1,0 +1,78 @@
+{
+  // VS Code Workflow Debugger Configuration
+  //
+  // This configuration enables debugging of workflows using the Debug Adapter Protocol (DAP).
+  // To use this configuration:
+  // 1. Copy this file to .vscode/launch.json
+  // 2. Update the workflowPath to point to your workflow file
+  // 3. Press F5 or select "Run > Start Debugging" in VS Code
+  //
+  // For more information, see docs/debugging.md
+
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "workflow",
+      "request": "launch",
+      "name": "Debug Workflow",
+      "workflowPath": "${workspaceFolder}/examples/.cw/workflows/example.ts",
+      "workflowName": "example",
+      "stopOnEntry": false,
+      "trace": "${workspaceFolder}/.debug/trace.json",
+      "variables": {
+        // Initial variables passed to the workflow
+        // Example: "input": "test value"
+      },
+      "preLaunchTask": "build",
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "type": "workflow",
+      "request": "launch",
+      "name": "Debug Workflow (Stop on Entry)",
+      "workflowPath": "${workspaceFolder}/examples/.cw/workflows/example.ts",
+      "workflowName": "example",
+      "stopOnEntry": true,
+      "trace": "${workspaceFolder}/.debug/trace.json",
+      "variables": {},
+      "preLaunchTask": "build",
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "type": "workflow",
+      "request": "launch",
+      "name": "Debug Current Workflow",
+      "workflowPath": "${file}",
+      "stopOnEntry": false,
+      "trace": "${workspaceFolder}/.debug/trace-${fileBasenameNoExtension}.json",
+      "variables": {},
+      "internalConsoleOptions": "openOnSessionStart"
+    },
+    {
+      "type": "workflow",
+      "request": "launch",
+      "name": "Debug with Custom Variables",
+      "workflowPath": "${workspaceFolder}/examples/.cw/workflows/example.ts",
+      "workflowName": "example",
+      "stopOnEntry": false,
+      "trace": "${workspaceFolder}/.debug/trace.json",
+      "variables": {
+        "env": "development",
+        "userId": "test-user-123",
+        "config": {
+          "timeout": 5000,
+          "retries": 3
+        }
+      },
+      "internalConsoleOptions": "openOnSessionStart"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug Workflow + Watch",
+      "configurations": ["Debug Workflow"],
+      "preLaunchTask": "watch",
+      "stopAll": true
+    }
+  ]
+}

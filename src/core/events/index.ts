@@ -34,6 +34,7 @@ export {
 export { ConsoleRenderer, type ConsoleRendererConfig } from './renderers/console';
 export { JsonRenderer, type JsonRendererConfig } from './renderers/json';
 export { SilentRenderer, type SilentRendererConfig } from './renderers/silent';
+export { DebugRenderer, type DebugRendererConfig } from './renderers/debug';
 
 // Helpers
 export { createEventHelpers, createTimer, withEventTiming, type EventHelpers } from './helpers';

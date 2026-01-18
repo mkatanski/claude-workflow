@@ -27,6 +27,7 @@ program
 	.option("-v, --verbose", "Verbose output")
 	.option("-c, --color", "Force color output (even in non-TTY)")
 	.option("--json", "Use JSON renderer for structured output")
+	.option("--debug", "Enable debug mode with enhanced logging")
 	.description("Run a workflow in the specified project")
 	.action(async (projectPath: string, options) => {
 		await runWorkflow(projectPath, {
@@ -34,6 +35,7 @@ program
 			verbose: options.verbose,
 			color: options.color,
 			json: options.json,
+			debug: options.debug,
 		});
 	});
 

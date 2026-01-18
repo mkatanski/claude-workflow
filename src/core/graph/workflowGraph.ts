@@ -38,6 +38,7 @@ import {
 	createTimer,
 	type EventHelpers,
 } from "../events/index.ts";
+import type { IDebugger, DebugContext } from "../debugger/types.ts";
 
 /**
  * Type for compiled workflow graph.
@@ -88,6 +89,8 @@ export interface WorkflowGraphConfig {
 	emitter?: WorkflowEmitter;
 	/** Workflow name (used for event context) */
 	workflowName?: string;
+	/** Optional debugger for step-through debugging */
+	debugger?: IDebugger;
 }
 
 /**
@@ -134,6 +137,7 @@ export class WorkflowGraph {
 	private emitter: WorkflowEmitter;
 	private events: EventHelpers;
 	private workflowName: string;
+	private debugger: IDebugger | null = null;
 
 	constructor(config: WorkflowGraphConfig) {
 		this.config = config;
@@ -152,7 +156,33 @@ export class WorkflowGraph {
 		this.events = createEventHelpers(this.emitter);
 		this.workflowName = config.workflowName ?? 'unnamed-workflow';
 		this.emitter.setContext({ workflowName: this.workflowName });
+
+		// Initialize debugger (if provided)
+		this.debugger = config.debugger ?? null;
+
+		// Wire up debugger event listener
+		if (this.debugger) {
+			this.emitter.onPattern('*', async (event) => {
+				if (this.debugger && this._context) {
+					try {
+						await this.debugger.onEventEmitted(
+							event.type,
+							event.payload,
+							this._context,
+						);
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						console.error(`Debugger onEventEmitted failed:`, message);
+					}
+				}
+			});
+		}
 	}
+
+	/**
+	 * Current debug context (used for event emission hooks)
+	 */
+	private _context: DebugContext | null = null;
 
 	/**
 	 * Get the event emitter for this workflow.
@@ -278,12 +308,51 @@ export class WorkflowGraph {
 	}
 
 	/**
+	 * Build debug context from current state
+	 */
+	private buildDebugContext(
+		state: WorkflowStateType,
+		currentNode?: string,
+		previousNode?: string,
+		nextNode?: string,
+	): DebugContext {
+		return {
+			workflowName: this.workflowName,
+			currentNode,
+			previousNode,
+			nextNode,
+			variables: state.variables,
+			callStack: [], // TODO: Track call stack for nested workflows
+		};
+	}
+
+	/**
 	 * Wrap a node function with tools injection and event emission.
 	 */
 	private wrapNode(registration: NodeRegistration) {
 		return async (state: WorkflowStateType): Promise<WorkflowStateUpdate> => {
 			const timer = createTimer();
 			const nodeName = registration.name;
+
+			// Build debug context for debugger hooks
+			const debugContext = this.buildDebugContext(
+				state,
+				nodeName,
+				state.variables._previousNode as string | undefined,
+			);
+
+			// Store context for event emission hooks
+			this._context = debugContext;
+
+			// Call debugger beforeNodeExecution hook
+			if (this.debugger) {
+				try {
+					await this.debugger.beforeNodeExecution(nodeName, debugContext);
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					console.error(`Debugger beforeNodeExecution failed:`, message);
+				}
+			}
 
 			// Emit node start event
 			this.events.nodeStart({
@@ -319,6 +388,26 @@ export class WorkflowGraph {
 						? { ...result.variables, ...varUpdates }
 						: result.variables ?? {};
 
+				// Update debug context with new variables
+				const updatedDebugContext = this.buildDebugContext(
+					{ ...state, variables: variableUpdates },
+					nodeName,
+					state.variables._previousNode as string | undefined,
+				);
+
+				// Store updated context
+				this._context = updatedDebugContext;
+
+				// Call debugger afterNodeExecution hook
+				if (this.debugger) {
+					try {
+						await this.debugger.afterNodeExecution(nodeName, updatedDebugContext);
+					} catch (error) {
+						const message = error instanceof Error ? error.message : String(error);
+						console.error(`Debugger afterNodeExecution failed:`, message);
+					}
+				}
+
 				// Emit node complete event
 				this.events.nodeComplete({
 					nodeName,
@@ -330,14 +419,27 @@ export class WorkflowGraph {
 					const existingVars = result.variables ?? {};
 					return {
 						...result,
-						variables: { ...existingVars, ...varUpdates },
+						variables: { ...existingVars, ...varUpdates, _previousNode: nodeName },
 					};
 				}
 
-				return result;
+				return {
+					...result,
+					variables: { ...result.variables, _previousNode: nodeName },
+				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				const stack = error instanceof Error ? error.stack : undefined;
+
+				// Call debugger onException hook
+				if (this.debugger && error instanceof Error) {
+					try {
+						await this.debugger.onException(error, true, debugContext);
+					} catch (debugError) {
+						const debugMsg = debugError instanceof Error ? debugError.message : String(debugError);
+						console.error(`Debugger onException failed:`, debugMsg);
+					}
+				}
 
 				// Emit node error event
 				this.events.nodeError({

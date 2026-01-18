@@ -10,6 +10,7 @@
  * - Tool events
  * - State events
  * - Infrastructure events
+ * - Debug events
  */
 
 // ============================================================================
@@ -666,6 +667,67 @@ export type InfrastructureEvent =
   | CleanupCompleteEvent;
 
 // ============================================================================
+// Debug Events
+// ============================================================================
+
+export interface DebugBreakpointHitPayload {
+  breakpointId: string;
+  nodeName: string;
+  condition?: string;
+  hitCount: number;
+  variables: Record<string, unknown>;
+}
+
+export interface DebugStepBeforePayload {
+  nodeName: string;
+  stepType: 'step-over' | 'step-in' | 'step-out';
+  variables: Record<string, unknown>;
+}
+
+export interface DebugStepAfterPayload {
+  nodeName: string;
+  stepType: 'step-over' | 'step-in' | 'step-out';
+  duration: number;
+  variableChanges: Record<string, unknown>;
+}
+
+export interface DebugVariableInspectPayload {
+  nodeName: string;
+  variableName: string;
+  value: unknown;
+  scope: 'workflow' | 'node' | 'local';
+  path?: string;
+}
+
+export interface DebugExecutionPausePayload {
+  nodeName: string;
+  reason: 'breakpoint' | 'step' | 'exception' | 'pause-request';
+  variables: Record<string, unknown>;
+  callStack?: string[];
+}
+
+export interface DebugExecutionResumePayload {
+  nodeName: string;
+  resumeMode: 'continue' | 'step-over' | 'step-in' | 'step-out';
+  duration: number;
+}
+
+export type DebugBreakpointHitEvent = BaseEvent<'debug:breakpoint:hit', DebugBreakpointHitPayload>;
+export type DebugStepBeforeEvent = BaseEvent<'debug:step:before', DebugStepBeforePayload>;
+export type DebugStepAfterEvent = BaseEvent<'debug:step:after', DebugStepAfterPayload>;
+export type DebugVariableInspectEvent = BaseEvent<'debug:variable:inspect', DebugVariableInspectPayload>;
+export type DebugExecutionPauseEvent = BaseEvent<'debug:execution:pause', DebugExecutionPausePayload>;
+export type DebugExecutionResumeEvent = BaseEvent<'debug:execution:resume', DebugExecutionResumePayload>;
+
+export type DebugEvent =
+  | DebugBreakpointHitEvent
+  | DebugStepBeforeEvent
+  | DebugStepAfterEvent
+  | DebugVariableInspectEvent
+  | DebugExecutionPauseEvent
+  | DebugExecutionResumeEvent;
+
+// ============================================================================
 // Custom Events (for workflow-specific data)
 // ============================================================================
 
@@ -688,6 +750,7 @@ export type WorkflowEvent =
   | ToolEvent
   | StateEvent
   | InfrastructureEvent
+  | DebugEvent
   | LogEvent
   | CustomEvent;
 
@@ -710,7 +773,7 @@ export type EventHandler<T extends WorkflowEventType = WorkflowEventType> = (
 ) => void | Promise<void>;
 
 /** Pattern matcher for event categories */
-export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'log';
+export type EventPattern = '*' | 'graph:*' | 'workflow:*' | 'node:*' | 'router:*' | 'edge:*' | 'tool:*' | 'tool:bash:*' | 'tool:claude:*' | 'tool:claudeSdk:*' | 'tool:json:*' | 'tool:checklist:*' | 'tool:hook:*' | 'retry:*' | 'circuit:*' | 'state:*' | 'tmux:*' | 'server:*' | 'cleanup:*' | 'debug:*' | 'log';
 
 /** Subscription handle for cleanup */
 export interface Subscription {
@@ -755,6 +818,10 @@ export function isInfrastructureEvent(event: WorkflowEvent): event is Infrastruc
 
 export function isCustomEvent(event: WorkflowEvent): event is CustomEvent {
   return event.type === 'workflow:custom';
+}
+
+export function isDebugEvent(event: WorkflowEvent): event is DebugEvent {
+  return event.type.startsWith('debug:');
 }
 
 export function isLogEvent(event: WorkflowEvent): event is LogEvent {

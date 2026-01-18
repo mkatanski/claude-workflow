@@ -25,8 +25,10 @@ import {
 	createEmitter,
 	ConsoleRenderer,
 	JsonRenderer,
+	DebugRenderer,
 	type WorkflowRenderer,
 } from "../../core/events/index.ts";
+import { Debugger, createDebugger } from "../../core/debugger/index.ts";
 
 /**
  * Options for the run command.
@@ -38,6 +40,8 @@ export interface RunOptions {
 	color?: boolean;
 	/** Use JSON renderer for structured output */
 	json?: boolean;
+	/** Enable debug mode with enhanced logging */
+	debug?: boolean;
 }
 
 /**
@@ -183,10 +187,21 @@ interface RendererOptions {
 	verbose: boolean;
 	forceColor?: boolean;
 	useJson?: boolean;
+	debug?: boolean;
 }
 
 function createRenderer(options: RendererOptions): WorkflowRenderer {
-	const { verbose, forceColor, useJson } = options;
+	const { verbose, forceColor, useJson, debug } = options;
+
+	// Use DebugRenderer in debug mode for interactive debugging
+	if (debug) {
+		return new DebugRenderer({
+			verbose: true, // Always verbose in debug mode
+			showVariables: true,
+			showCallStack: true,
+			interactive: true,
+		});
+	}
 
 	// Use JSON renderer if explicitly requested or in CI environments
 	const isCI = Boolean(process.env.CI);
@@ -227,10 +242,32 @@ async function runLangGraphWorkflow(
 		verbose: options.verbose ?? false,
 		forceColor: options.color,
 		useJson: options.json,
+		debug: options.debug,
 	});
 	const rendererSubscription = renderer.connect(emitter);
 
-	// Create WorkflowGraph with emitter
+	// Create debugger if in debug mode
+	let workflowDebugger: Debugger | undefined;
+	if (options.debug) {
+		workflowDebugger = createDebugger({
+			onBreakpointHit: (_hit) => {
+				// Breakpoint handling is done through event system
+				// The debug renderer will handle the interactive prompt
+			},
+			onStateChange: (_state) => {
+				// State change handling is done through event system
+			},
+		});
+
+		// Start debugger with initial configuration
+		await workflowDebugger.start({
+			enabled: true,
+			breakpoints: [], // Breakpoints can be set interactively
+			breakOnStart: false,
+		});
+	}
+
+	// Create WorkflowGraph with emitter and debugger
 	const graph = new WorkflowGraph({
 		projectPath,
 		tempDir,
@@ -240,6 +277,7 @@ async function runLangGraphWorkflow(
 		verbose: options.verbose,
 		emitter,
 		workflowName: definition.name,
+		debugger: workflowDebugger,
 	});
 
 	try {
@@ -261,6 +299,12 @@ async function runLangGraphWorkflow(
 		// Cleanup renderer subscription
 		rendererSubscription.unsubscribe();
 		renderer.dispose();
+
+		// Cleanup debugger if it was created
+		if (workflowDebugger) {
+			await workflowDebugger.stop();
+			workflowDebugger.dispose();
+		}
 
 		// Always cleanup graph resources
 		await graph.cleanup();
