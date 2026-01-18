@@ -71,6 +71,27 @@ import {
 } from "../utils/schema/index.js";
 import type { WorkflowStateType } from "./state.ts";
 import type {
+	CallStack,
+	WorkflowCallOptions,
+	WorkflowCallResult,
+} from "../composition/types.js";
+import {
+	parseWorkflowReference,
+} from "../composition/reference.js";
+import {
+	createCallStack,
+	checkCircular,
+	createCircularCallError,
+	createMaxDepthError,
+	getCallDepth,
+} from "../composition/circular.js";
+import {
+	SubWorkflowExecutor,
+	createExecutorContext,
+} from "../composition/executor.js";
+import type { LangGraphWorkflowDefinition } from "./types.js";
+import type { WorkflowRegistry } from "../registry/index.js";
+import type {
 	AgentSessionOptions,
 	AgentSessionResult,
 	BashCommandResult,
@@ -108,6 +129,32 @@ export interface WorkflowToolsConfig {
 	claudeConfig?: ClaudeConfig;
 	claudeSdkConfig?: ClaudeSdkConfig;
 	claudeAgentConfig?: ClaudeAgentConfig;
+	/**
+	 * Name of the current workflow (used for composition tracking).
+	 * When not provided, defaults to "unknown".
+	 */
+	workflowName?: string;
+	/**
+	 * Name of the current node (updated before each node execution).
+	 * When not provided, defaults to "unknown".
+	 */
+	currentNodeName?: string;
+	/**
+	 * Current call stack for tracking nested workflow calls.
+	 * When not provided, a new empty call stack is created.
+	 */
+	callStack?: CallStack;
+	/**
+	 * Optional workflow registry for resolving workflow references.
+	 * When not provided, workflow composition will return WORKFLOW_NOT_FOUND errors.
+	 */
+	registry?: WorkflowRegistry;
+	/**
+	 * Optional workflow loader function for resolving workflow definitions.
+	 * This is used as an alternative to the registry for loading workflow definitions.
+	 * Takes a resolved path and returns the workflow definition.
+	 */
+	workflowLoader?: (path: string) => Promise<LangGraphWorkflowDefinition | undefined>;
 }
 
 /**
@@ -1086,6 +1133,221 @@ export function createWorkflowTools(
 
 				return errorResult;
 			}
+		},
+
+		// --- Workflow composition ---
+		async workflow<TInput = unknown, TOutput = unknown>(
+			reference: string,
+			options?: WorkflowCallOptions<TInput>,
+		): Promise<WorkflowCallResult<TOutput>> {
+			const timer = createTimer();
+
+			// Get workflow context
+			const parentWorkflow = config.workflowName ?? "unknown";
+			const parentNode = config.currentNodeName ?? "unknown";
+			const callStack = config.callStack ?? createCallStack();
+			const depth = getCallDepth(callStack) + 1;
+
+			// Step 1: Parse the workflow reference
+			const parseResult = parseWorkflowReference(reference);
+
+			if (!parseResult.success) {
+				const error = parseResult.error;
+
+				// Emit error event
+				events?.workflowCallError({
+					calledWorkflowName: reference,
+					callerWorkflowName: parentWorkflow,
+					callerNodeName: parentNode,
+					error: error.message,
+					depth,
+				});
+
+				return {
+					success: false,
+					error,
+					duration: timer.elapsed(),
+					metadata: {
+						name: reference,
+						version: "0.0.0",
+						source: "project",
+					},
+				};
+			}
+
+			const parsedRef = parseResult.value;
+			const workflowName = parsedRef.name;
+			const workflowVersion = parsedRef.version ?? "0.0.0";
+
+			// Step 2: Check for circular calls before proceeding
+			const circularCheck = checkCircular(callStack, workflowName, workflowVersion);
+
+			if (circularCheck.isCircular) {
+				const error = createCircularCallError(callStack, workflowName, workflowVersion);
+
+				events?.workflowCallError({
+					calledWorkflowName: workflowName,
+					callerWorkflowName: parentWorkflow,
+					callerNodeName: parentNode,
+					error: error.message,
+					depth,
+				});
+
+				return {
+					success: false,
+					error,
+					duration: timer.elapsed(),
+					metadata: {
+						name: workflowName,
+						version: workflowVersion,
+						source: "project",
+					},
+				};
+			}
+
+			if (circularCheck.exceedsMaxDepth) {
+				const error = createMaxDepthError(callStack, workflowName);
+
+				events?.workflowCallError({
+					calledWorkflowName: workflowName,
+					callerWorkflowName: parentWorkflow,
+					callerNodeName: parentNode,
+					error: error.message,
+					depth,
+				});
+
+				return {
+					success: false,
+					error,
+					duration: timer.elapsed(),
+					metadata: {
+						name: workflowName,
+						version: workflowVersion,
+						source: "project",
+					},
+				};
+			}
+
+			// Step 3: Resolve the workflow definition
+			// Note: We don't emit start event here - the SubWorkflowExecutor will emit
+			// its own start event when execution begins. We only emit events for errors
+			// that happen before we can start execution (circular calls, resolution failures).
+			let workflowDefinition: LangGraphWorkflowDefinition | undefined;
+			let resolvedVersion = workflowVersion;
+			let resolvedSource: "project" | "project-installed" | "global" = "project";
+
+			// Try to resolve using registry if available
+			if (config.registry) {
+				const resolveResult = await config.registry.resolve(reference);
+
+				if (resolveResult._tag === "ok") {
+					const resolved = resolveResult.value;
+					resolvedVersion = resolved.metadata.version;
+					resolvedSource = resolved.source as "project" | "project-installed" | "global";
+
+					// Try to load the workflow definition
+					if (config.workflowLoader) {
+						workflowDefinition = await config.workflowLoader(resolved.path);
+					}
+				} else {
+					// Registry resolution failed
+					const error = resolveResult.error;
+					const errorMessage = error.message;
+
+					events?.workflowCallError({
+						calledWorkflowName: workflowName,
+						callerWorkflowName: parentWorkflow,
+						callerNodeName: parentNode,
+						error: errorMessage,
+						depth,
+					});
+
+					return {
+						success: false,
+						error: {
+							code: error.code === "VERSION_NOT_FOUND" ? "VERSION_NOT_FOUND"
+								: error.code === "WORKFLOW_NOT_FOUND" ? "WORKFLOW_NOT_FOUND"
+								: "WORKFLOW_NOT_FOUND",
+							message: errorMessage,
+							availableVersions: error.availableVersions,
+						},
+						duration: timer.elapsed(),
+						metadata: {
+							name: workflowName,
+							version: resolvedVersion,
+							source: resolvedSource,
+						},
+					};
+				}
+			}
+
+			// If no definition found and no registry, return WORKFLOW_NOT_FOUND
+			if (!workflowDefinition) {
+				const errorMessage = config.registry
+					? `Workflow "${workflowName}" could not be loaded. The workflow was resolved but the definition could not be loaded.`
+					: `Workflow "${workflowName}" not found. No workflow registry is configured. ` +
+					  `To use workflow composition, ensure the workflow registry is available.`;
+
+				events?.workflowCallError({
+					calledWorkflowName: workflowName,
+					callerWorkflowName: parentWorkflow,
+					callerNodeName: parentNode,
+					error: errorMessage,
+					depth,
+				});
+
+				return {
+					success: false,
+					error: {
+						code: "WORKFLOW_NOT_FOUND",
+						message: errorMessage,
+					},
+					duration: timer.elapsed(),
+					metadata: {
+						name: workflowName,
+						version: resolvedVersion,
+						source: resolvedSource,
+					},
+				};
+			}
+
+			// Step 4: Execute the sub-workflow using SubWorkflowExecutor
+			const executor = new SubWorkflowExecutor({
+				projectPath: options?.cwd ?? config.projectPath,
+				tempDir: config.tempDir,
+				claudeConfig: config.claudeConfig,
+				claudeSdkConfig: config.claudeSdkConfig,
+				emitter: emitter,
+			});
+
+			// Create executor context with updated call stack
+			const executorContext = createExecutorContext(
+				parentWorkflow,
+				parentNode,
+				callStack,
+				options?.cwd,
+			);
+
+			// Execute the sub-workflow
+			// Note: The executor handles all event emission (start, complete, error)
+			// for the actual execution. We only emit error events for pre-execution
+			// failures (like registry resolution errors) above.
+			const result = await executor.execute<TInput, TOutput>(
+				workflowDefinition,
+				options ?? {},
+				executorContext,
+			);
+
+			return {
+				...result,
+				duration: timer.elapsed(),
+				metadata: {
+					name: workflowName,
+					version: resolvedVersion,
+					source: resolvedSource,
+					export: parsedRef.export,
+				},
+			};
 		},
 
 		// --- Logging ---

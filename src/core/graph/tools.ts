@@ -42,6 +42,10 @@ import type {
 	WorktreeAddOptions,
 	WorktreeRemoveOptions,
 } from "../tools/git/types.js";
+import type {
+	WorkflowCallOptions,
+	WorkflowCallResult,
+} from "../composition/types.js";
 import type { FileOperations } from "../utils/files/index.js";
 import type { IterationHelper } from "../utils/iteration/index.js";
 import type { RetryableOperation, RetryConfig } from "../utils/retry/index.js";
@@ -674,6 +678,54 @@ export interface WorkflowTools {
 	): Promise<ParallelClaudeResult>;
 
 	/**
+	 * Execute a sub-workflow by reference.
+	 *
+	 * Enables workflow composition by calling other workflows from within
+	 * a workflow node. Sub-workflows execute with isolated state and
+	 * inherit context from the parent workflow.
+	 *
+	 * Reference formats:
+	 * - `name` - Call the default export of a workflow by name
+	 * - `name@version` - Call a specific version (semver range supported)
+	 * - `name:export` - Call a named export from the workflow
+	 * - `name@version:export` - Combine version and export
+	 *
+	 * @param reference - Workflow reference string
+	 * @param options - Call options including input, timeout, and cwd
+	 * @returns Promise resolving to result with output or error (never throws)
+	 *
+	 * @example
+	 * ```typescript
+	 * // Basic workflow call
+	 * const result = await tools.workflow('analyze-code', {
+	 *   input: { path: './src' },
+	 *   timeout: 30000,
+	 *   label: 'analyze',
+	 * });
+	 *
+	 * if (result.success) {
+	 *   console.log('Analysis complete:', result.output);
+	 * } else {
+	 *   console.error('Analysis failed:', result.error?.message);
+	 * }
+	 *
+	 * // With version constraint
+	 * const result = await tools.workflow('lint@^2.0.0', {
+	 *   input: { files: ['*.ts'] },
+	 * });
+	 *
+	 * // With named export
+	 * const result = await tools.workflow('utils:formatCode', {
+	 *   input: { code: sourceCode },
+	 * });
+	 * ```
+	 */
+	workflow<TInput = unknown, TOutput = unknown>(
+		reference: string,
+		options?: WorkflowCallOptions<TInput>,
+	): Promise<WorkflowCallResult<TOutput>>;
+
+	/**
 	 * Git operations for repository management.
 	 *
 	 * Provides access to Git operations including:
@@ -828,3 +880,20 @@ export type {
 	StashOptions,
 	StashPopOptions,
 };
+
+// =============================================================================
+// Workflow Composition Type Re-exports
+// =============================================================================
+
+/**
+ * Re-export workflow composition types for use by workflow nodes.
+ * These types are needed when working with tools.workflow().
+ */
+export type { WorkflowCallOptions, WorkflowCallResult } from "../composition/types.js";
+export type {
+	WorkflowCallError,
+	WorkflowCallErrorCode,
+	WorkflowCallMetadata,
+	WorkflowSource,
+	ValidationError,
+} from "../composition/types.js";

@@ -149,6 +149,73 @@ export type WorkflowLifecycleEvent =
 	| WorkflowStateInitializedEvent;
 
 // ============================================================================
+// Workflow Call Events (sub-workflow invocation)
+// ============================================================================
+
+export interface WorkflowCallStartPayload {
+	/** Name of the workflow being called */
+	calledWorkflowName: string;
+	/** Name of the parent workflow making the call */
+	callerWorkflowName: string;
+	/** Node in the caller workflow that initiated the call */
+	callerNodeName: string;
+	/** Input variables passed to the called workflow */
+	inputVariables: Record<string, unknown>;
+	/** Nesting depth (1 = direct child, 2 = grandchild, etc.) */
+	depth: number;
+}
+
+export interface WorkflowCallCompletePayload {
+	/** Name of the workflow that was called */
+	calledWorkflowName: string;
+	/** Name of the parent workflow that made the call */
+	callerWorkflowName: string;
+	/** Node in the caller workflow that initiated the call */
+	callerNodeName: string;
+	/** Output variables returned from the called workflow */
+	outputVariables: Record<string, unknown>;
+	/** Duration of the sub-workflow execution in ms */
+	duration: number;
+	/** Whether the called workflow completed successfully */
+	success: boolean;
+	/** Nesting depth */
+	depth: number;
+}
+
+export interface WorkflowCallErrorPayload {
+	/** Name of the workflow that was called */
+	calledWorkflowName: string;
+	/** Name of the parent workflow that made the call */
+	callerWorkflowName: string;
+	/** Node in the caller workflow that initiated the call */
+	callerNodeName: string;
+	/** Error message */
+	error: string;
+	/** Stack trace if available */
+	stack?: string;
+	/** Nesting depth */
+	depth: number;
+}
+
+export type WorkflowCallStartEvent = BaseEvent<
+	"workflow:call:start",
+	WorkflowCallStartPayload
+>;
+export type WorkflowCallCompleteEvent = BaseEvent<
+	"workflow:call:complete",
+	WorkflowCallCompletePayload
+>;
+export type WorkflowCallErrorEvent = BaseEvent<
+	"workflow:call:error",
+	WorkflowCallErrorPayload
+>;
+
+export type WorkflowCallEvent =
+	| WorkflowCallStartEvent
+	| WorkflowCallCompleteEvent
+	| WorkflowCallErrorEvent;
+
+// ============================================================================
 // Node Execution Events
 // ============================================================================
 
@@ -1262,6 +1329,7 @@ export type CustomEvent = BaseEvent<"workflow:custom", CustomEventPayload>;
 export type WorkflowEvent =
 	| GraphEvent
 	| WorkflowLifecycleEvent
+	| WorkflowCallEvent
 	| NodeEvent
 	| RoutingEvent
 	| ToolEvent
@@ -1298,6 +1366,7 @@ export type EventPattern =
 	| "*"
 	| "graph:*"
 	| "workflow:*"
+	| "workflow:call:*"
 	| "node:*"
 	| "router:*"
 	| "edge:*"
@@ -1339,8 +1408,15 @@ export function isWorkflowLifecycleEvent(
 ): event is WorkflowLifecycleEvent {
 	return (
 		event.type.startsWith("workflow:") &&
-		!event.type.startsWith("workflow:custom")
+		!event.type.startsWith("workflow:custom") &&
+		!event.type.startsWith("workflow:call:")
 	);
+}
+
+export function isWorkflowCallEvent(
+	event: WorkflowEvent,
+): event is WorkflowCallEvent {
+	return event.type.startsWith("workflow:call:");
 }
 
 export function isNodeEvent(event: WorkflowEvent): event is NodeEvent {

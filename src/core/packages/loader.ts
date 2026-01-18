@@ -72,26 +72,6 @@ async function isDirectory(filePath: string): Promise<boolean> {
 	}
 }
 
-/**
- * Read and parse a JSON file.
- *
- * @param filePath - Path to the JSON file
- * @returns Object with parsed data or error message
- */
-async function _readJsonFile(filePath: string): Promise<{
-	data: unknown;
-	error?: string;
-}> {
-	try {
-		const content = await fs.readFile(filePath, "utf-8");
-		const data = JSON.parse(content) as unknown;
-		return { data };
-	} catch (error) {
-		const message = error instanceof Error ? error.message : "Unknown error";
-		return { data: null, error: message };
-	}
-}
-
 // ============================================================================
 // LoadedWorkflowPackage Implementation
 // ============================================================================

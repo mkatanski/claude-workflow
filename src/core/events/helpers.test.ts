@@ -2,7 +2,7 @@
  * Unit tests for event helpers.
  */
 
-import { describe, expect, it, beforeEach } from "bun:test";
+import { beforeEach, describe, expect, it } from "bun:test";
 import { createEmitter, type WorkflowEmitter } from "./emitter.js";
 import {
 	createEventHelpers,
@@ -106,6 +106,60 @@ describe("createEventHelpers", () => {
 			helpers.workflowStateInitialized("my-workflow", { count: 0 });
 
 			expect(emittedEvents[0].type).toBe("workflow:state:initialized");
+		});
+	});
+
+	describe("workflow call events", () => {
+		it("should emit workflow:call:start", () => {
+			helpers.workflowCallStart({
+				calledWorkflowName: "child-workflow",
+				callerWorkflowName: "parent-workflow",
+				callerNodeName: "call-child",
+				inputVariables: { input: "data" },
+				depth: 1,
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("workflow:call:start");
+		});
+
+		it("should emit workflow:call:complete", () => {
+			helpers.workflowCallComplete({
+				calledWorkflowName: "child-workflow",
+				callerWorkflowName: "parent-workflow",
+				callerNodeName: "call-child",
+				outputVariables: { result: "success" },
+				duration: 1500,
+				success: true,
+				depth: 1,
+			});
+
+			expect(emittedEvents[0].type).toBe("workflow:call:complete");
+		});
+
+		it("should emit workflow:call:error", () => {
+			helpers.workflowCallError({
+				calledWorkflowName: "child-workflow",
+				callerWorkflowName: "parent-workflow",
+				callerNodeName: "call-child",
+				error: "Child workflow failed",
+				depth: 1,
+			});
+
+			expect(emittedEvents[0].type).toBe("workflow:call:error");
+		});
+
+		it("should emit workflow:call:error with stack trace", () => {
+			helpers.workflowCallError({
+				calledWorkflowName: "child-workflow",
+				callerWorkflowName: "parent-workflow",
+				callerNodeName: "call-child",
+				error: "Child workflow failed",
+				stack: "Error: Child workflow failed\n    at ...",
+				depth: 1,
+			});
+
+			expect(emittedEvents[0].type).toBe("workflow:call:error");
 		});
 	});
 

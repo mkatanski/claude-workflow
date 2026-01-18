@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { WorkflowPackageJson } from "./types.js";
 import { PACKAGE_ERROR_CODES, PACKAGE_WARNING_CODES } from "./types.js";
 import { createPackageValidator, PackageValidator } from "./validator.js";
 
@@ -529,7 +530,7 @@ describe("PackageValidator", () => {
 
 	describe("buildDependencyGraph", () => {
 		it("should build graph from packages", () => {
-			const packages = [
+			const packages: WorkflowPackageJson[] = [
 				{
 					name: "pkg-a",
 					version: "1.0.0",
@@ -571,7 +572,7 @@ describe("PackageValidator", () => {
 
 	describe("validateDependencyGraph", () => {
 		it("should validate individual dependencies and detect cycles", () => {
-			const packages = [
+			const packages: WorkflowPackageJson[] = [
 				{
 					name: "pkg-a",
 					version: "1.0.0",
@@ -794,7 +795,7 @@ describe("PackageValidator", () => {
 				valid: false,
 				errors: [
 					{
-						code: PACKAGE_ERROR_CODES.INVALID_NAME as const,
+						code: PACKAGE_ERROR_CODES.INVALID_NAME,
 						message: "Invalid package name",
 						field: "name",
 					},
@@ -817,7 +818,7 @@ describe("PackageValidator", () => {
 				errors: [],
 				warnings: [
 					{
-						code: PACKAGE_WARNING_CODES.MISSING_DESCRIPTION as const,
+						code: PACKAGE_WARNING_CODES.MISSING_DESCRIPTION,
 						message: "Missing description",
 						suggestion: "Add a description field",
 					},
@@ -838,7 +839,7 @@ describe("PackageValidator", () => {
 				valid: false,
 				errors: [
 					{
-						code: PACKAGE_ERROR_CODES.INVALID_JSON as const,
+						code: PACKAGE_ERROR_CODES.INVALID_JSON,
 						message: "Invalid JSON",
 					},
 				],

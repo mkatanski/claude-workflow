@@ -17,6 +17,10 @@ import type {
 	WorkflowStartPayload,
 	WorkflowCompletePayload,
 	WorkflowErrorPayload,
+	// Workflow call events (sub-workflow invocation)
+	WorkflowCallStartPayload,
+	WorkflowCallCompletePayload,
+	WorkflowCallErrorPayload,
 	// Node events
 	NodeStartPayload,
 	NodeCompletePayload,
@@ -140,6 +144,22 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 				workflowName,
 				variables,
 			});
+		},
+
+		// ========================================================================
+		// Workflow Call Events (sub-workflow invocation)
+		// ========================================================================
+
+		workflowCallStart(payload: WorkflowCallStartPayload) {
+			return emitter.emit("workflow:call:start", payload);
+		},
+
+		workflowCallComplete(payload: WorkflowCallCompletePayload) {
+			return emitter.emit("workflow:call:complete", payload);
+		},
+
+		workflowCallError(payload: WorkflowCallErrorPayload) {
+			return emitter.emit("workflow:call:error", payload);
 		},
 
 		// ========================================================================

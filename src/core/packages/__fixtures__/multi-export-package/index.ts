@@ -34,7 +34,7 @@ const productionWorkflow: LangGraphWorkflowDefinition = {
 			return {
 				variables: {
 					validated: true,
-					environment: state.environment,
+					environment: state.variables.environment,
 				},
 			};
 		});
@@ -42,7 +42,7 @@ const productionWorkflow: LangGraphWorkflowDefinition = {
 		graph.addNode("deploy", async (state, _tools) => {
 			return {
 				variables: {
-					deployed: !state.dryRun,
+					deployed: !state.variables.dryRun,
 					deploymentId: `deploy-${Date.now()}`,
 				},
 			};
@@ -97,7 +97,7 @@ const stagingWorkflow: LangGraphWorkflowDefinition = {
 		graph.addNode("test", async (state, _tools) => {
 			return {
 				variables: {
-					testsPassed: state.runTests,
+					testsPassed: state.variables.runTests,
 				},
 			};
 		});
@@ -106,7 +106,7 @@ const stagingWorkflow: LangGraphWorkflowDefinition = {
 			return {
 				variables: {
 					deployed: true,
-					environment: state.environment,
+					environment: state.variables.environment,
 				},
 			};
 		});
@@ -144,10 +144,11 @@ const rollbackWorkflow: LangGraphWorkflowDefinition = {
 	},
 	build(graph) {
 		graph.addNode("identify", async (state, _tools) => {
+			const targetVersion = state.variables.targetVersion as string;
 			return {
 				variables: {
 					previousVersion:
-						state.targetVersion === "previous" ? "v1.0.0" : state.targetVersion,
+						targetVersion === "previous" ? "v1.0.0" : targetVersion,
 				},
 			};
 		});
@@ -156,7 +157,7 @@ const rollbackWorkflow: LangGraphWorkflowDefinition = {
 			return {
 				variables: {
 					rolledBack: true,
-					version: state.previousVersion,
+					version: state.variables.previousVersion,
 				},
 			};
 		});
@@ -172,7 +173,7 @@ const rollbackWorkflow: LangGraphWorkflowDefinition = {
 		graph.addNode("notify", async (state, _tools) => {
 			return {
 				variables: {
-					notified: state.notifyTeam,
+					notified: state.variables.notifyTeam,
 				},
 			};
 		});

@@ -24,7 +24,7 @@ const workflow: LangGraphWorkflowDefinition = {
 		graph.addNode("greet", async (state, _tools) => {
 			return {
 				variables: {
-					greeting: `${state.message} - processed`,
+					greeting: `${state.variables.message} - processed`,
 				},
 			};
 		});
