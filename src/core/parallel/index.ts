@@ -1,9 +1,9 @@
 /**
  * Parallel Module - Parallel execution with concurrency control
  *
- * This module provides types and utilities for executing multiple bash commands
- * or Claude sessions in parallel with configurable concurrency, timeout handling,
- * and result aggregation.
+ * This module provides types and utilities for executing multiple bash commands,
+ * Claude sessions, or workflows in parallel with configurable concurrency, timeout
+ * handling, and result aggregation.
  *
  * @example
  * ```typescript
@@ -38,6 +38,28 @@
  *
  * console.log(`${result.summary.succeeded}/${result.summary.total} succeeded`);
  * console.log(`Total cost: $${result.summary.estimatedCostUsd.toFixed(4)}`);
+ * ```
+ *
+ * @example
+ * ```typescript
+ * import { executeParallelWorkflows, ParallelWorkflowConfig } from './core/parallel';
+ *
+ * const workflows: ParallelWorkflowConfig[] = [
+ *   { name: 'lint', id: 'lint-task', input: { path: './src' } },
+ *   { name: 'test', id: 'test-task' },
+ *   { name: 'build', id: 'build-task', timeout: 60000 },
+ * ];
+ *
+ * const result = await executeParallelWorkflows(
+ *   workflows,
+ *   async (reference, options) => tools.workflow(reference, options),
+ *   {
+ *     maxConcurrency: 3,
+ *     continueOnError: true,
+ *   }
+ * );
+ *
+ * console.log(`${result.summary.succeeded}/${result.summary.total} succeeded`);
  * ```
  */
 
@@ -101,3 +123,35 @@ export {
 	MAX_CLAUDE_CONCURRENCY,
 	MIN_CLAUDE_CONCURRENCY,
 } from "./claudeTypes";
+
+// =============================================================================
+// Workflow Parallel Execution
+// =============================================================================
+
+// Types from workflows.ts
+export type {
+	ExecuteParallelWorkflowsOptions,
+	OnWorkflowStartCallback,
+	ParallelWorkflowsProgressCallback,
+	WorkflowExecutor,
+} from "./workflows";
+// Execution
+export { executeParallelWorkflows } from "./workflows";
+// Types from workflowTypes.ts
+export type {
+	ParallelWorkflowConfig,
+	ParallelWorkflowsOptions,
+	ParallelWorkflowsResult,
+	ParallelWorkflowsSummary,
+	WorkflowResult,
+	WorkflowResultMetadata,
+} from "./workflowTypes";
+// Factory Functions
+// Constants
+export {
+	calculateWorkflowsSummary,
+	createParallelWorkflowsResult,
+	DEFAULT_WORKFLOW_CONCURRENCY,
+	MAX_WORKFLOW_CONCURRENCY,
+	MIN_WORKFLOW_CONCURRENCY,
+} from "./workflowTypes";

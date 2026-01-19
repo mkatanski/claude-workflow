@@ -20,8 +20,11 @@ import {
 import {
 	type ExecuteParallelBashOptions,
 	type ExecuteParallelClaudeOptions,
+	type ExecuteParallelWorkflowsOptions,
 	executeParallelBash,
 	executeParallelClaude,
+	executeParallelWorkflows,
+	DEFAULT_WORKFLOW_CONCURRENCY,
 } from "../parallel/index.ts";
 import type { TmuxManager } from "../tmux/manager.ts";
 import { BashTool } from "../tools/bash.ts";
@@ -117,6 +120,10 @@ import type {
 	ParallelClaudeConfig,
 	ParallelClaudeOptions,
 	ParallelClaudeResult,
+	ParallelWorkflowConfig,
+	ParallelWorkflowsOptions,
+	ParallelWorkflowsResult,
+	ParallelWorkflowResult,
 	WorkflowTools,
 } from "./tools.ts";
 
@@ -1128,6 +1135,204 @@ export function createWorkflowTools(
 					estimatedCostUsd: 0,
 					duration: elapsedDuration,
 					aborted: true,
+					label: options?.label,
+				});
+
+				return errorResult;
+			}
+		},
+
+		async parallelWorkflows(
+			workflows: ParallelWorkflowConfig[],
+			options?: ParallelWorkflowsOptions,
+		): Promise<ParallelWorkflowsResult> {
+			const timer = createTimer();
+			const maxConcurrency = options?.maxConcurrency ?? DEFAULT_WORKFLOW_CONCURRENCY;
+
+			// Generate workflow IDs for those that don't have them
+			const workflowIds = workflows.map((wf, index) => wf.id ?? `workflow_${index}`);
+
+			// Emit start event
+			events?.parallelWorkflowsStart({
+				totalWorkflows: workflows.length,
+				maxConcurrency,
+				workflowIds,
+				label: options?.label,
+			});
+
+			try {
+				// Build execution options with callbacks for event emission
+				const executeOptions: ExecuteParallelWorkflowsOptions = {
+					...options,
+					onProgress: (progress) => {
+						// Emit progress event
+						events?.parallelWorkflowsProgress({
+							totalWorkflows: progress.totalWorkflows,
+							completedWorkflows: progress.completedWorkflows,
+							failedWorkflows: progress.failedWorkflows,
+							activeWorkflowIds: progress.activeWorkflowIds,
+							queuedWorkflowIds: progress.queuedWorkflowIds,
+							percentComplete: progress.percentComplete,
+							elapsedMs: progress.elapsedMs,
+						});
+					},
+					onWorkflowStart: (info) => {
+						// Emit workflow start event
+						events?.parallelWorkflowStart({
+							id: info.id,
+							reference: info.reference,
+							queuePosition: info.queuePosition,
+							label: info.label,
+						});
+					},
+					onWorkflowComplete: (workflowResult) => {
+						// Emit workflow complete event
+						events?.parallelWorkflowComplete({
+							id: workflowResult.id,
+							reference: workflowResult.reference,
+							success: workflowResult.success,
+							duration: workflowResult.duration,
+							label: workflowResult.label,
+						});
+					},
+				};
+
+				// Create the workflow executor function that uses tools.workflow()
+				const workflowExecutor = async (
+					reference: string,
+					execOptions: {
+						input?: Record<string, unknown>;
+						timeout?: number;
+						label?: string;
+					},
+				) => {
+					const result = await tools.workflow(reference, {
+						input: execOptions.input,
+						timeout: execOptions.timeout,
+						label: execOptions.label,
+					});
+
+					return {
+						success: result.success,
+						output: result.output,
+						error: result.error,
+						duration: result.duration,
+						metadata: {
+							name: result.metadata.name,
+							version: result.metadata.version,
+							source: result.metadata.source,
+						},
+					};
+				};
+
+				// Execute parallel workflows
+				const internalResult = await executeParallelWorkflows(
+					workflows,
+					workflowExecutor,
+					executeOptions,
+				);
+
+				// Transform internal result to match WorkflowTools interface
+				const transformedWorkflows: ParallelWorkflowResult[] =
+					internalResult.workflows.map((wf) => ({
+						id: wf.id,
+						reference: wf.reference,
+						success: wf.success,
+						output: wf.output,
+						error: wf.error,
+						duration: wf.duration,
+						queueWaitTime: wf.queueWaitTime,
+						metadata: {
+							name: wf.metadata.name,
+							version: wf.metadata.version,
+							source: wf.metadata.source,
+						},
+						label: wf.label,
+					}));
+
+				// Create result with helper methods matching the interface
+				const result: ParallelWorkflowsResult = {
+					success: internalResult.success,
+					totalDuration: internalResult.totalDuration,
+					workflows: transformedWorkflows,
+					summary: {
+						total: internalResult.summary.total,
+						succeeded: internalResult.summary.succeeded,
+						failed: internalResult.summary.failed,
+						timedOut: internalResult.summary.timedOut,
+					},
+					getWorkflow(id: string): ParallelWorkflowResult | undefined {
+						return transformedWorkflows.find((w) => w.id === id);
+					},
+					getSuccessfulOutputs(): Array<{ id: string; output: unknown }> {
+						return transformedWorkflows
+							.filter((w) => w.success && w.output !== undefined)
+							.map((w) => ({ id: w.id, output: w.output }));
+					},
+					getErrors(): Array<{ id: string; error: import("../composition/types.js").WorkflowCallError }> {
+						return transformedWorkflows
+							.filter((w) => !w.success && w.error !== undefined)
+							.map((w) => ({ id: w.id, error: w.error as import("../composition/types.js").WorkflowCallError }));
+					},
+					isSuccessful(id: string): boolean {
+						const workflow = transformedWorkflows.find((w) => w.id === id);
+						return workflow?.success ?? false;
+					},
+				};
+
+				// Emit complete event
+				events?.parallelWorkflowsComplete({
+					success: result.success,
+					totalDuration: timer.elapsed(),
+					succeeded: result.summary.succeeded,
+					failed: result.summary.failed,
+					timedOut: result.summary.timedOut,
+					label: options?.label,
+				});
+
+				return result;
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				const elapsedDuration = timer.elapsed();
+
+				// Create empty error result with helper methods
+				const errorResult: ParallelWorkflowsResult = {
+					success: false,
+					totalDuration: elapsedDuration,
+					workflows: [],
+					summary: {
+						total: workflows.length,
+						succeeded: 0,
+						failed: workflows.length,
+						timedOut: 0,
+					},
+					getWorkflow(): ParallelWorkflowResult | undefined {
+						return undefined;
+					},
+					getSuccessfulOutputs(): Array<{ id: string; output: unknown }> {
+						return [];
+					},
+					getErrors(): Array<{ id: string; error: import("../composition/types.js").WorkflowCallError }> {
+						return workflows.map((wf, index) => ({
+							id: wf.id ?? `workflow_${index}`,
+							error: {
+								code: "EXECUTION_FAILED" as const,
+								message,
+							},
+						}));
+					},
+					isSuccessful(): boolean {
+						return false;
+					},
+				};
+
+				// Emit complete event with failure
+				events?.parallelWorkflowsComplete({
+					success: false,
+					totalDuration: elapsedDuration,
+					succeeded: 0,
+					failed: workflows.length,
+					timedOut: 0,
 					label: options?.label,
 				});
 

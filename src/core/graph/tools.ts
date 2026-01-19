@@ -313,6 +313,106 @@ export interface ParallelClaudeResult {
 }
 
 /**
+ * Configuration for a single workflow in parallel execution.
+ */
+export interface ParallelWorkflowConfig {
+	/** Workflow reference (name, name@version, or name:export) */
+	name: string;
+	/** Unique identifier for this workflow in results (auto-generated if not provided) */
+	id?: string;
+	/** Input data for the workflow */
+	input?: Record<string, unknown>;
+	/** Timeout for this specific workflow in milliseconds */
+	timeout?: number;
+	/** Human-readable label for events */
+	label?: string;
+}
+
+/**
+ * Options for parallel workflow execution.
+ */
+export interface ParallelWorkflowsOptions {
+	/** Maximum concurrent workflows (1-10, default: 5) */
+	maxConcurrency?: number;
+	/** Continue executing when individual workflows fail (default: true) */
+	continueOnError?: boolean;
+	/** Total timeout for entire parallel operation in milliseconds */
+	totalTimeout?: number;
+	/** Human-readable label for the parallel operation */
+	label?: string;
+}
+
+/**
+ * Summary statistics for parallel workflow execution.
+ */
+export interface ParallelWorkflowsSummary {
+	/** Total number of workflows */
+	total: number;
+	/** Number of successful workflows */
+	succeeded: number;
+	/** Number of failed workflows */
+	failed: number;
+	/** Number of workflows that timed out */
+	timedOut: number;
+}
+
+/**
+ * Result from a single workflow in parallel execution.
+ */
+export interface ParallelWorkflowResult {
+	/** Unique identifier for the workflow */
+	id: string;
+	/** The workflow reference that was executed */
+	reference: string;
+	/** Whether the workflow completed successfully */
+	success: boolean;
+	/** Output data from the workflow (only present on success) */
+	output?: unknown;
+	/** Error details (only present on failure) */
+	error?: import("../composition/types.js").WorkflowCallError;
+	/** Execution duration in milliseconds */
+	duration: number;
+	/** Time spent waiting in queue before execution in milliseconds */
+	queueWaitTime: number;
+	/** Metadata about the resolved workflow */
+	metadata: {
+		/** Resolved workflow name */
+		name: string;
+		/** Resolved workflow version */
+		version: string;
+		/** Where the workflow was loaded from */
+		source: string;
+	};
+	/** Human-readable label (if provided) */
+	label?: string;
+}
+
+/**
+ * Aggregated result from parallel workflow execution.
+ */
+export interface ParallelWorkflowsResult {
+	/** Whether all workflows succeeded */
+	success: boolean;
+	/** Total execution duration in milliseconds */
+	totalDuration: number;
+	/** Individual results for each workflow */
+	workflows: ParallelWorkflowResult[];
+	/** Summary statistics */
+	summary: ParallelWorkflowsSummary;
+	/** Get result for a specific workflow by ID */
+	getWorkflow(id: string): ParallelWorkflowResult | undefined;
+	/** Get outputs from all successful workflows */
+	getSuccessfulOutputs(): Array<{ id: string; output: unknown }>;
+	/** Get error details from all failed workflows */
+	getErrors(): Array<{
+		id: string;
+		error: import("../composition/types.js").WorkflowCallError;
+	}>;
+	/** Check if a specific workflow succeeded */
+	isSuccessful(id: string): boolean;
+}
+
+/**
  * Output type for Claude SDK structured output.
  */
 export type ClaudeSdkOutputType = "boolean" | "enum" | "decision" | "schema";
@@ -676,6 +776,54 @@ export interface WorkflowTools {
 		sessions: ParallelClaudeConfig[],
 		options?: ParallelClaudeOptions,
 	): Promise<ParallelClaudeResult>;
+
+	/**
+	 * Execute multiple workflows concurrently.
+	 *
+	 * Workflows execute in parallel with configurable concurrency limits.
+	 * Uses Promise.allSettled semantics by default - individual workflow
+	 * failures don't abort other workflows unless continueOnError is false.
+	 *
+	 * @param workflows - Array of workflow configurations to execute
+	 * @param options - Parallel execution options
+	 * @returns Promise resolving to results with summary and helper methods
+	 *
+	 * @example
+	 * ```typescript
+	 * // Execute multiple workflows in parallel
+	 * const result = await tools.parallelWorkflows([
+	 *   { name: 'lint', id: 'lint-check', input: { path: './src' } },
+	 *   { name: 'test', id: 'unit-tests', timeout: 60000 },
+	 *   { name: 'build', id: 'build-app', label: 'Build Application' },
+	 * ], { maxConcurrency: 3 });
+	 *
+	 * // Check overall success
+	 * if (result.success) {
+	 *   console.log('All workflows succeeded');
+	 * }
+	 *
+	 * // Get specific workflow result
+	 * const lintResult = result.getWorkflow('lint-check');
+	 *
+	 * // Get all successful outputs
+	 * const outputs = result.getSuccessfulOutputs();
+	 *
+	 * // Get error details
+	 * const errors = result.getErrors();
+	 *
+	 * // Check if specific workflow succeeded
+	 * if (result.isSuccessful('unit-tests')) {
+	 *   console.log('Tests passed');
+	 * }
+	 *
+	 * // Access summary statistics
+	 * console.log(`Completed: ${result.summary.succeeded}/${result.summary.total}`);
+	 * ```
+	 */
+	parallelWorkflows(
+		workflows: ParallelWorkflowConfig[],
+		options?: ParallelWorkflowsOptions,
+	): Promise<ParallelWorkflowsResult>;
 
 	/**
 	 * Execute a sub-workflow by reference.

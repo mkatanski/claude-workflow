@@ -541,6 +541,105 @@ export type ToolParallelClaudeEvent =
 	| ToolParallelClaudeCompleteEvent;
 
 // ============================================================================
+// Tool Events - Parallel Workflows
+// ============================================================================
+
+export interface ToolParallelWorkflowsStartPayload {
+	/** Total number of workflows to execute */
+	totalWorkflows: number;
+	/** Maximum concurrent workflows */
+	maxConcurrency: number;
+	/** IDs of all workflows to be executed */
+	workflowIds: string[];
+	/** Human-readable label for the parallel operation */
+	label?: string;
+}
+
+export interface ToolParallelWorkflowsProgressPayload {
+	/** Total number of workflows */
+	totalWorkflows: number;
+	/** Number of completed workflows */
+	completedWorkflows: number;
+	/** Number of failed workflows */
+	failedWorkflows: number;
+	/** IDs of currently executing workflows */
+	activeWorkflowIds: string[];
+	/** IDs of workflows waiting in queue */
+	queuedWorkflowIds: string[];
+	/** Completion percentage (0-100) */
+	percentComplete: number;
+	/** Elapsed time in milliseconds */
+	elapsedMs: number;
+}
+
+export interface ToolParallelWorkflowsCompletePayload {
+	/** Whether all workflows succeeded */
+	success: boolean;
+	/** Total duration of parallel operation in milliseconds */
+	totalDuration: number;
+	/** Number of successful workflows */
+	succeeded: number;
+	/** Number of failed workflows */
+	failed: number;
+	/** Number of timed out workflows */
+	timedOut: number;
+	/** Human-readable label for the parallel operation */
+	label?: string;
+}
+
+export interface ToolParallelWorkflowStartPayload {
+	/** Unique identifier for this workflow */
+	id: string;
+	/** Workflow reference (name, name@version, or name:export) */
+	reference: string;
+	/** Position in the execution queue */
+	queuePosition: number;
+	/** Human-readable label for this workflow */
+	label?: string;
+}
+
+export interface ToolParallelWorkflowCompletePayload {
+	/** Unique identifier for this workflow */
+	id: string;
+	/** Workflow reference (name, name@version, or name:export) */
+	reference: string;
+	/** Whether the workflow completed successfully */
+	success: boolean;
+	/** Duration of workflow execution in milliseconds */
+	duration: number;
+	/** Human-readable label for this workflow */
+	label?: string;
+}
+
+export type ToolParallelWorkflowsStartEvent = BaseEvent<
+	"tool:parallel:workflows:start",
+	ToolParallelWorkflowsStartPayload
+>;
+export type ToolParallelWorkflowsProgressEvent = BaseEvent<
+	"tool:parallel:workflows:progress",
+	ToolParallelWorkflowsProgressPayload
+>;
+export type ToolParallelWorkflowsCompleteEvent = BaseEvent<
+	"tool:parallel:workflows:complete",
+	ToolParallelWorkflowsCompletePayload
+>;
+export type ToolParallelWorkflowStartEvent = BaseEvent<
+	"tool:parallel:workflow:start",
+	ToolParallelWorkflowStartPayload
+>;
+export type ToolParallelWorkflowCompleteEvent = BaseEvent<
+	"tool:parallel:workflow:complete",
+	ToolParallelWorkflowCompletePayload
+>;
+
+export type ToolParallelWorkflowsEvent =
+	| ToolParallelWorkflowsStartEvent
+	| ToolParallelWorkflowsProgressEvent
+	| ToolParallelWorkflowsCompleteEvent
+	| ToolParallelWorkflowStartEvent
+	| ToolParallelWorkflowCompleteEvent;
+
+// ============================================================================
 // Tool Events - Claude
 // ============================================================================
 
@@ -1105,6 +1204,7 @@ export type ToolEvent =
 	| ToolBashEvent
 	| ToolParallelBashEvent
 	| ToolParallelClaudeEvent
+	| ToolParallelWorkflowsEvent
 	| ToolClaudeEvent
 	| ToolClaudeSdkEvent
 	| ToolAgentSessionEvent
@@ -1374,6 +1474,8 @@ export type EventPattern =
 	| "tool:bash:*"
 	| "tool:parallel:bash:*"
 	| "tool:parallel:claude:*"
+	| "tool:parallel:workflows:*"
+	| "tool:parallel:workflow:*"
 	| "tool:claude:*"
 	| "tool:claudeSdk:*"
 	| "tool:agentSession:*"
@@ -1487,4 +1589,13 @@ export function isToolParallelClaudeEvent(
 	event: WorkflowEvent,
 ): event is ToolParallelClaudeEvent {
 	return event.type.startsWith("tool:parallel:claude:");
+}
+
+export function isToolParallelWorkflowsEvent(
+	event: WorkflowEvent,
+): event is ToolParallelWorkflowsEvent {
+	return (
+		event.type.startsWith("tool:parallel:workflows:") ||
+		event.type.startsWith("tool:parallel:workflow:")
+	);
 }

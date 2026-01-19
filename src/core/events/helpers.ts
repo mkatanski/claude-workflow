@@ -43,6 +43,12 @@ import type {
 	ToolParallelClaudeProgressPayload,
 	ToolParallelClaudeSessionCompletePayload,
 	ToolParallelClaudeCompletePayload,
+	// Parallel Workflows events
+	ToolParallelWorkflowsStartPayload,
+	ToolParallelWorkflowsProgressPayload,
+	ToolParallelWorkflowsCompletePayload,
+	ToolParallelWorkflowStartPayload,
+	ToolParallelWorkflowCompletePayload,
 	ToolClaudeStartPayload,
 	ToolClaudeCompletePayload,
 	ToolClaudeErrorPayload,
@@ -304,6 +310,31 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
 		parallelClaudeComplete(payload: ToolParallelClaudeCompletePayload) {
 			return emitter.emit("tool:parallel:claude:complete", payload);
+		},
+
+		// ========================================================================
+		// Tool: Parallel Workflows Events
+		// ========================================================================
+
+		parallelWorkflowsStart(payload: ToolParallelWorkflowsStartPayload) {
+			emitter.setContext({ toolName: "parallelWorkflows" });
+			return emitter.emit("tool:parallel:workflows:start", payload);
+		},
+
+		parallelWorkflowsProgress(payload: ToolParallelWorkflowsProgressPayload) {
+			return emitter.emit("tool:parallel:workflows:progress", payload);
+		},
+
+		parallelWorkflowsComplete(payload: ToolParallelWorkflowsCompletePayload) {
+			return emitter.emit("tool:parallel:workflows:complete", payload);
+		},
+
+		parallelWorkflowStart(payload: ToolParallelWorkflowStartPayload) {
+			return emitter.emit("tool:parallel:workflow:start", payload);
+		},
+
+		parallelWorkflowComplete(payload: ToolParallelWorkflowCompletePayload) {
+			return emitter.emit("tool:parallel:workflow:complete", payload);
 		},
 
 		// ========================================================================
