@@ -1303,7 +1303,8 @@ export class GitTool extends BaseTool implements GitOperations {
 				result: this.err(
 					createGitError(
 						errorType,
-						commandResult.stderr || `Failed to add worktree at '${worktreePath}'`,
+						commandResult.stderr ||
+							`Failed to add worktree at '${worktreePath}'`,
 						`git ${args.join(" ")}`,
 						commandResult.exitCode,
 					),

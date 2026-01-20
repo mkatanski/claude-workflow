@@ -817,9 +817,18 @@ describe("GitTool Worktree Lifecycle", () => {
 		expect(addResult.absolutePath).toMatch(/\.worktrees\/inner-test$/);
 
 		// Clean up
-		await fixture.git.worktreeRemove({ path: innerWorktreePath, force: true }, config);
-		await fixture.git.deleteBranch({ name: worktreeBranch, force: true }, config);
-		await rm(join(fixture.repoPath, ".worktrees"), { recursive: true, force: true });
+		await fixture.git.worktreeRemove(
+			{ path: innerWorktreePath, force: true },
+			config,
+		);
+		await fixture.git.deleteBranch(
+			{ name: worktreeBranch, force: true },
+			config,
+		);
+		await rm(join(fixture.repoPath, ".worktrees"), {
+			recursive: true,
+			force: true,
+		});
 	});
 
 	it("should compute different relativePath and relativeToGitRoot when cwd differs from git root", async () => {
