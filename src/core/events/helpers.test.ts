@@ -632,3 +632,178 @@ describe("withEventTiming", () => {
 		expect(emittedEvents[0].type).toBe("node:start");
 	});
 });
+
+describe("planning agent events", () => {
+	let emitter: WorkflowEmitter;
+	let helpers: EventHelpers;
+	let emittedEvents: WorkflowEvent[];
+
+	beforeEach(() => {
+		emitter = createEmitter({ asyncByDefault: false });
+		helpers = createEventHelpers(emitter);
+		emittedEvents = [];
+
+		emitter.onPattern("*", (event) => {
+			emittedEvents.push(event);
+		});
+	});
+
+	describe("planning phase events", () => {
+		it("should emit planning:phase:start", () => {
+			helpers.planningPhaseStart({
+				prompt: "Create a new feature",
+				model: "opus",
+				label: "feature-planning",
+				workingDirectory: "/project",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("planning:phase:start");
+			expect(emittedEvents[0].payload).toEqual({
+				prompt: "Create a new feature",
+				model: "opus",
+				label: "feature-planning",
+				workingDirectory: "/project",
+			});
+		});
+
+		it("should emit planning:phase:start with minimal payload", () => {
+			helpers.planningPhaseStart({
+				prompt: "Simple task",
+				model: "opus",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("planning:phase:start");
+			expect(emittedEvents[0].payload).toEqual({
+				prompt: "Simple task",
+				model: "opus",
+			});
+		});
+
+		it("should emit planning:phase:complete on success", () => {
+			helpers.planningPhaseComplete({
+				planPath: "/tmp/plans/plan-123.md",
+				criticalFiles: ["src/index.ts", "src/utils.ts"],
+				duration: 5000,
+				sessionId: "session-123",
+				success: true,
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("planning:phase:complete");
+			expect(emittedEvents[0].payload).toEqual({
+				planPath: "/tmp/plans/plan-123.md",
+				criticalFiles: ["src/index.ts", "src/utils.ts"],
+				duration: 5000,
+				sessionId: "session-123",
+				success: true,
+			});
+		});
+
+		it("should emit planning:phase:complete on failure", () => {
+			helpers.planningPhaseComplete({
+				planPath: "",
+				criticalFiles: [],
+				duration: 1000,
+				success: false,
+				error: "Planning failed due to API error",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("planning:phase:complete");
+			expect(emittedEvents[0].payload).toMatchObject({
+				success: false,
+				error: "Planning failed due to API error",
+			});
+		});
+	});
+
+	describe("implementation phase events", () => {
+		it("should emit implementation:phase:start", () => {
+			helpers.implementationPhaseStart({
+				planPath: "/tmp/plans/plan-123.md",
+				model: "sonnet",
+				label: "feature-implementation",
+				workingDirectory: "/project",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("implementation:phase:start");
+			expect(emittedEvents[0].payload).toEqual({
+				planPath: "/tmp/plans/plan-123.md",
+				model: "sonnet",
+				label: "feature-implementation",
+				workingDirectory: "/project",
+			});
+		});
+
+		it("should emit implementation:phase:start for resume", () => {
+			helpers.implementationPhaseStart({
+				planPath: "/tmp/plans/plan-123.md",
+				model: "sonnet",
+				isResume: true,
+				resumeSessionId: "previous-session-456",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("implementation:phase:start");
+			expect(emittedEvents[0].payload).toMatchObject({
+				isResume: true,
+				resumeSessionId: "previous-session-456",
+			});
+		});
+
+		it("should emit implementation:phase:complete on success", () => {
+			helpers.implementationPhaseComplete({
+				sessionId: "impl-session-789",
+				duration: 30000,
+				success: true,
+				output: "Implementation completed successfully",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("implementation:phase:complete");
+			expect(emittedEvents[0].payload).toEqual({
+				sessionId: "impl-session-789",
+				duration: 30000,
+				success: true,
+				output: "Implementation completed successfully",
+			});
+		});
+
+		it("should emit implementation:phase:complete on failure", () => {
+			helpers.implementationPhaseComplete({
+				sessionId: "impl-session-789",
+				duration: 5000,
+				success: false,
+				error: "Build failed",
+			});
+
+			expect(emittedEvents).toHaveLength(1);
+			expect(emittedEvents[0].type).toBe("implementation:phase:complete");
+			expect(emittedEvents[0].payload).toMatchObject({
+				success: false,
+				error: "Build failed",
+			});
+		});
+	});
+
+	it("should set correct context for planning events", () => {
+		helpers.planningPhaseStart({
+			prompt: "Test task",
+			model: "opus",
+		});
+
+		expect(emitter.getContext().toolName).toBe("planningAgent");
+	});
+
+	it("should set correct context for implementation events", () => {
+		helpers.implementationPhaseStart({
+			planPath: "/tmp/plan.md",
+			model: "sonnet",
+		});
+
+		expect(emitter.getContext().toolName).toBe("planningAgent");
+	});
+});

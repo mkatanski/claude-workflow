@@ -1,5 +1,5 @@
 /**
- * Unit tests for workflowTools workflow() method.
+ * Unit tests for workflowTools.
  *
  * Tests the workflow composition functionality including:
  * - Reference parsing and validation
@@ -8,9 +8,12 @@
  * - Error handling and event emission
  * - Registry resolution
  * - Successful execution with isolated state
+ * - Plan mode and EnterPlanMode blocking
+ * - Critical files extraction
  */
 
 import { describe, expect, it, mock } from "bun:test";
+import { extractCriticalFiles } from "./workflowTools.ts";
 import {
 	createCallStack,
 	createCallStackEntry,
@@ -682,6 +685,157 @@ describe("WorkflowTools.workflow()", () => {
 			// Should not fail due to missing call stack
 			const result = await tools.workflow("test-workflow");
 			expect(result).toBeDefined();
+		});
+	});
+});
+
+// ============================================================================
+// Tests: extractCriticalFiles helper
+// ============================================================================
+
+describe("extractCriticalFiles", () => {
+	it("should extract backtick-wrapped file paths", () => {
+		const plan = `
+## Critical Files
+- Modify \`src/index.ts\` for main entry
+- Update \`src/utils/helper.ts\` for utilities
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toContain("src/index.ts");
+		expect(result).toContain("src/utils/helper.ts");
+	});
+
+	it("should extract simple file names", () => {
+		const plan = `
+Update the \`config.json\` and \`package.json\` files.
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toContain("config.json");
+		expect(result).toContain("package.json");
+	});
+
+	it("should extract paths from list items", () => {
+		const plan = `
+## Files to Modify
+- src/core/types.ts
+- src/utils/index.ts
+- tests/unit.test.ts
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toContain("src/core/types.ts");
+		expect(result).toContain("src/utils/index.ts");
+		expect(result).toContain("tests/unit.test.ts");
+	});
+
+	it("should handle paths with asterisks in list items", () => {
+		const plan = `
+## Files
+* src/main.ts
+* lib/helpers.js
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toContain("src/main.ts");
+		expect(result).toContain("lib/helpers.js");
+	});
+
+	it("should skip URLs", () => {
+		const plan = `
+See \`https://example.com/docs.html\` for documentation.
+Visit http://api.example.com/endpoint.json for the API.
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).not.toContain("https://example.com/docs.html");
+		expect(result).not.toContain("http://api.example.com/endpoint.json");
+	});
+
+	it("should skip package manager commands", () => {
+		const plan = `
+Run \`npm install\` or \`yarn add\` or \`pnpm install\`.
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toHaveLength(0);
+	});
+
+	it("should skip paths with spaces", () => {
+		const plan = `
+The file \`my file.ts\` should be skipped.
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).not.toContain("my file.ts");
+	});
+
+	it("should deduplicate repeated file references", () => {
+		const plan = `
+Modify \`src/index.ts\` first.
+Then update \`src/index.ts\` again.
+- src/index.ts
+`;
+		const result = extractCriticalFiles(plan);
+
+		const indexCount = result.filter((f) => f === "src/index.ts").length;
+		expect(indexCount).toBe(1);
+	});
+
+	it("should handle empty plan content", () => {
+		const result = extractCriticalFiles("");
+
+		expect(result).toHaveLength(0);
+	});
+
+	it("should handle plan with no file references", () => {
+		const plan = `
+## Summary
+This is a general plan without any specific file paths.
+Just some text describing the approach.
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toHaveLength(0);
+	});
+
+	it("should handle various file extensions", () => {
+		const plan = `
+Files: \`app.tsx\`, \`style.css\`, \`config.yaml\`, \`data.json\`, \`script.py\`
+`;
+		const result = extractCriticalFiles(plan);
+
+		expect(result).toContain("app.tsx");
+		expect(result).toContain("style.css");
+		expect(result).toContain("config.yaml");
+		expect(result).toContain("data.json");
+		expect(result).toContain("script.py");
+	});
+});
+
+// ============================================================================
+// Tests: agentSession plan mode behavior
+// ============================================================================
+
+describe("WorkflowTools.agentSession() plan mode", () => {
+	describe("interface and structure", () => {
+		it("should have agentSession method on tools interface", () => {
+			const state = createTestState();
+			const config = createTestConfig();
+			const { tools } = createWorkflowTools(state, config);
+
+			expect(tools.agentSession).toBeDefined();
+			expect(typeof tools.agentSession).toBe("function");
+		});
+
+		it("should have planningAgentSession method on tools interface", () => {
+			const state = createTestState();
+			const config = createTestConfig();
+			const { tools } = createWorkflowTools(state, config);
+
+			expect(tools.planningAgentSession).toBeDefined();
+			expect(typeof tools.planningAgentSession).toBe("function");
 		});
 	});
 });

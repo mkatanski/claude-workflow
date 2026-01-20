@@ -918,6 +918,87 @@ export type ToolAgentSessionEvent =
 	| ToolAgentSessionErrorEvent;
 
 // ============================================================================
+// Tool Events - Planning Agent Session
+// ============================================================================
+
+export interface PlanningPhaseStartPayload {
+	/** The prompt for the planning phase */
+	prompt: string;
+	/** Model used for planning */
+	model: string;
+	/** Optional label for the session */
+	label?: string;
+	/** Working directory for the planning session */
+	workingDirectory?: string;
+}
+
+export interface PlanningPhaseCompletePayload {
+	/** Path where the plan was saved */
+	planPath: string;
+	/** List of critical files identified in the plan */
+	criticalFiles: string[];
+	/** Duration of the planning phase in milliseconds */
+	duration: number;
+	/** Session ID of the planning session */
+	sessionId?: string;
+	/** Whether planning was successful */
+	success: boolean;
+	/** Error message if planning failed */
+	error?: string;
+}
+
+export interface ImplementationPhaseStartPayload {
+	/** Path to the plan being implemented */
+	planPath: string;
+	/** Model used for implementation */
+	model: string;
+	/** Optional label for the session */
+	label?: string;
+	/** Working directory for the implementation session */
+	workingDirectory?: string;
+	/** Whether this is a resumed session */
+	isResume?: boolean;
+	/** Session ID being resumed */
+	resumeSessionId?: string;
+}
+
+export interface ImplementationPhaseCompletePayload {
+	/** Session ID of the implementation session */
+	sessionId?: string;
+	/** Duration of the implementation phase in milliseconds */
+	duration: number;
+	/** Whether implementation was successful */
+	success: boolean;
+	/** Error message if implementation failed */
+	error?: string;
+	/** The output of the implementation */
+	output?: string;
+}
+
+export type PlanningPhaseStartEvent = BaseEvent<
+	"planning:phase:start",
+	PlanningPhaseStartPayload
+>;
+export type PlanningPhaseCompleteEvent = BaseEvent<
+	"planning:phase:complete",
+	PlanningPhaseCompletePayload
+>;
+export type ImplementationPhaseStartEvent = BaseEvent<
+	"implementation:phase:start",
+	ImplementationPhaseStartPayload
+>;
+export type ImplementationPhaseCompleteEvent = BaseEvent<
+	"implementation:phase:complete",
+	ImplementationPhaseCompletePayload
+>;
+
+export type PlanningAgentEvent =
+	| PlanningPhaseStartEvent
+	| PlanningPhaseCompleteEvent
+	| ImplementationPhaseStartEvent
+	| ImplementationPhaseCompleteEvent;
+
+// ============================================================================
 // Tool Events - JSON
 // ============================================================================
 
@@ -1289,6 +1370,7 @@ export type ToolEvent =
 	| ToolClaudeEvent
 	| ToolClaudeSdkEvent
 	| ToolAgentSessionEvent
+	| PlanningAgentEvent
 	| ToolJsonEvent
 	| ToolChecklistEvent
 	| ToolHookEvent
@@ -1493,6 +1575,39 @@ export type DebugEvent =
 	| DebugExecutionResumeEvent;
 
 // ============================================================================
+// Plan Events
+// ============================================================================
+
+export interface PlanCreatedPayload {
+	/** Session ID for the plan */
+	sessionId: string;
+	/** Path to the saved plan file */
+	planPath: string;
+	/** Number of critical files identified */
+	criticalFileCount: number;
+	/** Plan status (pending, approved, etc.) */
+	status: string;
+}
+
+export interface PlanApprovedPayload {
+	/** Session ID for the plan */
+	sessionId: string;
+	/** Path to the saved plan file */
+	planPath: string;
+	/** Whether the plan was auto-approved */
+	autoApproved: boolean;
+}
+
+export type PlanCreatedEvent = BaseEvent<"plan:created", PlanCreatedPayload>;
+export type PlanApprovedEvent = BaseEvent<"plan:approved", PlanApprovedPayload>;
+
+export type PlanEvent = PlanCreatedEvent | PlanApprovedEvent;
+
+export function isPlanEvent(event: WorkflowEvent): event is PlanEvent {
+	return event.type.startsWith("plan:");
+}
+
+// ============================================================================
 // Custom Events (for workflow-specific data)
 // ============================================================================
 
@@ -1517,6 +1632,7 @@ export type WorkflowEvent =
 	| StateEvent
 	| InfrastructureEvent
 	| DebugEvent
+	| PlanEvent
 	| LogEvent
 	| CustomEvent;
 
@@ -1564,9 +1680,14 @@ export type EventPattern =
 	| "tool:checklist:*"
 	| "tool:hook:*"
 	| "tool:git:*"
+	| "planning:*"
+	| "planning:phase:*"
+	| "implementation:*"
+	| "implementation:phase:*"
 	| "retry:*"
 	| "circuit:*"
 	| "state:*"
+	| "plan:*"
 	| "tmux:*"
 	| "server:*"
 	| "cleanup:*"
@@ -1678,5 +1799,14 @@ export function isToolParallelWorkflowsEvent(
 	return (
 		event.type.startsWith("tool:parallel:workflows:") ||
 		event.type.startsWith("tool:parallel:workflow:")
+	);
+}
+
+export function isPlanningAgentEvent(
+	event: WorkflowEvent,
+): event is PlanningAgentEvent {
+	return (
+		event.type.startsWith("planning:") ||
+		event.type.startsWith("implementation:")
 	);
 }

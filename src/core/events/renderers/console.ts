@@ -12,10 +12,14 @@ import type {
 	CleanupCompleteEvent,
 	CleanupStartEvent,
 	CustomEvent,
+	ImplementationPhaseCompleteEvent,
+	ImplementationPhaseStartEvent,
 	LogEvent,
 	NodeCompleteEvent,
 	NodeErrorEvent,
 	NodeStartEvent,
+	PlanningPhaseCompleteEvent,
+	PlanningPhaseStartEvent,
 	RouterDecisionEvent,
 	ToolAgentSessionCompleteEvent,
 	ToolAgentSessionErrorEvent,
@@ -125,6 +129,7 @@ const icons = {
 	flow: "\uf542", //  (mdi-source-branch)
 	node: "\uf0c8", //  (fa-square)
 	event: "\uf0e7", //  (fa-bolt)
+	plan: "\uf0f6", //  (fa-file-text-o) planning/document
 
 	// Misc
 	clock: "\uf017", //  (fa-clock-o)
@@ -273,6 +278,20 @@ export class ConsoleRenderer extends BaseRenderer {
 				break;
 			case "tool:agentSession:error":
 				this.renderAgentSessionError(event);
+				break;
+
+			// Planning Agent Session
+			case "planning:phase:start":
+				this.renderPlanningPhaseStart(event);
+				break;
+			case "planning:phase:complete":
+				this.renderPlanningPhaseComplete(event);
+				break;
+			case "implementation:phase:start":
+				this.renderImplementationPhaseStart(event);
+				break;
+			case "implementation:phase:complete":
+				this.renderImplementationPhaseComplete(event);
 				break;
 
 			// Tool: Hook
@@ -1117,6 +1136,168 @@ export class ConsoleRenderer extends BaseRenderer {
 			console.log(this.colorize(`${INDENT}   Type: ${errorType}`, "red"));
 		}
 		console.log(this.colorize(`${INDENT}   Error: ${error}`, "red"));
+		console.log("");
+	}
+
+	// ==========================================================================
+	// Planning Agent Session Rendering
+	// ==========================================================================
+
+	private renderPlanningPhaseStart(event: PlanningPhaseStartEvent): void {
+		const { prompt, model, label, workingDirectory } = event.payload;
+		const displayText = label || this.truncate(prompt, 60);
+
+		console.log("");
+		console.log(
+			this.colorize(
+				`${icons.plan}  PLANNING PHASE`,
+				"brightCyan",
+				"bold",
+			),
+		);
+		console.log(
+			this.colorize(`${INDENT}${icons.brain}  ${model}`, "brightMagenta"),
+		);
+		console.log(this.colorize(`${INDENT}   ${displayText}`, "dim"));
+
+		if (this.config.verbose && workingDirectory) {
+			console.log(
+				this.colorize(`${INDENT}   ${icons.folder} ${workingDirectory}`, "dim"),
+			);
+		}
+	}
+
+	private renderPlanningPhaseComplete(
+		event: PlanningPhaseCompleteEvent,
+	): void {
+		const { planPath, criticalFiles, duration, success, error } = event.payload;
+
+		if (!success) {
+			console.log(
+				this.colorize(
+					`${INDENT}${icons.error}  Planning failed: ${error}`,
+					"brightRed",
+				),
+			);
+			console.log("");
+			return;
+		}
+
+		const fileName = planPath.split("/").pop() ?? planPath;
+
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.success}  Plan saved: ${fileName} (${this.formatDuration(duration)})`,
+				"green",
+			),
+		);
+
+		if (criticalFiles.length > 0) {
+			console.log(
+				this.colorize(
+					`${INDENT}   ${icons.file} ${criticalFiles.length} critical file${criticalFiles.length > 1 ? "s" : ""} identified`,
+					"dim",
+				),
+			);
+
+			// Show file list in verbose mode
+			if (this.config.verbose) {
+				for (const file of criticalFiles.slice(0, 5)) {
+					console.log(this.colorize(`${INDENT}     - ${file}`, "dim"));
+				}
+				if (criticalFiles.length > 5) {
+					console.log(
+						this.colorize(
+							`${INDENT}     ... and ${criticalFiles.length - 5} more`,
+							"dim",
+						),
+					);
+				}
+			}
+		}
+
+		console.log("");
+	}
+
+	private renderImplementationPhaseStart(
+		event: ImplementationPhaseStartEvent,
+	): void {
+		const { planPath, model, workingDirectory, isResume, resumeSessionId } =
+			event.payload;
+		const fileName = planPath.split("/").pop() ?? planPath;
+		const resumeTag = isResume ? " (resuming)" : "";
+
+		console.log(
+			this.colorize(
+				`${icons.hammer}  IMPLEMENTATION PHASE${resumeTag}`,
+				"brightYellow",
+				"bold",
+			),
+		);
+		console.log(
+			this.colorize(`${INDENT}${icons.brain}  ${model}`, "brightMagenta"),
+		);
+		console.log(
+			this.colorize(`${INDENT}   Plan: ${fileName}`, "dim"),
+		);
+
+		if (this.config.verbose) {
+			if (workingDirectory) {
+				console.log(
+					this.colorize(
+						`${INDENT}   ${icons.folder} ${workingDirectory}`,
+						"dim",
+					),
+				);
+			}
+			if (isResume && resumeSessionId) {
+				console.log(
+					this.colorize(
+						`${INDENT}   ${icons.retry} Resuming: ${resumeSessionId.slice(0, 8)}...`,
+						"dim",
+					),
+				);
+			}
+		}
+	}
+
+	private renderImplementationPhaseComplete(
+		event: ImplementationPhaseCompleteEvent,
+	): void {
+		const { duration, success, error, output } = event.payload;
+
+		if (!success) {
+			console.log(
+				this.colorize(
+					`${INDENT}${icons.error}  Implementation failed: ${error}`,
+					"brightRed",
+				),
+			);
+			console.log("");
+			return;
+		}
+
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.success}  Implementation complete (${this.formatDuration(duration)})`,
+				"green",
+			),
+		);
+
+		// Show output summary in verbose mode
+		if (this.config.verbose && output) {
+			const outputLines = output.split("\n").filter((line) => line.trim());
+			if (outputLines.length > 0) {
+				const preview = outputLines[0].slice(0, 80);
+				console.log(
+					this.colorize(
+						`${INDENT}   ${preview}${outputLines[0].length > 80 ? "..." : ""}`,
+						"dim",
+					),
+				);
+			}
+		}
+
 		console.log("");
 	}
 

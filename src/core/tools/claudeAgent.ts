@@ -173,6 +173,13 @@ export interface AgentSessionResult {
 	modelUsage?: Record<string, AgentMessageModelUsage>;
 	/** Permission denials during session */
 	permissionDenials?: AgentMessagePermissionDenial[];
+
+	// === Plan mode fields ===
+
+	/** Generated plan when planMode is enabled */
+	plan?: import("../agents/types.js").PlanFile;
+	/** Path to the saved plan file */
+	planPath?: string;
 }
 
 /**

@@ -31,7 +31,10 @@ import { BashTool } from "../tools/bash.ts";
 import { ChecklistTool } from "../tools/checklist.ts";
 import { ClaudeTool } from "../tools/claude.ts";
 import { ClaudeAgentTool } from "../tools/claudeAgent.ts";
-import type { ClaudeAgentConfig } from "../tools/claudeAgent.types.ts";
+import type {
+	ClaudeAgentConfig,
+	SubagentDefinition,
+} from "../tools/claudeAgent.types.ts";
 import { resolveModel } from "../tools/claudeAgent.types.ts";
 import { ClaudeSdkTool } from "../tools/claudeSdk.ts";
 import type {
@@ -123,8 +126,18 @@ import type {
 	ParallelWorkflowsOptions,
 	ParallelWorkflowsResult,
 	ParallelWorkflowResult,
+	PlanningAgentSessionOptions,
+	PlanningAgentSessionResult,
+	PlanInfo,
 	WorkflowTools,
 } from "./tools.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { getMergedAgentDefinitions } from "../agents/agentRegistry.js";
+import { buildPlanModeSystemPrompt } from "../agents/planModePrompts.js";
+import { createPlanFromOutput, savePlan } from "../agents/planStorage.js";
+import type { PlanModeConfig } from "../agents/types.js";
+import { READ_ONLY_TOOLS } from "../agents/types.js";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -171,6 +184,52 @@ export interface WorkflowToolsConfig {
 interface ToolsContext {
 	executionContext: ExecutionContext;
 	variableUpdates: Record<string, unknown>;
+}
+
+/**
+ * Extract critical file paths from a plan content.
+ * Looks for markdown file references like `path/to/file.ts` or code blocks.
+ * @internal Exported for testing
+ */
+export function extractCriticalFiles(planContent: string): string[] {
+	const files = new Set<string>();
+
+	// Match backtick-wrapped paths like `path/to/file.ts`
+	const backtickPattern = /`([^`]+\.[a-zA-Z]{1,10})`/g;
+
+	// Use matchAll to find all matches
+	for (const m of planContent.matchAll(backtickPattern)) {
+		const potentialPath = m[1];
+		// Filter out things that look like file paths
+		if (
+			potentialPath.includes("/") ||
+			potentialPath.includes("\\") ||
+			/^\w+\.\w+$/.test(potentialPath)
+		) {
+			// Skip common non-file patterns
+			if (
+				!potentialPath.startsWith("http") &&
+				!potentialPath.includes(" ") &&
+				!potentialPath.startsWith("npm ") &&
+				!potentialPath.startsWith("yarn ") &&
+				!potentialPath.startsWith("pnpm ")
+			) {
+				files.add(potentialPath);
+			}
+		}
+	}
+
+	// Also look for "Files to Create/Modify" or similar section headers
+	// and extract list items that look like file paths
+	const listItemPattern = /^[-*]\s+[`']?([^\s`']+\.[a-zA-Z]{1,10})[`']?/gm;
+	for (const m of planContent.matchAll(listItemPattern)) {
+		const potentialPath = m[1];
+		if (!potentialPath.startsWith("http") && !potentialPath.includes(" ")) {
+			files.add(potentialPath);
+		}
+	}
+
+	return Array.from(files);
 }
 
 /**
@@ -847,14 +906,60 @@ export function createWorkflowTools(
 		): Promise<AgentSessionResult> {
 			const timer = createTimer();
 			const label = options?.label;
+
+			// Normalize plan mode configuration
+			const planModeConfig: PlanModeConfig | undefined = options?.planMode
+				? typeof options.planMode === "boolean"
+					? {
+							enabled: true,
+							autoApprove: true,
+							sessionId: crypto.randomUUID(),
+						}
+					: options.planMode
+				: undefined;
+
+			const isPlanMode = planModeConfig?.enabled === true;
+
+			// Determine tools - restrict to read-only in plan mode
+			const effectiveTools = isPlanMode
+				? READ_ONLY_TOOLS
+				: Array.isArray(options?.tools)
+					? options.tools
+					: undefined;
+
+			// Determine disallowed tools - block EnterPlanMode when plan mode is enabled
+			// This prevents the SDK's built-in plan mode from interfering with our custom plan mode
+			const effectiveDisallowedTools = isPlanMode
+				? [
+						...(options?.disallowedTools ?? []),
+						"EnterPlanMode" as const,
+					].filter(
+						(tool, index, arr) => arr.indexOf(tool) === index, // Remove duplicates
+					)
+				: options?.disallowedTools;
+
+			// Build system prompt - inject plan mode reminder if enabled
+			const effectiveSystemPrompt = isPlanMode
+				? buildPlanModeSystemPrompt(options?.systemPrompt)
+				: options?.systemPrompt;
+
+			// Merge built-in agents with custom agents
+			const mergedAgents = getMergedAgentDefinitions(options?.agentConfig);
+			const effectiveAgents = {
+				...mergedAgents,
+				...options?.agents,
+			};
+
 			const model = resolveModel(options?.model ?? "sonnet");
 
 			// Determine tools list for event payload
-			const toolsList = Array.isArray(options?.tools)
-				? options.tools
-				: options?.tools?.type === "preset"
+			const toolsList =
+				effectiveTools ??
+				(options?.tools &&
+				!Array.isArray(options.tools) &&
+				options.tools.type === "preset"
 					? [options.tools.preset]
-					: undefined;
+					: undefined);
 
 			// Emit start event
 			events?.agentSessionStart({
@@ -863,9 +968,7 @@ export function createWorkflowTools(
 				model,
 				tools: toolsList,
 				workingDirectory: options?.workingDirectory,
-				hasSubagents: options?.agents
-					? Object.keys(options.agents).length > 0
-					: false,
+				hasSubagents: Object.keys(effectiveAgents).length > 0,
 				isResume: !!options?.resume,
 				resumeSessionId: options?.resume,
 			});
@@ -874,12 +977,14 @@ export function createWorkflowTools(
 				// Execute the agent session with streaming callback
 				const result = await claudeAgentTool.executeSession(prompt, {
 					model: options?.model,
-					tools: Array.isArray(options?.tools) ? options.tools : undefined,
-					disallowedTools: options?.disallowedTools,
-					systemPrompt: options?.systemPrompt,
-					permissionMode: options?.permissionMode,
+					tools: effectiveTools,
+					disallowedTools: effectiveDisallowedTools,
+					systemPrompt: effectiveSystemPrompt,
+					permissionMode: isPlanMode
+						? "bypassPermissions"
+						: options?.permissionMode,
 					workingDirectory: options?.workingDirectory ?? config.projectPath,
-					agents: options?.agents,
+					agents: effectiveAgents,
 					maxBudgetUsd: options?.maxBudgetUsd,
 					resume: options?.resume,
 					label,
@@ -901,6 +1006,64 @@ export function createWorkflowTools(
 						});
 					},
 				});
+
+				// Handle plan mode post-processing
+				if (isPlanMode && result.success && planModeConfig) {
+					const plan = createPlanFromOutput(
+						planModeConfig.sessionId,
+						result.output,
+						planModeConfig.autoApprove,
+					);
+
+					const saveResult = savePlan(plan);
+					const planPath = saveResult.isOk() ? saveResult.unwrap() : undefined;
+
+					// Emit plan created event
+					if (planPath) {
+						events?.emit("plan:created", {
+							sessionId: planModeConfig.sessionId,
+							planPath,
+							criticalFileCount: plan.criticalFiles.length,
+							status: plan.status,
+						});
+
+						if (plan.status === "approved") {
+							events?.emit("plan:approved", {
+								sessionId: planModeConfig.sessionId,
+								planPath,
+								autoApproved: planModeConfig.autoApprove,
+							});
+						}
+					}
+
+					// Emit complete event with enhanced data
+					events?.agentSessionComplete({
+						label,
+						success: true,
+						output: result.output,
+						sessionId: result.sessionId,
+						messageCount: result.messages.length,
+						duration: timer.elapsed(),
+						numTurns: result.numTurns,
+						durationApiMs: result.durationApiMs,
+						costUsd: result.costUsd,
+						totalUsage: result.totalUsage,
+						modelUsage: result.modelUsage,
+						permissionDenials: result.permissionDenials,
+					});
+
+					return {
+						success: result.success,
+						output: result.output,
+						messages: result.messages,
+						sessionId: result.sessionId,
+						duration: timer.elapsed(),
+						error: result.error,
+						errorType: result.errorType,
+						plan,
+						planPath,
+					};
+				}
 
 				if (result.success) {
 					// Emit complete event with enhanced data
@@ -957,6 +1120,268 @@ export function createWorkflowTools(
 					errorType: "UNKNOWN",
 				};
 			}
+		},
+
+		async planningAgentSession(
+			prompt: string,
+			options: PlanningAgentSessionOptions,
+		): Promise<PlanningAgentSessionResult> {
+			const totalTimer = createTimer();
+			const label = options.label;
+			const planningModel = resolveModel(options.planningModel ?? "opus");
+			const implementationModel = resolveModel(
+				options.implementationModel ?? "sonnet",
+			);
+
+			// Determine if we should skip planning (planPath provided)
+			const skipPlanning = !!options.planPath;
+
+			let planInfo: PlanInfo;
+			let planningSessionId: string | undefined;
+
+			// ================================================================
+			// PLANNING PHASE
+			// ================================================================
+
+			if (skipPlanning && options.planPath) {
+				// Load existing plan from file
+				try {
+					const planContent = fs.readFileSync(options.planPath, "utf-8");
+					planInfo = {
+						content: planContent,
+						path: options.planPath,
+						criticalFiles: extractCriticalFiles(planContent),
+					};
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					return {
+						success: false,
+						output: "",
+						error: `Failed to load plan from ${options.planPath}: ${message}`,
+						duration: totalTimer.elapsed(),
+						plan: {
+							content: "",
+							path: options.planPath,
+							criticalFiles: [],
+						},
+					};
+				}
+			} else {
+				// Run planning phase
+				const planningTimer = createTimer();
+
+				// Emit planning phase start event
+				events?.planningPhaseStart({
+					prompt,
+					model: planningModel,
+					label: label ? `${label}-planning` : "planning",
+					workingDirectory: options.workingDirectory,
+				});
+
+				// Build planning system prompt
+				const planningSystemPrompt = buildPlanModeSystemPrompt(
+					`You are a planning agent. Create a comprehensive implementation plan for the given task.
+
+Your plan MUST include:
+1. **Summary**: Brief description of what needs to be implemented
+2. **Files to Create/Modify**: List specific files with planned changes
+3. **Implementation Steps**: Ordered steps to implement the feature
+4. **Dependencies**: Any new dependencies needed
+5. **Test Strategy**: How to test the implementation
+6. **Risks**: Potential issues or blockers
+
+Output your plan in markdown format. Be thorough but concise.`,
+				);
+
+				// Execute planning session with read-only tools
+				const planningResult = await claudeAgentTool.executeSession(prompt, {
+					model: options.planningModel ?? "opus",
+					tools: READ_ONLY_TOOLS,
+					disallowedTools: ["EnterPlanMode"],
+					systemPrompt: planningSystemPrompt,
+					permissionMode: "bypassPermissions",
+					workingDirectory: options.workingDirectory,
+					agents: getMergedAgentDefinitions(options.agentConfig),
+					maxBudgetUsd: options.maxBudgetUsd,
+				});
+
+				planningSessionId = planningResult.sessionId;
+
+				// Emit planning phase complete event
+				const planningSuccess = planningResult.success;
+				const planningDuration = planningTimer.elapsed();
+
+				if (!planningSuccess) {
+					events?.planningPhaseComplete({
+						planPath: "",
+						criticalFiles: [],
+						duration: planningDuration,
+						sessionId: planningSessionId,
+						success: false,
+						error: planningResult.error ?? "Planning phase failed",
+					});
+
+					return {
+						success: false,
+						output: "",
+						error: planningResult.error ?? "Planning phase failed",
+						duration: totalTimer.elapsed(),
+						plan: {
+							content: planningResult.output,
+							path: "",
+							sessionId: planningSessionId,
+							criticalFiles: [],
+						},
+					};
+				}
+
+				// Save plan to temp directory
+				const planFileName = `plan-${Date.now()}-${crypto.randomUUID().slice(0, 8)}.md`;
+				const planPath = path.join(config.tempDir, "plans", planFileName);
+
+				// Ensure plans directory exists
+				const plansDir = path.dirname(planPath);
+				if (!fs.existsSync(plansDir)) {
+					fs.mkdirSync(plansDir, { recursive: true });
+				}
+
+				// Write plan to file
+				fs.writeFileSync(planPath, planningResult.output, "utf-8");
+
+				// Extract critical files from plan
+				const criticalFiles = extractCriticalFiles(planningResult.output);
+
+				planInfo = {
+					content: planningResult.output,
+					path: planPath,
+					sessionId: planningSessionId,
+					criticalFiles,
+				};
+
+				events?.planningPhaseComplete({
+					planPath,
+					criticalFiles,
+					duration: planningDuration,
+					sessionId: planningSessionId,
+					success: true,
+				});
+			}
+
+			// ================================================================
+			// PLAN ONLY - Return early if planOnly is true
+			// ================================================================
+
+			if (options.planOnly) {
+				return {
+					success: true,
+					output: planInfo.content,
+					duration: totalTimer.elapsed(),
+					plan: planInfo,
+				};
+			}
+
+			// ================================================================
+			// IMPLEMENTATION PHASE
+			// ================================================================
+
+			const implementationTimer = createTimer();
+
+			// Emit implementation phase start event
+			events?.implementationPhaseStart({
+				planPath: planInfo.path,
+				model: implementationModel,
+				label: label ? `${label}-implementation` : "implementation",
+				workingDirectory: options.workingDirectory,
+				isResume: !!options.resumeImplementation,
+				resumeSessionId: options.resumeImplementation,
+			});
+
+			// Build implementation system prompt with ReadPlan tool description
+			const implementationSystemPrompt = `You are implementing a plan that was created during the planning phase.
+
+## Important: Reading the Plan
+
+You have access to a special tool called "ReadPlan" that allows you to read the implementation plan.
+Use this tool whenever you need to:
+- Review the next steps to implement
+- Check the overall plan structure
+- Reference specific implementation details
+- Verify you're following the plan correctly
+
+**Always read the plan first before starting implementation, and re-read it whenever you need to remember what to do next.**
+
+## Your Task
+
+Follow the implementation plan carefully and implement each step. The plan is available via the ReadPlan tool.
+
+Work methodically through the plan:
+1. Read the plan first to understand the full scope
+2. Implement each step in order
+3. Re-read the plan if you're unsure about next steps
+4. Test your implementation as you go`;
+
+			// Create a custom tool definition for ReadPlan
+			// This will be passed to the agent as a subagent that can read the plan
+			const readPlanAgentDefinition: SubagentDefinition = {
+				description:
+					"Read the implementation plan. Use this tool whenever you need to review the plan, check next steps, or verify implementation details. You should read the plan at the start and re-read it whenever needed.",
+				prompt: `Return the following implementation plan:\n\n${planInfo.content}`,
+				tools: [],
+				model: "haiku",
+			};
+
+			// Build implementation prompt
+			const implementationPrompt = `Implement the following task according to the plan.
+
+## Original Task
+${prompt}
+
+## Instructions
+1. Use the ReadPlan tool to read and understand the implementation plan
+2. Follow the plan step by step
+3. Re-read the plan whenever you need to verify next steps
+4. Test your implementation as specified in the plan`;
+
+			// Execute implementation session
+			const implementationResult = await claudeAgentTool.executeSession(
+				implementationPrompt,
+				{
+					model: options.implementationModel ?? "sonnet",
+					disallowedTools: ["EnterPlanMode"],
+					systemPrompt: implementationSystemPrompt,
+					permissionMode: options.permissionMode ?? "acceptEdits",
+					workingDirectory: options.workingDirectory,
+					agents: {
+						...getMergedAgentDefinitions(options.agentConfig),
+						ReadPlan: readPlanAgentDefinition,
+					},
+					maxBudgetUsd: options.maxBudgetUsd,
+					resume: options.resumeImplementation,
+				},
+			);
+
+			const implementationDuration = implementationTimer.elapsed();
+
+			// Emit implementation phase complete event
+			events?.implementationPhaseComplete({
+				sessionId: implementationResult.sessionId,
+				duration: implementationDuration,
+				success: implementationResult.success,
+				error: implementationResult.error,
+				output: implementationResult.output,
+			});
+
+			return {
+				success: implementationResult.success,
+				output: implementationResult.output,
+				error: implementationResult.error,
+				duration: totalTimer.elapsed(),
+				plan: planInfo,
+				implementation: {
+					sessionId: implementationResult.sessionId,
+				},
+			};
 		},
 
 		async parallelClaude(

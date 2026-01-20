@@ -571,6 +571,112 @@ export interface AgentSessionOptions {
 	resume?: string;
 	/** Human-readable label for event display */
 	label?: string;
+
+	/**
+	 * Enable planning mode for read-only exploration and plan generation.
+	 * When enabled:
+	 * - Tools are restricted to read-only operations (Read, Glob, Grep, WebFetch, WebSearch)
+	 * - System prompt is augmented with plan mode instructions
+	 * - Output is parsed for critical files and implementation steps
+	 * - Plan is saved to temp storage and returned in the result
+	 *
+	 * Can be a boolean (uses default config) or a PlanModeConfig object.
+	 */
+	planMode?: boolean | import("../agents/types.js").PlanModeConfig;
+
+	/**
+	 * Agent configuration for customizing built-in agents.
+	 * Allows excluding built-in agents, overriding their properties,
+	 * or adding custom agents that work alongside built-in ones.
+	 */
+	agentConfig?: import("../agents/types.js").AgentConfigOptions;
+}
+
+/**
+ * Options for planning agent session execution.
+ * This function combines planning and implementation into a single workflow.
+ */
+export interface PlanningAgentSessionOptions {
+	/** Model to use for planning phase (default: "opus") */
+	planningModel?: ModelSpec;
+
+	/** Model to use for implementation phase (default: "sonnet") */
+	implementationModel?: ModelSpec;
+
+	/**
+	 * Path to an existing plan file.
+	 * If provided, skips the planning phase and uses this plan for implementation.
+	 */
+	planPath?: string;
+
+	/** Session ID to resume implementation from a previous session */
+	resumeImplementation?: string;
+
+	/** Permission mode for implementation phase */
+	permissionMode?: PermissionMode;
+
+	/** Working directory for file operations */
+	workingDirectory: string;
+
+	/** Human-readable label for event display */
+	label?: string;
+
+	/** Maximum budget in USD for the entire session */
+	maxBudgetUsd?: number;
+
+	/**
+	 * Stop after planning phase without implementing.
+	 * Returns the plan in the result without executing implementation.
+	 */
+	planOnly?: boolean;
+
+	/**
+	 * Agent configuration for customizing built-in agents.
+	 */
+	agentConfig?: import("../agents/types.js").AgentConfigOptions;
+}
+
+/**
+ * Plan information returned from planning agent session.
+ */
+export interface PlanInfo {
+	/** The plan content (markdown format) */
+	content: string;
+	/** Path where the plan was saved */
+	path: string;
+	/** Session ID of the planning session */
+	sessionId?: string;
+	/** List of critical files identified in the plan */
+	criticalFiles: string[];
+}
+
+/**
+ * Implementation information returned from planning agent session.
+ */
+export interface ImplementationInfo {
+	/** Session ID of the implementation session */
+	sessionId?: string;
+}
+
+/**
+ * Result of a planning agent session execution.
+ * Extends AgentSessionResult with plan and implementation metadata.
+ */
+export interface PlanningAgentSessionResult {
+	/** Whether the entire session (planning + implementation) completed successfully */
+	success: boolean;
+	/** Final output text from the implementation (or planning if planOnly) */
+	output: string;
+	/** Error message if session failed */
+	error?: string;
+	/** Total duration of the session in milliseconds */
+	duration: number;
+
+	/** Plan information from the planning phase */
+	plan: PlanInfo;
+
+	/** Implementation information (undefined if planOnly was true) */
+	implementation?: ImplementationInfo;
 }
 
 /**
@@ -689,6 +795,45 @@ export interface WorkflowTools {
 		prompt: string,
 		options?: AgentSessionOptions,
 	): Promise<AgentSessionResult>;
+
+	/**
+	 * Execute a planning agent session that combines planning and implementation.
+	 *
+	 * This high-level function:
+	 * 1. Executes a planning phase with opus model (read-only tools)
+	 * 2. Saves the plan to a temp file
+	 * 3. Executes an implementation phase with sonnet model (full tools)
+	 * 4. Returns the combined result
+	 *
+	 * @param prompt - The prompt describing what to implement
+	 * @param options - Planning agent session configuration options
+	 * @returns Promise resolving to the planning session result
+	 *
+	 * @example
+	 * ```typescript
+	 * // Full planning + implementation workflow
+	 * const result = await tools.planningAgentSession(
+	 *   "Implement user authentication with JWT",
+	 *   { workingDirectory: "/path/to/project" }
+	 * );
+	 *
+	 * // Planning only (no implementation)
+	 * const planResult = await tools.planningAgentSession(
+	 *   "Design the database schema",
+	 *   { workingDirectory: "/path/to/project", planOnly: true }
+	 * );
+	 *
+	 * // Resume from existing plan
+	 * const resumeResult = await tools.planningAgentSession(
+	 *   "Continue implementation",
+	 *   { workingDirectory: "/path/to/project", planPath: "/tmp/plan.md" }
+	 * );
+	 * ```
+	 */
+	planningAgentSession(
+		prompt: string,
+		options: PlanningAgentSessionOptions,
+	): Promise<PlanningAgentSessionResult>;
 
 	/**
 	 * Execute multiple Claude Agent SDK sessions concurrently.
@@ -1005,3 +1150,20 @@ export type {
 	WorkflowSource,
 	ValidationError,
 } from "../composition/types.js";
+
+// =============================================================================
+// Agent Type Re-exports
+// =============================================================================
+
+/**
+ * Re-export agent types for use by workflow nodes.
+ * These types are needed when working with tools.agentSession() plan mode.
+ */
+export type {
+	AgentConfigOptions,
+	BuiltInAgentName,
+	PlanFile,
+	PlanModeConfig,
+	PlanModeResult,
+	PlanStatus,
+} from "../agents/types.js";

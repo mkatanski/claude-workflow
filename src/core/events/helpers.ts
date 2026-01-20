@@ -62,6 +62,11 @@ import type {
 	ToolAgentSessionMessagePayload,
 	ToolAgentSessionCompletePayload,
 	ToolAgentSessionErrorPayload,
+	// Planning Agent events
+	PlanningPhaseStartPayload,
+	PlanningPhaseCompletePayload,
+	ImplementationPhaseStartPayload,
+	ImplementationPhaseCompletePayload,
 	ToolHookStartPayload,
 	ToolHookCompletePayload,
 	ToolChecklistStartPayload,
@@ -412,6 +417,28 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
 		agentSessionError(payload: ToolAgentSessionErrorPayload) {
 			return emitter.emit("tool:agentSession:error", payload);
+		},
+
+		// ========================================================================
+		// Planning Agent Events
+		// ========================================================================
+
+		planningPhaseStart(payload: PlanningPhaseStartPayload) {
+			emitter.setContext({ toolName: "planningAgent" });
+			return emitter.emit("planning:phase:start", payload);
+		},
+
+		planningPhaseComplete(payload: PlanningPhaseCompletePayload) {
+			return emitter.emit("planning:phase:complete", payload);
+		},
+
+		implementationPhaseStart(payload: ImplementationPhaseStartPayload) {
+			emitter.setContext({ toolName: "planningAgent" });
+			return emitter.emit("implementation:phase:start", payload);
+		},
+
+		implementationPhaseComplete(payload: ImplementationPhaseCompletePayload) {
+			return emitter.emit("implementation:phase:complete", payload);
 		},
 
 		// ========================================================================
