@@ -383,7 +383,10 @@ describe("executeParallelWorkflows", () => {
 					"workflow-b",
 					{
 						success: false,
-						error: { code: "EXECUTION_FAILED" as const, message: "Workflow failed" },
+						error: {
+							code: "EXECUTION_FAILED" as const,
+							message: "Workflow failed",
+						},
 					},
 				],
 				["workflow-c", { success: true, output: "After" }],
@@ -477,7 +480,10 @@ describe("executeParallelWorkflows", () => {
 					"workflow-a",
 					{
 						success: false,
-						error: { code: "EXECUTION_FAILED" as const, message: "Workflow failed" },
+						error: {
+							code: "EXECUTION_FAILED" as const,
+							message: "Workflow failed",
+						},
 						delay: 10,
 					},
 				],
@@ -507,7 +513,10 @@ describe("executeParallelWorkflows", () => {
 					"workflow-a",
 					{
 						success: false,
-						error: { code: "EXECUTION_FAILED" as const, message: "Workflow failed" },
+						error: {
+							code: "EXECUTION_FAILED" as const,
+							message: "Workflow failed",
+						},
 					},
 				],
 				["workflow-b", { success: true, output: "Pending", delay: 100 }],
@@ -566,7 +575,11 @@ describe("executeParallelWorkflows", () => {
 					success: true,
 					output: "Done",
 					duration: 0,
-					metadata: { name: "test", version: "1.0.0", source: "project" as const },
+					metadata: {
+						name: "test",
+						version: "1.0.0",
+						source: "project" as const,
+					},
 				};
 			};
 
@@ -800,7 +813,10 @@ describe("executeParallelWorkflows", () => {
 						"workflow-a",
 						{
 							success: false,
-							error: { code: "EXECUTION_FAILED" as const, message: "Something went wrong" },
+							error: {
+								code: "EXECUTION_FAILED" as const,
+								message: "Something went wrong",
+							},
 						},
 					],
 				]);
@@ -907,7 +923,11 @@ describe("executeParallelWorkflows", () => {
 					success: true,
 					output: "Done",
 					duration: 0,
-					metadata: { name: "test", version: "1.0.0", source: "project" as const },
+					metadata: {
+						name: "test",
+						version: "1.0.0",
+						source: "project" as const,
+					},
 				};
 			};
 
@@ -1168,14 +1188,20 @@ describe("executeParallelWorkflows", () => {
 					"workflow-a",
 					{
 						success: false,
-						error: { code: "EXECUTION_FAILED" as const, message: "Error message 1" },
+						error: {
+							code: "EXECUTION_FAILED" as const,
+							message: "Error message 1",
+						},
 					},
 				],
 				[
 					"workflow-b",
 					{
 						success: false,
-						error: { code: "EXECUTION_FAILED" as const, message: "Error message 2" },
+						error: {
+							code: "EXECUTION_FAILED" as const,
+							message: "Error message 2",
+						},
 					},
 				],
 			]);
@@ -1246,7 +1272,11 @@ describe("executeParallelWorkflows", () => {
 					success: true,
 					output: "Done",
 					duration: 0,
-					metadata: { name: "test", version: "1.0.0", source: "project" as const },
+					metadata: {
+						name: "test",
+						version: "1.0.0",
+						source: "project" as const,
+					},
 				};
 			};
 
@@ -1279,7 +1309,11 @@ describe("WorkflowTypes utilities", () => {
 						output: "Output A",
 						duration: 50,
 						queueWaitTime: 10,
-						metadata: { name: "workflow-a", version: "1.0.0", source: "project" as const },
+						metadata: {
+							name: "workflow-a",
+							version: "1.0.0",
+							source: "project" as const,
+						},
 					},
 					{
 						id: "wf2",
@@ -1288,7 +1322,11 @@ describe("WorkflowTypes utilities", () => {
 						error: { code: "EXECUTION_FAILED" as const, message: "Failed" },
 						duration: 30,
 						queueWaitTime: 5,
-						metadata: { name: "workflow-b", version: "1.0.0", source: "project" as const },
+						metadata: {
+							name: "workflow-b",
+							version: "1.0.0",
+							source: "project" as const,
+						},
 					},
 				],
 				summary: {

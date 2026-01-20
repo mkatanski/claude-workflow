@@ -87,9 +87,13 @@ function createMarketplaceError(
  * @param dirName - Directory name to parse
  * @returns Parsed name and version, or null if invalid format
  */
-function parsePackageDir(dirName: string): { name: string; version: string } | null {
+function parsePackageDir(
+	dirName: string,
+): { name: string; version: string } | null {
 	// Match name@version pattern
-	const match = dirName.match(/^(.+)@(\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?)$/);
+	const match = dirName.match(
+		/^(.+)@(\d+\.\d+\.\d+(?:-[\w.]+)?(?:\+[\w.]+)?)$/,
+	);
 	if (!match) {
 		return null;
 	}
@@ -130,7 +134,12 @@ export function getGlobalInstallDir(): string {
  * @returns Absolute path to .cw/workflows/.installed/
  */
 export function getProjectInstallDir(projectPath: string): string {
-	return join(resolve(projectPath), ".cw", WORKFLOWS_DIR, PROJECT_INSTALL_SUBDIR);
+	return join(
+		resolve(projectPath),
+		".cw",
+		WORKFLOWS_DIR,
+		PROJECT_INSTALL_SUBDIR,
+	);
 }
 
 /**
@@ -509,7 +518,9 @@ export function findInstalledPackage(
 	}
 
 	// Return the latest version (simple string comparison for semver)
-	matching.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
+	matching.sort((a, b) =>
+		b.version.localeCompare(a.version, undefined, { numeric: true }),
+	);
 	return ok(matching[0]);
 }
 

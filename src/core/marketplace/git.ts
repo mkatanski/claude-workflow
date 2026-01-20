@@ -276,10 +276,7 @@ export class GitService {
 				const stderr = result.stderr.toString().trim();
 
 				// Check for common error types
-				if (
-					stderr.includes("not found") ||
-					stderr.includes("does not exist")
-				) {
+				if (stderr.includes("not found") || stderr.includes("does not exist")) {
 					return err(
 						createMarketplaceError(
 							MARKETPLACE_ERROR_CODES.CLONE_FAILED,
@@ -440,10 +437,7 @@ export class GitService {
 			if (result.exitCode !== 0) {
 				const stderr = result.stderr.toString().trim();
 
-				if (
-					stderr.includes("not found") ||
-					stderr.includes("does not exist")
-				) {
+				if (stderr.includes("not found") || stderr.includes("does not exist")) {
 					return err(
 						createMarketplaceError(
 							MARKETPLACE_ERROR_CODES.CLONE_FAILED,
@@ -659,7 +653,9 @@ export class GitService {
 	createTempDir(name?: string): string {
 		const timestamp = Date.now();
 		const random = Math.random().toString(36).substring(2, 8);
-		const dirName = name ? `${name}-${timestamp}-${random}` : `${timestamp}-${random}`;
+		const dirName = name
+			? `${name}-${timestamp}-${random}`
+			: `${timestamp}-${random}`;
 		return join(this.config.tempDir, dirName);
 	}
 }

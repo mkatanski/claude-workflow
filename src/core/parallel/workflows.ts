@@ -5,7 +5,10 @@
  * limits, timeout handling, and result aggregation.
  */
 
-import type { WorkflowCallError, WorkflowSource } from "../composition/types.ts";
+import type {
+	WorkflowCallError,
+	WorkflowSource,
+} from "../composition/types.ts";
 import type {
 	ParallelWorkflowConfig,
 	ParallelWorkflowsOptions,
@@ -77,7 +80,8 @@ export type OnWorkflowStartCallback = (info: {
 /**
  * Options for executeParallelWorkflows with callbacks.
  */
-export interface ExecuteParallelWorkflowsOptions extends ParallelWorkflowsOptions {
+export interface ExecuteParallelWorkflowsOptions
+	extends ParallelWorkflowsOptions {
 	/** Progress callback called when a workflow completes */
 	readonly onProgress?: ParallelWorkflowsProgressCallback;
 	/** Callback called when a workflow completes */
@@ -130,7 +134,10 @@ function generateWorkflowId(name: string, index: number): string {
  */
 function clampConcurrency(value: number | undefined): number {
 	const v = value ?? DEFAULT_WORKFLOW_CONCURRENCY;
-	return Math.max(MIN_WORKFLOW_CONCURRENCY, Math.min(MAX_WORKFLOW_CONCURRENCY, v));
+	return Math.max(
+		MIN_WORKFLOW_CONCURRENCY,
+		Math.min(MAX_WORKFLOW_CONCURRENCY, v),
+	);
 }
 
 /**
@@ -502,13 +509,17 @@ export async function executeParallelWorkflows(
 
 	try {
 		// Execute workflows with concurrency limiting
-		const results = await executeWithConcurrencyLimit(workflowStates, executor, {
-			maxConcurrency,
-			continueOnError,
-			abortState,
-			onWorkflowComplete: wrappedOnWorkflowComplete,
-			onWorkflowStart: wrappedOnWorkflowStart,
-		});
+		const results = await executeWithConcurrencyLimit(
+			workflowStates,
+			executor,
+			{
+				maxConcurrency,
+				continueOnError,
+				abortState,
+				onWorkflowComplete: wrappedOnWorkflowComplete,
+				onWorkflowStart: wrappedOnWorkflowStart,
+			},
+		);
 
 		// Clear totalTimeout
 		if (totalTimeoutId) {

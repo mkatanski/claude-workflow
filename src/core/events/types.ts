@@ -770,6 +770,42 @@ export type ToolClaudeSdkEvent =
 // Tool Events - AgentSession
 // ============================================================================
 
+/**
+ * Token usage statistics for agent sessions.
+ */
+export interface AgentSessionUsage {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+}
+
+/**
+ * Per-model usage breakdown with cost.
+ */
+export interface AgentSessionModelUsage extends AgentSessionUsage {
+	costUsd: number;
+}
+
+/**
+ * File information from tool results (Read tool, etc.).
+ */
+export interface AgentSessionFileInfo {
+	filePath: string;
+	numLines: number;
+	startLine?: number;
+	totalLines?: number;
+}
+
+/**
+ * Permission denial record.
+ */
+export interface AgentSessionPermissionDenial {
+	toolName: string;
+	toolUseId?: string;
+	reason?: string;
+}
+
 export interface ToolAgentSessionStartPayload {
 	prompt: string;
 	label?: string;
@@ -779,6 +815,15 @@ export interface ToolAgentSessionStartPayload {
 	hasSubagents: boolean;
 	isResume: boolean;
 	resumeSessionId?: string;
+
+	/** Available tools in session (from init message) */
+	availableTools?: string[];
+
+	/** Permission mode (default, auto-approve, etc.) */
+	permissionMode?: string;
+
+	/** Claude Code version */
+	claudeCodeVersion?: string;
 }
 
 export interface ToolAgentSessionMessagePayload {
@@ -792,6 +837,20 @@ export interface ToolAgentSessionMessagePayload {
 	agentName?: string;
 	/** Raw SDK message for debugging - always present */
 	raw: unknown;
+
+	/** Token usage for this message (if available from assistant messages) */
+	usage?: {
+		inputTokens?: number;
+		outputTokens?: number;
+		cacheReadTokens?: number;
+		cacheCreationTokens?: number;
+	};
+
+	/** Stop reason if message was truncated or stopped (end_turn, max_tokens, tool_use, refusal) */
+	stopReason?: string;
+
+	/** Tool result file info (for tool_result messages from Read tool) */
+	fileInfo?: AgentSessionFileInfo;
 }
 
 export interface ToolAgentSessionCompletePayload {
@@ -801,6 +860,24 @@ export interface ToolAgentSessionCompletePayload {
 	sessionId?: string;
 	messageCount: number;
 	duration: number;
+
+	/** API call duration (separate from total, if available) */
+	durationApiMs?: number;
+
+	/** Number of API turns */
+	numTurns?: number;
+
+	/** Total cost in USD */
+	costUsd?: number;
+
+	/** Aggregated token usage for the session */
+	totalUsage?: AgentSessionUsage;
+
+	/** Per-model usage breakdown */
+	modelUsage?: Record<string, AgentSessionModelUsage>;
+
+	/** Permission denials during session */
+	permissionDenials?: AgentSessionPermissionDenial[];
 }
 
 export interface ToolAgentSessionErrorPayload {

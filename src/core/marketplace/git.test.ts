@@ -542,23 +542,21 @@ describe("GitTag parsing (unit tests)", () => {
 
 		// Test semver detection through listTags output parsing behavior
 		// Since we can't call internal functions directly, we document expected behavior
-		it.each(semverTags)(
-			"should detect %s as semver=%s with version=%s",
-			(tag, expectedSemver, expectedVersion) => {
-				// This tests the expected behavior of tag parsing
-				// The actual parsing happens in parseTagsOutput which is internal
-				// We verify by checking that the isSemverLike pattern matches expectations
-				const semverPattern =
-					/^v?(\d+)\.(\d+)\.(\d+)(?:-[\w.]+)?(?:\+[\w.]+)?$/;
-				const isSemver = semverPattern.test(tag);
-				expect(isSemver).toBe(expectedSemver);
+		it.each(
+			semverTags,
+		)("should detect %s as semver=%s with version=%s", (tag, expectedSemver, expectedVersion) => {
+			// This tests the expected behavior of tag parsing
+			// The actual parsing happens in parseTagsOutput which is internal
+			// We verify by checking that the isSemverLike pattern matches expectations
+			const semverPattern = /^v?(\d+)\.(\d+)\.(\d+)(?:-[\w.]+)?(?:\+[\w.]+)?$/;
+			const isSemver = semverPattern.test(tag);
+			expect(isSemver).toBe(expectedSemver);
 
-				if (expectedSemver && expectedVersion) {
-					const cleanedVersion = tag.replace(/^v/, "");
-					expect(cleanedVersion).toBe(expectedVersion);
-				}
-			},
-		);
+			if (expectedSemver && expectedVersion) {
+				const cleanedVersion = tag.replace(/^v/, "");
+				expect(cleanedVersion).toBe(expectedVersion);
+			}
+		});
 	});
 
 	describe("semver comparison", () => {
@@ -573,46 +571,39 @@ describe("GitTag parsing (unit tests)", () => {
 			["v1.0.0", "v1.0.0-alpha", 1], // release > pre-release
 		];
 
-		it.each(versionPairs)(
-			"should compare %s vs %s correctly (expected sign: %d)",
-			(a, b, expectedSign) => {
-				// Implement the comparison logic for testing
-				const cleanVersion = (v: string) => v.replace(/^v/, "");
+		it.each(
+			versionPairs,
+		)("should compare %s vs %s correctly (expected sign: %d)", (a, b, expectedSign) => {
+			// Implement the comparison logic for testing
+			const cleanVersion = (v: string) => v.replace(/^v/, "");
 
-				const cleanA = cleanVersion(a);
-				const cleanB = cleanVersion(b);
+			const cleanA = cleanVersion(a);
+			const cleanB = cleanVersion(b);
 
-				const partsA = cleanA
-					.split(/[-+]/)[0]
-					.split(".")
-					.map(Number);
-				const partsB = cleanB
-					.split(/[-+]/)[0]
-					.split(".")
-					.map(Number);
+			const partsA = cleanA.split(/[-+]/)[0].split(".").map(Number);
+			const partsB = cleanB.split(/[-+]/)[0].split(".").map(Number);
 
-				let result = 0;
-				for (let i = 0; i < 3; i++) {
-					const numA = partsA[i] ?? 0;
-					const numB = partsB[i] ?? 0;
-					if (numA !== numB) {
-						result = numA - numB;
-						break;
-					}
+			let result = 0;
+			for (let i = 0; i < 3; i++) {
+				const numA = partsA[i] ?? 0;
+				const numB = partsB[i] ?? 0;
+				if (numA !== numB) {
+					result = numA - numB;
+					break;
 				}
+			}
 
-				if (result === 0) {
-					// Handle pre-release
-					const preA = cleanA.includes("-");
-					const preB = cleanB.includes("-");
-					if (preA && !preB) result = -1;
-					if (!preA && preB) result = 1;
-				}
+			if (result === 0) {
+				// Handle pre-release
+				const preA = cleanA.includes("-");
+				const preB = cleanB.includes("-");
+				if (preA && !preB) result = -1;
+				if (!preA && preB) result = 1;
+			}
 
-				const sign = result === 0 ? 0 : result > 0 ? 1 : -1;
-				expect(sign).toBe(expectedSign);
-			},
-		);
+			const sign = result === 0 ? 0 : result > 0 ? 1 : -1;
+			expect(sign).toBe(expectedSign);
+		});
 	});
 });
 
@@ -831,14 +822,11 @@ describe("GitService integration tests", () => {
 
 		it("should checkout existing commit hash", async () => {
 			// Get the current commit hash
-			const logProc = Bun.spawn(
-				["git", "rev-parse", "--short", "HEAD"],
-				{
-					cwd: repoDir,
-					stdout: "pipe",
-					stderr: "pipe",
-				},
-			);
+			const logProc = Bun.spawn(["git", "rev-parse", "--short", "HEAD"], {
+				cwd: repoDir,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
 			const output = await new Response(logProc.stdout).text();
 			await logProc.exited;
 			const commitHash = output.trim();

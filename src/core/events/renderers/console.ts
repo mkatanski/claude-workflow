@@ -7,6 +7,8 @@
 
 import { BaseRenderer, type RendererConfig } from "../renderer";
 import type {
+	AgentSessionFileInfo,
+	AgentSessionUsage,
 	CleanupCompleteEvent,
 	CleanupStartEvent,
 	CustomEvent,
@@ -729,118 +731,375 @@ export class ConsoleRenderer extends BaseRenderer {
 	// ==========================================================================
 
 	private renderAgentSessionStart(event: ToolAgentSessionStartEvent): void {
-		const { label, prompt, model, hasSubagents, isResume } = event.payload;
-		const displayText = label || this.truncate(prompt, 50);
-		const resumeTag = isResume ? " (resume)" : "";
-		const subagentTag = hasSubagents ? " +subagents" : "";
+		const {
+			label,
+			prompt,
+			model,
+			hasSubagents,
+			isResume,
+			permissionMode,
+			claudeCodeVersion,
+		} = event.payload;
+		const displayText = label || this.truncate(prompt, 60);
+		const resumeTag = isResume ? " (resuming)" : "";
+		const subagentTag = hasSubagents ? " +agents" : "";
 
+		// Non-verbose: cleaner single line
 		console.log(
 			this.colorize(
-				`${INDENT}${icons.robot}  [agent:${model}${subagentTag}${resumeTag}] ${displayText}`,
+				`${INDENT}${icons.robot}  ${model}${subagentTag}${resumeTag}`,
 				"brightMagenta",
+				"bold",
 			),
 		);
-	}
+		console.log(this.colorize(`${INDENT}   ${displayText}`, "dim"));
 
-	private renderAgentSessionMessage(
-		event: ToolAgentSessionMessageEvent,
-	): void {
-		const { messageType, content, toolName, agentName, subtype, raw } =
-			event.payload;
-
-		// Track if we rendered parsed content
-		let renderedParsed = false;
-
-		switch (messageType) {
-			case "assistant": {
-				if (subtype === "thinking") {
-					// Thinking message
-					const indented = this.indentMultiline(content ?? "");
-					console.log(
-						this.colorize(`${INDENT}${icons.thinking}  ${indented}`, "dim"),
-					);
-					renderedParsed = !!content;
-				} else {
-					// Regular assistant text message
-					const indented = this.indentMultiline(content ?? "");
-					console.log(
-						this.colorize(
-							`${INDENT}${icons.robot}  ${indented}`,
-							"brightMagenta",
-						),
-					);
-					renderedParsed = !!content;
-				}
-				break;
-			}
-			case "tool_call":
+		// Show additional info in verbose mode
+		if (this.config.verbose) {
+			if (claudeCodeVersion) {
 				console.log(
-					this.colorize(`${INDENT}${icons.hammer}  tool: ${toolName}`, "dim"),
+					this.colorize(`${INDENT}   Claude Code v${claudeCodeVersion}`, "dim"),
 				);
-				renderedParsed = !!toolName;
-				break;
-			case "tool_result":
+			}
+			if (permissionMode && permissionMode !== "default") {
 				console.log(
 					this.colorize(
-						`${INDENT}${icons.success}  tool result received`,
-						"dim",
+						`${INDENT}   ${icons.warning} Permission mode: ${permissionMode}`,
+						"yellow",
 					),
 				);
-				renderedParsed = true;
-				break;
-			case "error": {
-				const indented = this.indentMultiline(content ?? "unknown error");
-				console.log(
-					this.colorize(`${INDENT}${icons.error}  ${indented}`, "red"),
-				);
-				renderedParsed = true;
-				break;
 			}
+		}
+	}
+
+	private renderAgentSessionMessage(event: ToolAgentSessionMessageEvent): void {
+		const { messageType, subtype, raw } = event.payload;
+
+		// Render the parsed message content
+		const wasRecognized = this.renderAgentMessageContent(event.payload);
+
+		// Handle unrecognized events
+		if (!wasRecognized) {
+			const eventDesc = subtype ? `${messageType}:${subtype}` : messageType;
+			console.log(
+				this.colorize(
+					`${INDENT}${icons.warning}  unrecognized event: ${eventDesc}${this.config.verbose ? "" : " (use --verbose to see raw JSON)"}`,
+					"yellow",
+				),
+			);
+		}
+
+		// In verbose mode: always append raw JSON + empty line for readability
+		if (this.config.verbose) {
+			const rawJson = JSON.stringify(raw);
+			console.log(this.colorize(`${INDENT}   ${rawJson}`, "dim"));
+			console.log(""); // Empty line between messages
+		}
+	}
+
+	/**
+	 * Render the parsed content of an agent message.
+	 * Returns true if the message was recognized and handled, false otherwise.
+	 */
+	private renderAgentMessageContent(
+		payload: ToolAgentSessionMessageEvent["payload"],
+	): boolean {
+		const {
+			messageType,
+			subtype,
+			content,
+			toolName,
+			agentName,
+			fileInfo,
+			stopReason,
+		} = payload;
+
+		switch (messageType) {
+			case "assistant":
+				return this.renderAssistantMessage(subtype, content, stopReason);
+
+			case "tool_call":
+				return this.renderToolCallMessage(toolName);
+
+			case "tool_result":
+				return this.renderToolResultMessage(fileInfo);
+
+			case "error":
+				return this.renderErrorMessage(content);
+
 			case "system":
-				if (subtype === "subagent_start" && agentName) {
+				return this.renderSystemMessage(subtype, agentName);
+
+			default:
+				return false;
+		}
+	}
+
+	/**
+	 * Render assistant message (text or thinking).
+	 */
+	private renderAssistantMessage(
+		subtype: string | undefined,
+		content: string | undefined,
+		stopReason: string | undefined,
+	): boolean {
+		if (subtype === "thinking") {
+			// Show thinking only in verbose mode
+			if (this.config.verbose && content) {
+				const indented = this.indentMultiline(content);
+				console.log(
+					this.colorize(`${INDENT}${icons.thinking}  ${indented}`, "dim"),
+				);
+			}
+			return true; // Recognized even if not displayed
+		}
+
+		// Regular assistant text message
+		if (content) {
+			const indented = this.indentMultiline(content);
+			console.log(
+				this.colorize(`${INDENT}${icons.robot}  ${indented}`, "brightMagenta"),
+			);
+		}
+
+		// Show warnings for stop reasons (always)
+		if (stopReason === "max_tokens") {
+			console.log(
+				this.colorize(
+					`${INDENT}   ${icons.warning} Output truncated (max_tokens)`,
+					"yellow",
+				),
+			);
+		} else if (stopReason === "refusal") {
+			console.log(
+				this.colorize(
+					`${INDENT}   ${icons.warning} Model refused request`,
+					"yellow",
+				),
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Render tool call message.
+	 */
+	private renderToolCallMessage(toolName: string | undefined): boolean {
+		if (toolName) {
+			console.log(
+				this.colorize(`${INDENT}${icons.hammer}  ${toolName}`, "cyan"),
+			);
+		}
+		return true;
+	}
+
+	/**
+	 * Render tool result message.
+	 */
+	private renderToolResultMessage(
+		fileInfo: AgentSessionFileInfo | undefined,
+	): boolean {
+		if (fileInfo) {
+			console.log(
+				this.colorize(
+					`${INDENT}   ${icons.file} ${this.formatFileInfo(fileInfo)}`,
+					"dim",
+				),
+			);
+		} else if (this.config.verbose) {
+			// Show generic result only in verbose mode
+			console.log(
+				this.colorize(`${INDENT}   ${icons.success} result received`, "dim"),
+			);
+		}
+		return true;
+	}
+
+	/**
+	 * Render error message.
+	 */
+	private renderErrorMessage(content: string | undefined): boolean {
+		const indented = this.indentMultiline(content ?? "unknown error");
+		console.log(this.colorize(`${INDENT}${icons.error}  ${indented}`, "red"));
+		return true;
+	}
+
+	/**
+	 * Render system message (init, completion, subagent events).
+	 */
+	private renderSystemMessage(
+		subtype: string | undefined,
+		agentName: string | undefined,
+	): boolean {
+		switch (subtype) {
+			case "init":
+				// Show init only in verbose mode
+				if (this.config.verbose) {
 					console.log(
-						this.colorize(
-							`${INDENT}${icons.cube}  subagent started: ${agentName}`,
-							"cyan",
-						),
+						this.colorize(`${INDENT}${icons.cog}  session initialized`, "dim"),
 					);
-					renderedParsed = true;
-				} else if (subtype === "subagent_end" && agentName) {
+				}
+				return true;
+
+			case "completion":
+				// Show completion only in verbose mode (summary shown by complete event)
+				if (this.config.verbose) {
 					console.log(
 						this.colorize(
-							`${INDENT}${icons.cube}  subagent completed: ${agentName}`,
+							`${INDENT}${icons.success}  session completed`,
 							"dim",
 						),
 					);
-					renderedParsed = true;
 				}
-				break;
-		}
+				return true;
 
-		// Show raw JSON: always in verbose mode, or as fallback when no parsed content
-		if (this.config.verbose || !renderedParsed) {
-			const rawJson = JSON.stringify(raw, null, 2);
-			const indentedRaw = this.indentMultiline(rawJson, `${INDENT}   `);
-			console.log(this.colorize(`${INDENT}   ${indentedRaw}`, "dim"));
+			case "subagent_start":
+				if (agentName) {
+					console.log(
+						this.colorize(
+							`${INDENT}${icons.cube}  ${icons.play} ${agentName}`,
+							"cyan",
+						),
+					);
+				}
+				return true;
+
+			case "subagent_end":
+				// Show subagent end only in verbose mode
+				if (this.config.verbose && agentName) {
+					console.log(
+						this.colorize(
+							`${INDENT}${icons.cube}  ${icons.success} ${agentName}`,
+							"dim",
+						),
+					);
+				}
+				return true;
+
+			default:
+				// Unknown system subtype
+				return false;
 		}
+	}
+
+	/**
+	 * Format file info for display.
+	 */
+	private formatFileInfo(fileInfo: AgentSessionFileInfo): string {
+		const fileName = fileInfo.filePath.split("/").pop() ?? fileInfo.filePath;
+		return `${fileName} (${fileInfo.numLines} lines)`;
 	}
 
 	private renderAgentSessionComplete(
 		event: ToolAgentSessionCompleteEvent,
 	): void {
-		const { success, duration, messageCount } = event.payload;
+		const {
+			success,
+			duration,
+			numTurns,
+			costUsd,
+			totalUsage,
+			permissionDenials,
+		} = event.payload;
 
 		if (!success) {
 			// Error will be shown by error handler
 			return;
 		}
 
+		// Show permission denials warning (always visible)
+		if (permissionDenials && permissionDenials.length > 0) {
+			console.log(
+				this.colorize(
+					`${INDENT}${icons.warning}  ${permissionDenials.length} permission denied`,
+					"yellow",
+				),
+			);
+			// Show details in verbose mode
+			if (this.config.verbose) {
+				for (const denial of permissionDenials) {
+					const reason = denial.reason ? `: ${denial.reason}` : "";
+					console.log(
+						this.colorize(
+							`${INDENT}   - ${denial.toolName}${reason}`,
+							"yellow",
+						),
+					);
+				}
+			}
+		}
+
+		// Build summary line - Claude Code CLI style
+		const parts: string[] = [];
+
+		// Duration
+		parts.push(this.formatDuration(duration));
+
+		// Turns (more meaningful than message count)
+		if (numTurns !== undefined && numTurns > 0) {
+			parts.push(`${numTurns} turn${numTurns > 1 ? "s" : ""}`);
+		}
+
+		// Token summary
+		if (totalUsage) {
+			const totalIn = totalUsage.inputTokens + totalUsage.cacheReadTokens;
+			const totalOut = totalUsage.outputTokens;
+			parts.push(
+				`${this.formatTokens(totalIn)}↓ ${this.formatTokens(totalOut)}↑`,
+			);
+
+			// Cache efficiency
+			if (totalUsage.cacheReadTokens > 0) {
+				const cacheRate = Math.round(
+					(totalUsage.cacheReadTokens / totalIn) * 100,
+				);
+				parts.push(`${cacheRate}% cached`);
+			}
+		}
+
+		// Cost
+		if (costUsd !== undefined && costUsd > 0) {
+			parts.push(`$${costUsd.toFixed(4)}`);
+		}
+
 		console.log(
-			this.colorize(
-				`${INDENT}${icons.success}  session completed (${this.formatDuration(duration)}, ${messageCount} msgs)`,
-				"dim",
-			),
+			this.colorize(`${INDENT}${icons.success}  ${parts.join(" · ")}`, "green"),
 		);
+
+		// Show detailed usage in verbose mode
+		if (this.config.verbose && totalUsage) {
+			this.renderUsageDetails(totalUsage);
+		}
+	}
+
+	/**
+	 * Format token count for display (e.g., 1.2k, 15k, 1.5M).
+	 */
+	private formatTokens(count: number): string {
+		if (count >= 1_000_000) {
+			return `${(count / 1_000_000).toFixed(1)}M`;
+		}
+		if (count >= 1_000) {
+			return `${(count / 1_000).toFixed(1)}k`;
+		}
+		return count.toString();
+	}
+
+	/**
+	 * Render detailed usage information.
+	 */
+	private renderUsageDetails(usage: AgentSessionUsage): void {
+		const inTokens = usage.inputTokens + usage.cacheReadTokens;
+		const outTokens = usage.outputTokens;
+
+		let usageStr = `tokens: ${inTokens.toLocaleString()} in`;
+		if (usage.cacheReadTokens > 0) {
+			usageStr += ` (${usage.cacheReadTokens.toLocaleString()} cached)`;
+		}
+		usageStr += `, ${outTokens.toLocaleString()} out`;
+
+		console.log(this.colorize(`${INDENT}   ${usageStr}`, "dim"));
 	}
 
 	private renderAgentSessionError(event: ToolAgentSessionErrorEvent): void {
@@ -1128,7 +1387,10 @@ export class ConsoleRenderer extends BaseRenderer {
 	 * @param text The text to indent
 	 * @param indent The indentation string for subsequent lines (defaults to INDENT + 2 spaces for icon alignment)
 	 */
-	private indentMultiline(text: string, indent: string = `${INDENT}   `): string {
+	private indentMultiline(
+		text: string,
+		indent: string = `${INDENT}   `,
+	): string {
 		return text.replace(/\n/g, `\n${indent}`);
 	}
 }

@@ -688,10 +688,7 @@ export class InstallationService {
 
 		try {
 			// Resolve version if not specified
-			const resolvedVersion = await this.resolveVersion(
-				gitUrl,
-				targetVersion,
-			);
+			const resolvedVersion = await this.resolveVersion(gitUrl, targetVersion);
 			if (resolvedVersion.isErr()) {
 				return err(resolvedVersion.unwrapErr());
 			}
@@ -699,11 +696,15 @@ export class InstallationService {
 			const { version, ref } = resolvedVersion.unwrap();
 
 			// Determine final package name (from git URL if not from registry)
-			const finalName = packageName ?? extractNameFromGitUrl(gitUrl) ?? "unknown";
+			const finalName =
+				packageName ?? extractNameFromGitUrl(gitUrl) ?? "unknown";
 
 			// Check if already installed
 			const installDir = getInstallDir(context.scope, context.projectPath);
-			if (isPackageInstalled(installDir, finalName, version) && !context.force) {
+			if (
+				isPackageInstalled(installDir, finalName, version) &&
+				!context.force
+			) {
 				return err(
 					createMarketplaceError(
 						MARKETPLACE_ERROR_CODES.ALREADY_EXISTS,
@@ -735,7 +736,11 @@ export class InstallationService {
 					ref,
 				});
 				// Ignore checkout errors if the branch clone already worked
-				if (checkoutResult.isErr() && !ref.startsWith("v") && !/^\d/.test(ref)) {
+				if (
+					checkoutResult.isErr() &&
+					!ref.startsWith("v") &&
+					!/^\d/.test(ref)
+				) {
 					// Only fail if it looks like a version tag
 					// For branches, the clone should have already checked out
 				}
@@ -759,8 +764,7 @@ export class InstallationService {
 				const packageJson = packageJsonResult.unwrap();
 
 				// Extract actual name and version from package.json if available
-				const actualName =
-					(packageJson.name as string) ?? finalName;
+				const actualName = (packageJson.name as string) ?? finalName;
 				const actualVersion =
 					version ?? (packageJson.version as string) ?? "0.0.0";
 
@@ -776,7 +780,11 @@ export class InstallationService {
 				}
 
 				// Copy to installation directory
-				const packageDir = getPackagePath(installDir, actualName, actualVersion);
+				const packageDir = getPackagePath(
+					installDir,
+					actualName,
+					actualVersion,
+				);
 
 				// Remove existing if force reinstall
 				if (context.force && directoryExists(packageDir)) {
@@ -877,10 +885,7 @@ export class InstallationService {
 			}
 
 			const tags = tagsResult.unwrap().filter((t) => t.isSemver);
-			const matchingTag = this.findBestMatchingVersion(
-				tags,
-				requestedVersion,
-			);
+			const matchingTag = this.findBestMatchingVersion(tags, requestedVersion);
 
 			if (matchingTag) {
 				return ok({
@@ -952,7 +957,10 @@ export class InstallationService {
 					// ^0.x.y is more restrictive
 					return tagMajor === major && tagMinor === minor && tagPatch >= patch;
 				}
-				return tagMajor === major && (tagMinor > minor || (tagMinor === minor && tagPatch >= patch));
+				return (
+					tagMajor === major &&
+					(tagMinor > minor || (tagMinor === minor && tagPatch >= patch))
+				);
 			}
 
 			if (operator === "~") {
@@ -999,9 +1007,7 @@ export class InstallationService {
 
 		for (const [name, versionSpec] of Object.entries(cwDeps)) {
 			// Build dependency source
-			const depSource = versionSpec
-				? `${name}@${versionSpec}`
-				: name;
+			const depSource = versionSpec ? `${name}@${versionSpec}` : name;
 
 			const parseResult = this.parseSource(depSource);
 			if (parseResult.isErr()) {
@@ -1723,9 +1729,7 @@ export class InstallationService {
 	 * const outdatedResult = await installer.list({ all: true, outdated: true });
 	 * ```
 	 */
-	async list(
-		options: ListOptions = {},
-	): Promise<InstallerResult<ListResult>> {
+	async list(options: ListOptions = {}): Promise<InstallerResult<ListResult>> {
 		const projectPath = process.cwd();
 
 		try {

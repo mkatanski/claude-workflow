@@ -543,7 +543,12 @@ describe("PackageValidator", () => {
 					main: "./index.ts",
 					dependencies: { "pkg-c": "^1.0.0" } as Record<string, string>,
 				},
-				{ name: "pkg-c", version: "1.0.0", main: "./index.ts", dependencies: {} as Record<string, string> },
+				{
+					name: "pkg-c",
+					version: "1.0.0",
+					main: "./index.ts",
+					dependencies: {} as Record<string, string>,
+				},
 			];
 
 			const graph = validator.buildDependencyGraph(packages);

@@ -73,7 +73,13 @@ function isPackageWithUpdate(
  * ```
  */
 export async function listPackages(options: ListOptions = {}): Promise<void> {
-	const { verbose, global: isGlobal, all, outdated, json: jsonOutput } = options;
+	const {
+		verbose,
+		global: isGlobal,
+		all,
+		outdated,
+		json: jsonOutput,
+	} = options;
 	const projectPath = resolve(".");
 
 	// Create installation service
@@ -158,7 +164,11 @@ export async function listPackages(options: ListOptions = {}): Promise<void> {
 
 	// No packages found
 	if (listResult.packages.length === 0) {
-		const scopeLabel = all ? "any scope" : isGlobal ? "global scope" : "project scope";
+		const scopeLabel = all
+			? "any scope"
+			: isGlobal
+				? "global scope"
+				: "project scope";
 		if (outdated) {
 			console.log(`\nNo outdated packages found in ${scopeLabel}.`);
 		} else {
@@ -211,7 +221,9 @@ export async function listPackages(options: ListOptions = {}): Promise<void> {
 		console.log("Run 'cw update <name>' to update a specific package.");
 		console.log("Run 'cw update --all' to update all packages.");
 	} else if (depCount > 0) {
-		console.log(`\n${mainCount} package(s), ${depCount} dependenc${depCount === 1 ? "y" : "ies"}.`);
+		console.log(
+			`\n${mainCount} package(s), ${depCount} dependenc${depCount === 1 ? "y" : "ies"}.`,
+		);
 	} else {
 		console.log(`\n${totalCount} package(s).`);
 	}

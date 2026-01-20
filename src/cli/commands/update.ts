@@ -162,9 +162,7 @@ export async function updatePackages(
 			}
 		}
 
-		console.log(
-			`\nRun without --dry-run to perform the update.`,
-		);
+		console.log(`\nRun without --dry-run to perform the update.`);
 		return;
 	}
 

@@ -13,10 +13,7 @@ import type {
 	SubagentDefinition,
 	ToolsConfig,
 } from "../tools/claudeAgent.types.js";
-import type {
-	AgentMessage,
-	AgentSessionResult,
-} from "../tools/claudeAgent.js";
+import type { AgentMessage, AgentSessionResult } from "../tools/claudeAgent.js";
 
 // Re-export types that are used by consumers of tools.ts
 export type { AgentMessage, AgentSessionResult } from "../tools/claudeAgent.js";
@@ -997,7 +994,10 @@ export type {
  * Re-export workflow composition types for use by workflow nodes.
  * These types are needed when working with tools.workflow().
  */
-export type { WorkflowCallOptions, WorkflowCallResult } from "../composition/types.js";
+export type {
+	WorkflowCallOptions,
+	WorkflowCallResult,
+} from "../composition/types.js";
 export type {
 	WorkflowCallError,
 	WorkflowCallErrorCode,

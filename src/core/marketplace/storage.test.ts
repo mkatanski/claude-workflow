@@ -489,7 +489,10 @@ describe("writeMetadata and readMetadata", () => {
 			const packageDir = join(tempDir, "missing-fields@1.0.0");
 			const { mkdir, writeFile } = await import("node:fs/promises");
 			await mkdir(packageDir, { recursive: true });
-			await writeFile(getMetadataPath(packageDir), JSON.stringify({ foo: "bar" }));
+			await writeFile(
+				getMetadataPath(packageDir),
+				JSON.stringify({ foo: "bar" }),
+			);
 
 			const result = readMetadata(packageDir);
 

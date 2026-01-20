@@ -31,7 +31,9 @@ import {
 /**
  * Create a minimal workflow state for testing.
  */
-function createTestState(variables: Record<string, unknown> = {}): WorkflowStateType {
+function createTestState(
+	variables: Record<string, unknown> = {},
+): WorkflowStateType {
 	return {
 		variables: {
 			...variables,
@@ -44,7 +46,9 @@ function createTestState(variables: Record<string, unknown> = {}): WorkflowState
 /**
  * Create a mock emitter for testing event emission.
  */
-function createMockEmitter(): WorkflowEmitter & { events: Array<{ type: string; payload: unknown }> } {
+function createMockEmitter(): WorkflowEmitter & {
+	events: Array<{ type: string; payload: unknown }>;
+} {
 	const events: Array<{ type: string; payload: unknown }> = [];
 
 	const emitter = {
@@ -58,7 +62,9 @@ function createMockEmitter(): WorkflowEmitter & { events: Array<{ type: string; 
 		setContext: () => {},
 		generateEventId: () => "test-event-id",
 		generateCorrelationId: () => "test-correlation-id",
-	} as unknown as WorkflowEmitter & { events: Array<{ type: string; payload: unknown }> };
+	} as unknown as WorkflowEmitter & {
+		events: Array<{ type: string; payload: unknown }>;
+	};
 
 	return emitter;
 }
@@ -66,9 +72,7 @@ function createMockEmitter(): WorkflowEmitter & { events: Array<{ type: string; 
 /**
  * Create a mock workflow registry.
  */
-function createMockRegistry(
-	resolveResult: ResolveResult,
-): WorkflowRegistry {
+function createMockRegistry(resolveResult: ResolveResult): WorkflowRegistry {
 	return {
 		resolve: mock(() => Promise.resolve(resolveResult)),
 		list: mock(() => Promise.resolve([])),
@@ -79,7 +83,9 @@ function createMockRegistry(
 /**
  * Create default config for tests.
  */
-function createTestConfig(overrides: Partial<WorkflowToolsConfig> = {}): WorkflowToolsConfig {
+function createTestConfig(
+	overrides: Partial<WorkflowToolsConfig> = {},
+): WorkflowToolsConfig {
 	return {
 		projectPath: "/test/project",
 		tempDir: "/test/temp",
@@ -207,11 +213,10 @@ describe("WorkflowTools.workflow()", () => {
 
 			// Create a call stack with "workflow-a" already executing
 			const callStack = createCallStack();
-			const stackWithCall = pushCall(callStack, createCallStackEntry(
-				"workflow-a",
-				"1.0.0",
-				"init-node",
-			));
+			const stackWithCall = pushCall(
+				callStack,
+				createCallStackEntry("workflow-a", "1.0.0", "init-node"),
+			);
 
 			const config = createTestConfig({
 				workflowName: "parent-workflow",
@@ -226,7 +231,9 @@ describe("WorkflowTools.workflow()", () => {
 
 			expect(result.success).toBe(false);
 			expect(result.error?.code).toBe("CIRCULAR_CALL");
-			expect(result.error?.message).toContain("Circular workflow call detected");
+			expect(result.error?.message).toContain(
+				"Circular workflow call detected",
+			);
 			expect(result.error?.message).toContain("workflow-a");
 		});
 
@@ -235,16 +242,14 @@ describe("WorkflowTools.workflow()", () => {
 
 			// Create a call stack: workflow-a called workflow-b
 			const callStack = createCallStack();
-			let stack = pushCall(callStack, createCallStackEntry(
-				"workflow-a",
-				"1.0.0",
-				"node-1",
-			));
-			stack = pushCall(stack, createCallStackEntry(
-				"workflow-b",
-				"1.0.0",
-				"node-2",
-			));
+			let stack = pushCall(
+				callStack,
+				createCallStackEntry("workflow-a", "1.0.0", "node-1"),
+			);
+			stack = pushCall(
+				stack,
+				createCallStackEntry("workflow-b", "1.0.0", "node-2"),
+			);
 
 			const config = createTestConfig({
 				workflowName: "workflow-b",
@@ -266,11 +271,10 @@ describe("WorkflowTools.workflow()", () => {
 
 			// Create a call stack with "workflow-a" executing
 			const callStack = createCallStack();
-			const stackWithCall = pushCall(callStack, createCallStackEntry(
-				"workflow-a",
-				"1.0.0",
-				"init-node",
-			));
+			const stackWithCall = pushCall(
+				callStack,
+				createCallStackEntry("workflow-a", "1.0.0", "init-node"),
+			);
 
 			const config = createTestConfig({
 				workflowName: "workflow-a",
@@ -295,11 +299,10 @@ describe("WorkflowTools.workflow()", () => {
 			// Create a call stack at max depth
 			let callStack = createCallStack({ maxDepth: 3 });
 			for (let i = 0; i < 3; i++) {
-				callStack = pushCall(callStack, createCallStackEntry(
-					`workflow-${i}`,
-					"1.0.0",
-					"node",
-				));
+				callStack = pushCall(
+					callStack,
+					createCallStackEntry(`workflow-${i}`, "1.0.0", "node"),
+				);
 			}
 
 			const config = createTestConfig({
@@ -332,7 +335,9 @@ describe("WorkflowTools.workflow()", () => {
 
 			expect(result.success).toBe(false);
 			expect(result.error?.code).toBe("WORKFLOW_NOT_FOUND");
-			expect(result.error?.message).toContain("No workflow registry is configured");
+			expect(result.error?.message).toContain(
+				"No workflow registry is configured",
+			);
 		});
 
 		it("should return WORKFLOW_NOT_FOUND when registry resolution fails", async () => {
@@ -391,7 +396,9 @@ describe("WorkflowTools.workflow()", () => {
 			await tools.workflow("");
 
 			// Should emit error event
-			const errorEvents = emitter.events.filter(e => e.type === "workflow:call:error");
+			const errorEvents = emitter.events.filter(
+				(e) => e.type === "workflow:call:error",
+			);
 			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 		});
 
@@ -400,11 +407,10 @@ describe("WorkflowTools.workflow()", () => {
 			const emitter = createMockEmitter();
 
 			const callStack = createCallStack();
-			const stackWithCall = pushCall(callStack, createCallStackEntry(
-				"workflow-a",
-				"1.0.0",
-				"init-node",
-			));
+			const stackWithCall = pushCall(
+				callStack,
+				createCallStackEntry("workflow-a", "1.0.0", "init-node"),
+			);
 
 			const config = createTestConfig({
 				callStack: stackWithCall,
@@ -414,7 +420,9 @@ describe("WorkflowTools.workflow()", () => {
 
 			await tools.workflow("workflow-a");
 
-			const errorEvents = emitter.events.filter(e => e.type === "workflow:call:error");
+			const errorEvents = emitter.events.filter(
+				(e) => e.type === "workflow:call:error",
+			);
 			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 
 			// Verify error payload structure
@@ -441,7 +449,9 @@ describe("WorkflowTools.workflow()", () => {
 
 			await tools.workflow("missing-workflow");
 
-			const errorEvents = emitter.events.filter(e => e.type === "workflow:call:error");
+			const errorEvents = emitter.events.filter(
+				(e) => e.type === "workflow:call:error",
+			);
 			expect(errorEvents.length).toBeGreaterThanOrEqual(1);
 		});
 	});
@@ -624,9 +634,13 @@ describe("WorkflowTools.workflow()", () => {
 			await tools.workflow("test-workflow");
 
 			// The error event should show "unknown" as the caller workflow
-			const errorEvents = emitter.events.filter(e => e.type === "workflow:call:error");
+			const errorEvents = emitter.events.filter(
+				(e) => e.type === "workflow:call:error",
+			);
 			if (errorEvents.length > 0) {
-				const payload = errorEvents[0].payload as { callerWorkflowName: string };
+				const payload = errorEvents[0].payload as {
+					callerWorkflowName: string;
+				};
 				expect(payload.callerWorkflowName).toBe("unknown");
 			}
 		});
@@ -646,7 +660,9 @@ describe("WorkflowTools.workflow()", () => {
 			await tools.workflow("test-workflow");
 
 			// The error event should show "unknown" as the caller node
-			const errorEvents = emitter.events.filter(e => e.type === "workflow:call:error");
+			const errorEvents = emitter.events.filter(
+				(e) => e.type === "workflow:call:error",
+			);
 			if (errorEvents.length > 0) {
 				const payload = errorEvents[0].payload as { callerNodeName: string };
 				expect(payload.callerNodeName).toBe("unknown");

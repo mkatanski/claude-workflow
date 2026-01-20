@@ -7,29 +7,69 @@
  */
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { ExecutionContext } from "../context/execution.ts";
-import type { TmuxManager } from "../tmux/manager.ts";
 import type { StepConfig } from "../../types/index.ts";
 import { LoopSignal } from "../../types/index.ts";
+import type { ExecutionContext } from "../context/execution.ts";
+import type { TmuxManager } from "../tmux/manager.ts";
+import {
+	type AgentErrorType,
+	type AgentMessageSubtype,
+	type AgentMessageType,
+	type BuiltInTool,
+	type ClaudeAgentConfig,
+	type PermissionMode,
+	type PostToolUseHook,
+	type PreToolUseHook,
+	resolveModel,
+	type SubagentDefinition,
+} from "./claudeAgent.types.ts";
 import type { ToolResult } from "./types.ts";
 import { BaseTool, errorResult } from "./types.ts";
-import {
-	type ClaudeAgentConfig,
-	type AgentMessageType,
-	type AgentMessageSubtype,
-	type AgentErrorType,
-	type BuiltInTool,
-	type PermissionMode,
-	type SubagentDefinition,
-	type PreToolUseHook,
-	type PostToolUseHook,
-	resolveModel,
-} from "./claudeAgent.types.ts";
 
 /**
  * Subtype for assistant messages to distinguish content types.
  */
 export type AssistantMessageSubtype = "text" | "thinking" | "tool_use";
+
+/**
+ * Token usage for a message.
+ */
+export interface AgentMessageUsage {
+	inputTokens?: number;
+	outputTokens?: number;
+	cacheReadTokens?: number;
+	cacheCreationTokens?: number;
+}
+
+/**
+ * File information from tool results.
+ */
+export interface AgentMessageFileInfo {
+	filePath: string;
+	numLines: number;
+	startLine?: number;
+	totalLines?: number;
+}
+
+/**
+ * Per-model usage breakdown.
+ */
+export interface AgentMessageModelUsage {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
+	costUsd: number;
+}
+
+/**
+ * Permission denial record.
+ */
+export interface AgentMessagePermissionDenial {
+	toolName: string;
+	toolUseId?: string;
+	reason?: string;
+}
 
 /**
  * Message from an agent session conversation.
@@ -55,6 +95,49 @@ export interface AgentMessage {
 	agentName?: string;
 	/** Raw SDK message for debugging - always present */
 	raw: unknown;
+
+	// === Enhanced fields from SDK messages ===
+
+	/** Token usage for this message (from assistant messages) */
+	usage?: AgentMessageUsage;
+	/** Stop reason (end_turn, max_tokens, tool_use, refusal) */
+	stopReason?: string;
+	/** File info from tool results (Read tool) */
+	fileInfo?: AgentMessageFileInfo;
+
+	// === Result message fields ===
+
+	/** Number of API turns (from result message) */
+	numTurns?: number;
+	/** Duration in milliseconds (from result message) */
+	durationMs?: number;
+	/** API duration in milliseconds (from result message) */
+	durationApiMs?: number;
+	/** Total cost in USD (from result message) */
+	costUsd?: number;
+	/** Per-model usage breakdown (from result message) */
+	modelUsage?: Record<string, AgentMessageModelUsage>;
+	/** Permission denials (from result message) */
+	permissionDenials?: AgentMessagePermissionDenial[];
+
+	// === Init message fields ===
+
+	/** Available tools (from init message) */
+	availableTools?: string[];
+	/** Permission mode (from init message) */
+	permissionMode?: string;
+	/** Claude Code version (from init message) */
+	claudeCodeVersion?: string;
+}
+
+/**
+ * Aggregated usage statistics for a session.
+ */
+export interface AgentSessionUsageStats {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheCreationTokens: number;
 }
 
 /**
@@ -75,6 +158,21 @@ export interface AgentSessionResult {
 	error?: string;
 	/** Error type category */
 	errorType?: AgentErrorType;
+
+	// === Enhanced fields from SDK result ===
+
+	/** Number of API turns */
+	numTurns?: number;
+	/** API duration in milliseconds */
+	durationApiMs?: number;
+	/** Total cost in USD */
+	costUsd?: number;
+	/** Aggregated token usage */
+	totalUsage?: AgentSessionUsageStats;
+	/** Per-model usage breakdown */
+	modelUsage?: Record<string, AgentMessageModelUsage>;
+	/** Permission denials during session */
+	permissionDenials?: AgentMessagePermissionDenial[];
 }
 
 /**
@@ -83,7 +181,11 @@ export interface AgentSessionResult {
 export type AgentMessageCallback = (message: AgentMessage) => void;
 
 // Re-export types that are used by tools.ts
-export type { AgentMessageType, AgentMessageSubtype, AgentErrorType } from "./claudeAgent.types.ts";
+export type {
+	AgentErrorType,
+	AgentMessageSubtype,
+	AgentMessageType,
+} from "./claudeAgent.types.ts";
 
 /**
  * Options for executing an agent session.
@@ -254,6 +356,47 @@ export class ClaudeAgentTool extends BaseTool {
 
 					if (sdkMessage.subtype === "success") {
 						finalOutput = sdkMessage.result;
+
+						// Extract enhanced result data
+						const resultMsg = sdkMessage as Record<string, unknown>;
+						const numTurns = resultMsg.num_turns as number | undefined;
+						const durationApiMs = resultMsg.duration_api_ms as
+							| number
+							| undefined;
+						const costUsd = resultMsg.total_cost_usd as number | undefined;
+						const modelUsage = this.extractModelUsage(resultMsg.modelUsage);
+						const permissionDenials = this.extractPermissionDenials(
+							resultMsg.permission_denials,
+						);
+
+						// Extract aggregated usage from result
+						const rawUsage = resultMsg.usage as
+							| Record<string, unknown>
+							| undefined;
+						const totalUsage = rawUsage
+							? {
+									inputTokens: (rawUsage.input_tokens as number) ?? 0,
+									outputTokens: (rawUsage.output_tokens as number) ?? 0,
+									cacheReadTokens:
+										(rawUsage.cache_read_input_tokens as number) ?? 0,
+									cacheCreationTokens:
+										(rawUsage.cache_creation_input_tokens as number) ?? 0,
+								}
+							: undefined;
+
+						return {
+							success: true,
+							output: finalOutput,
+							messages,
+							sessionId,
+							duration: Date.now() - startTime,
+							numTurns,
+							durationApiMs,
+							costUsd,
+							totalUsage,
+							modelUsage,
+							permissionDenials,
+						};
 					} else {
 						// Error result
 						const errorType = this.categorizeError(
@@ -273,6 +416,7 @@ export class ClaudeAgentTool extends BaseTool {
 				}
 			}
 
+			// Fallback return (shouldn't normally reach here)
 			return {
 				success: true,
 				output: finalOutput,
@@ -312,6 +456,13 @@ export class ClaudeAgentTool extends BaseTool {
 				const apiMessage = msg.message as Record<string, unknown> | undefined;
 				const content = apiMessage?.content as unknown[] | undefined;
 
+				// Extract usage data from assistant message
+				const sdkUsage = apiMessage?.usage as
+					| Record<string, unknown>
+					| undefined;
+				const usage = sdkUsage ? this.extractUsage(sdkUsage) : undefined;
+				const stopReason = apiMessage?.stop_reason as string | undefined;
+
 				if (Array.isArray(content)) {
 					for (const block of content) {
 						if (typeof block !== "object" || block === null) continue;
@@ -328,6 +479,8 @@ export class ClaudeAgentTool extends BaseTool {
 									subtype: "text",
 									content: text,
 									sessionId,
+									usage,
+									stopReason,
 									raw: sdkMessage,
 								});
 							}
@@ -342,6 +495,8 @@ export class ClaudeAgentTool extends BaseTool {
 									subtype: "thinking",
 									content: thinking,
 									sessionId,
+									usage,
+									stopReason,
 									raw: sdkMessage,
 								});
 							}
@@ -355,6 +510,8 @@ export class ClaudeAgentTool extends BaseTool {
 								toolName: blockObj.name as string,
 								toolInput: blockObj.input,
 								sessionId,
+								usage,
+								stopReason,
 								raw: sdkMessage,
 							});
 						}
@@ -367,6 +524,12 @@ export class ClaudeAgentTool extends BaseTool {
 				// Check if this is a tool result message
 				const apiMessage = msg.message as Record<string, unknown> | undefined;
 				const content = apiMessage?.content as unknown[] | undefined;
+
+				// Check for tool_use_result with file info at top level
+				const toolUseResult = msg.tool_use_result as
+					| Record<string, unknown>
+					| undefined;
+				const fileInfo = this.extractFileInfo(toolUseResult);
 
 				if (Array.isArray(content)) {
 					for (const block of content) {
@@ -387,6 +550,7 @@ export class ClaudeAgentTool extends BaseTool {
 								toolName: toolUseId, // Use tool_use_id as identifier
 								sessionId,
 								error: isError ? toolResult : undefined,
+								fileInfo,
 								raw: sdkMessage,
 							});
 						}
@@ -399,11 +563,21 @@ export class ClaudeAgentTool extends BaseTool {
 				const subtype = msg.subtype as string | undefined;
 
 				if (subtype === "init") {
+					// Extract enhanced init data
+					const tools = msg.tools as string[] | undefined;
+					const permissionMode = msg.permissionMode as string | undefined;
+					const claudeCodeVersion = msg.claude_code_version as
+						| string
+						| undefined;
+
 					messages.push({
 						type: "system",
 						subtype: "init",
 						sessionId,
 						content: `Session initialized with model: ${msg.model as string}`,
+						availableTools: tools,
+						permissionMode,
+						claudeCodeVersion,
 						raw: sdkMessage,
 					});
 				} else if (subtype === "subagent_start") {
@@ -442,11 +616,27 @@ export class ClaudeAgentTool extends BaseTool {
 				const subtype = msg.subtype as string | undefined;
 
 				if (subtype === "success") {
+					// Extract enhanced result data
+					const numTurns = msg.num_turns as number | undefined;
+					const durationMs = msg.duration_ms as number | undefined;
+					const durationApiMs = msg.duration_api_ms as number | undefined;
+					const costUsd = msg.total_cost_usd as number | undefined;
+					const modelUsage = this.extractModelUsage(msg.modelUsage);
+					const permissionDenials = this.extractPermissionDenials(
+						msg.permission_denials,
+					);
+
 					messages.push({
 						type: "system",
 						subtype: "completion",
 						sessionId,
 						content: msg.result as string,
+						numTurns,
+						durationMs,
+						durationApiMs,
+						costUsd,
+						modelUsage,
+						permissionDenials,
 						raw: sdkMessage,
 					});
 				} else {
@@ -477,11 +667,99 @@ export class ClaudeAgentTool extends BaseTool {
 	}
 
 	/**
+	 * Extract usage data from SDK usage object.
+	 */
+	private extractUsage(sdkUsage: Record<string, unknown>): AgentMessageUsage {
+		return {
+			inputTokens: sdkUsage.input_tokens as number | undefined,
+			outputTokens: sdkUsage.output_tokens as number | undefined,
+			cacheReadTokens: sdkUsage.cache_read_input_tokens as number | undefined,
+			cacheCreationTokens: sdkUsage.cache_creation_input_tokens as
+				| number
+				| undefined,
+		};
+	}
+
+	/**
+	 * Extract file info from tool_use_result.
+	 */
+	private extractFileInfo(
+		toolUseResult: Record<string, unknown> | undefined,
+	): AgentMessageFileInfo | undefined {
+		if (!toolUseResult) return undefined;
+
+		const file = toolUseResult.file as Record<string, unknown> | undefined;
+		if (!file) return undefined;
+
+		const filePath = file.filePath as string | undefined;
+		const numLines = file.numLines as number | undefined;
+
+		if (!filePath || numLines === undefined) return undefined;
+
+		return {
+			filePath,
+			numLines,
+			startLine: file.startLine as number | undefined,
+			totalLines: file.totalLines as number | undefined,
+		};
+	}
+
+	/**
+	 * Extract per-model usage from result message.
+	 */
+	private extractModelUsage(
+		rawModelUsage: unknown,
+	): Record<string, AgentMessageModelUsage> | undefined {
+		if (!rawModelUsage || typeof rawModelUsage !== "object") return undefined;
+
+		const result: Record<string, AgentMessageModelUsage> = {};
+		const modelUsageObj = rawModelUsage as Record<string, unknown>;
+
+		for (const [modelId, usage] of Object.entries(modelUsageObj)) {
+			if (!usage || typeof usage !== "object") continue;
+
+			const usageObj = usage as Record<string, unknown>;
+			result[modelId] = {
+				inputTokens: (usageObj.input_tokens as number) ?? 0,
+				outputTokens: (usageObj.output_tokens as number) ?? 0,
+				cacheReadTokens: (usageObj.cache_read_input_tokens as number) ?? 0,
+				cacheCreationTokens:
+					(usageObj.cache_creation_input_tokens as number) ?? 0,
+				costUsd: (usageObj.cost_usd as number) ?? 0,
+			};
+		}
+
+		return Object.keys(result).length > 0 ? result : undefined;
+	}
+
+	/**
+	 * Extract permission denials from result message.
+	 */
+	private extractPermissionDenials(
+		rawDenials: unknown,
+	): AgentMessagePermissionDenial[] | undefined {
+		if (!Array.isArray(rawDenials)) return undefined;
+
+		const denials: AgentMessagePermissionDenial[] = [];
+
+		for (const denial of rawDenials) {
+			if (!denial || typeof denial !== "object") continue;
+
+			const denialObj = denial as Record<string, unknown>;
+			denials.push({
+				toolName: (denialObj.tool_name as string) ?? "unknown",
+				toolUseId: denialObj.tool_use_id as string | undefined,
+				reason: denialObj.reason as string | undefined,
+			});
+		}
+
+		return denials.length > 0 ? denials : undefined;
+	}
+
+	/**
 	 * Build hooks configuration from options.
 	 */
-	private buildHooks(
-		options?: AgentSessionOptions,
-	):
+	private buildHooks(options?: AgentSessionOptions):
 		| Record<
 				string,
 				Array<{
@@ -606,9 +884,7 @@ export class ClaudeAgentTool extends BaseTool {
 	/**
 	 * Build agents configuration from options.
 	 */
-	private buildAgents(
-		options?: AgentSessionOptions,
-	):
+	private buildAgents(options?: AgentSessionOptions):
 		| Record<
 				string,
 				{

@@ -223,9 +223,15 @@ export class RegistryService {
 		const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
 
 		this.config = {
-			registryUrl: config?.registryUrl ?? envRegistryUrl ?? DEFAULT_REGISTRY_URL,
-			cacheTtl: config?.cacheTtl ?? (envCacheTtl ? Number.parseInt(envCacheTtl, 10) * 1000 : DEFAULT_CACHE_TTL),
-			cachePath: config?.cachePath ?? path.join(homeDir, ".cw", DEFAULT_CACHE_FILENAME),
+			registryUrl:
+				config?.registryUrl ?? envRegistryUrl ?? DEFAULT_REGISTRY_URL,
+			cacheTtl:
+				config?.cacheTtl ??
+				(envCacheTtl
+					? Number.parseInt(envCacheTtl, 10) * 1000
+					: DEFAULT_CACHE_TTL),
+			cachePath:
+				config?.cachePath ?? path.join(homeDir, ".cw", DEFAULT_CACHE_FILENAME),
 		};
 	}
 
@@ -304,7 +310,9 @@ export class RegistryService {
 	 * }
 	 * ```
 	 */
-	async search(options: SearchOptions): Promise<RegistryResult<SearchResult[]>> {
+	async search(
+		options: SearchOptions,
+	): Promise<RegistryResult<SearchResult[]>> {
 		const { query, limit = 20, verifiedOnly = false } = options;
 
 		if (!query.trim()) {

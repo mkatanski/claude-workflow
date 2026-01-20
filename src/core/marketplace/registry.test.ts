@@ -25,7 +25,9 @@ import { MARKETPLACE_ERROR_CODES } from "./types.ts";
 /**
  * Create a mock registry for testing.
  */
-function createMockRegistry(packages?: Record<string, RegistryEntry>): Registry {
+function createMockRegistry(
+	packages?: Record<string, RegistryEntry>,
+): Registry {
 	return {
 		version: "1.0.0",
 		updated: "2024-01-18T12:00:00Z",
@@ -330,7 +332,11 @@ describe("RegistryService", () => {
 				);
 
 				await fs.mkdir(path.dirname(testCachePath), { recursive: true });
-				await fs.writeFile(testCachePath, JSON.stringify(expiredCache), "utf-8");
+				await fs.writeFile(
+					testCachePath,
+					JSON.stringify(expiredCache),
+					"utf-8",
+				);
 
 				const service = new RegistryService({
 					cachePath: testCachePath,

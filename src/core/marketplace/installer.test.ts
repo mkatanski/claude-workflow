@@ -14,10 +14,7 @@ import {
 import { GitService, type GitTag } from "./git.ts";
 import { RegistryService } from "./registry.ts";
 import { MARKETPLACE_ERROR_CODES } from "./types.ts";
-import type {
-	InstallationServiceConfig,
-	RegistryEntry,
-} from "./types.ts";
+import type { InstallationServiceConfig, RegistryEntry } from "./types.ts";
 import { ok, err } from "../utils/result/index.ts";
 
 // ============================================================================
@@ -89,7 +86,9 @@ function createMockRegistryService(): {
 			),
 		),
 		search: mock(() => Promise.resolve(ok([]))),
-		refresh: mock(() => Promise.resolve(ok({ version: "1.0.0", updated: "", packages: {} }))),
+		refresh: mock(() =>
+			Promise.resolve(ok({ version: "1.0.0", updated: "", packages: {} })),
+		),
 		getRegistry: mock(() =>
 			Promise.resolve(ok({ version: "1.0.0", updated: "", packages: {} })),
 		),
@@ -114,7 +113,11 @@ describe("InstallationService", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		describe("registry sources", () => {
@@ -239,7 +242,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should parse git source with https URL", () => {
-				const result = installer.parseSource("git:https://github.com/user/workflow.git");
+				const result = installer.parseSource(
+					"git:https://github.com/user/workflow.git",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -248,7 +253,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should parse git source with SSH URL", () => {
-				const result = installer.parseSource("git:git@github.com:user/workflow.git");
+				const result = installer.parseSource(
+					"git:git@github.com:user/workflow.git",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -257,7 +264,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should parse git source with ref (tag)", () => {
-				const result = installer.parseSource("git:github.com/user/workflow#v1.0.0");
+				const result = installer.parseSource(
+					"git:github.com/user/workflow#v1.0.0",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -267,7 +276,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should parse git source with ref (branch)", () => {
-				const result = installer.parseSource("git:github.com/user/workflow#main");
+				const result = installer.parseSource(
+					"git:github.com/user/workflow#main",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -275,7 +286,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should parse git source with ref (commit)", () => {
-				const result = installer.parseSource("git:github.com/user/workflow#abc123");
+				const result = installer.parseSource(
+					"git:github.com/user/workflow#abc123",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -300,7 +313,9 @@ describe("InstallationService", () => {
 			});
 
 			it("should normalize URL without .git suffix", () => {
-				const result = installer.parseSource("git:https://github.com/user/workflow");
+				const result = installer.parseSource(
+					"git:https://github.com/user/workflow",
+				);
 
 				expect(result.isOk()).toBe(true);
 				const parsed = result.unwrap();
@@ -311,7 +326,9 @@ describe("InstallationService", () => {
 
 	describe("extractNameFromGitUrl", () => {
 		it("should extract name from https URL", () => {
-			const name = extractNameFromGitUrl("https://github.com/user/my-workflow.git");
+			const name = extractNameFromGitUrl(
+				"https://github.com/user/my-workflow.git",
+			);
 			expect(name).toBe("my-workflow");
 		});
 
@@ -341,7 +358,11 @@ describe("InstallationService", () => {
 			const { registryService, mocks: rMocks } = createMockRegistryService();
 			gitMocks = gMocks;
 			registryMocks = rMocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should return error for empty source array", async () => {
@@ -379,7 +400,9 @@ describe("InstallationService", () => {
 			expect(result.isOk()).toBe(true);
 			const data = result.unwrap();
 			expect(data.success).toBe(false);
-			expect(data.errors[0].code).toBe(MARKETPLACE_ERROR_CODES.PACKAGE_NOT_FOUND);
+			expect(data.errors[0].code).toBe(
+				MARKETPLACE_ERROR_CODES.PACKAGE_NOT_FOUND,
+			);
 		});
 
 		it("should handle git clone failure", async () => {
@@ -435,7 +458,11 @@ describe("InstallationService", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should return error when package is not installed", async () => {
@@ -452,13 +479,17 @@ describe("InstallationService", () => {
 		});
 
 		it("should handle global scope option", async () => {
-			const result = await installer.uninstall(["my-workflow"], { global: true });
+			const result = await installer.uninstall(["my-workflow"], {
+				global: true,
+			});
 
 			expect(result.isOk()).toBe(true);
 		});
 
 		it("should handle force option", async () => {
-			const result = await installer.uninstall(["my-workflow"], { force: true });
+			const result = await installer.uninstall(["my-workflow"], {
+				force: true,
+			});
 
 			expect(result.isOk()).toBe(true);
 		});
@@ -479,7 +510,11 @@ describe("InstallationService", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should return error when no packages specified and not --all", async () => {
@@ -507,7 +542,9 @@ describe("InstallationService", () => {
 			expect(result.isOk()).toBe(true);
 			const data = result.unwrap();
 			expect(data.errors).toHaveLength(1);
-			expect(data.errors[0].code).toBe(MARKETPLACE_ERROR_CODES.PACKAGE_NOT_FOUND);
+			expect(data.errors[0].code).toBe(
+				MARKETPLACE_ERROR_CODES.PACKAGE_NOT_FOUND,
+			);
 		});
 	});
 
@@ -517,7 +554,11 @@ describe("InstallationService", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should return empty list for non-existent directory", async () => {
@@ -551,7 +592,11 @@ describe("InstallationService", () => {
 			const config = createTestConfig();
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			const installer = new InstallationService(config, gitService, registryService);
+			const installer = new InstallationService(
+				config,
+				gitService,
+				registryService,
+			);
 
 			const returnedConfig = installer.getConfig();
 
@@ -578,7 +623,11 @@ describe("InstallationService", () => {
 			const { gitService, mocks } = createMockGitService();
 			const { registryService } = createMockRegistryService();
 			gitMocks = mocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should use latest tag when no version specified", async () => {
@@ -601,7 +650,9 @@ describe("InstallationService", () => {
 
 		it("should use default branch when no tags available", async () => {
 			gitMocks.getLatestTag.mockImplementation(() => Promise.resolve(ok(null)));
-			gitMocks.getDefaultBranch.mockImplementation(() => Promise.resolve(ok("main")));
+			gitMocks.getDefaultBranch.mockImplementation(() =>
+				Promise.resolve(ok("main")),
+			);
 
 			await installer.install(["my-workflow"]);
 
@@ -619,7 +670,11 @@ describe("InstallationService", () => {
 			const { registryService, mocks: rMocks } = createMockRegistryService();
 			gitMocks = gMocks;
 			registryMocks = rMocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should skip dependencies when noDeps option is set", async () => {
@@ -650,7 +705,11 @@ describe("InstallationService", () => {
 			const { gitService, mocks } = createMockGitService();
 			const { registryService } = createMockRegistryService();
 			gitMocks = mocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should match caret range correctly", async () => {
@@ -696,7 +755,9 @@ describe("InstallationService", () => {
 			expect(result.isOk()).toBe(true);
 			const data = result.unwrap();
 			expect(data.success).toBe(false);
-			expect(data.errors[0].code).toBe(MARKETPLACE_ERROR_CODES.VERSION_NOT_FOUND);
+			expect(data.errors[0].code).toBe(
+				MARKETPLACE_ERROR_CODES.VERSION_NOT_FOUND,
+			);
 		});
 	});
 
@@ -708,7 +769,11 @@ describe("InstallationService", () => {
 			const { gitService } = createMockGitService();
 			const { registryService, mocks: rMocks } = createMockRegistryService();
 			registryMocks = rMocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should return empty installed list on error", async () => {
@@ -750,7 +815,11 @@ describe("InstallationService", () => {
 			const { gitService, mocks } = createMockGitService();
 			const { registryService } = createMockRegistryService();
 			gitMocks = mocks;
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should proceed with force option even if package exists", async () => {
@@ -889,7 +958,9 @@ describe("Error handling", () => {
 			expect(result.isOk()).toBe(true);
 			const data = result.unwrap();
 			expect(data.success).toBe(false);
-			expect(data.errors[0].code).toBe(MARKETPLACE_ERROR_CODES.PERMISSION_DENIED);
+			expect(data.errors[0].code).toBe(
+				MARKETPLACE_ERROR_CODES.PERMISSION_DENIED,
+			);
 		});
 	});
 
@@ -924,7 +995,11 @@ describe("Edge cases", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should handle package names with numbers", () => {
@@ -952,7 +1027,11 @@ describe("Edge cases", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should handle URLs with multiple path segments", () => {
@@ -964,7 +1043,9 @@ describe("Edge cases", () => {
 		});
 
 		it("should handle http URLs (converted to https)", () => {
-			const result = installer.parseSource("git:http://github.com/user/workflow");
+			const result = installer.parseSource(
+				"git:http://github.com/user/workflow",
+			);
 
 			expect(result.isOk()).toBe(true);
 			// http is preserved as-is, only shorthand gets https added
@@ -977,7 +1058,11 @@ describe("Edge cases", () => {
 		beforeEach(() => {
 			const { gitService } = createMockGitService();
 			const { registryService } = createMockRegistryService();
-			installer = new InstallationService(createTestConfig(), gitService, registryService);
+			installer = new InstallationService(
+				createTestConfig(),
+				gitService,
+				registryService,
+			);
 		});
 
 		it("should handle version with v prefix", () => {

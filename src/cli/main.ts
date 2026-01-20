@@ -83,7 +83,10 @@ hooksCmd
 // Install command - install workflow packages
 program
 	.command("install")
-	.argument("<source...>", "Package source(s) to install (name, name@version, or git:url)")
+	.argument(
+		"<source...>",
+		"Package source(s) to install (name, name@version, or git:url)",
+	)
 	.option("-g, --global", "Install to global location (~/.cw/workflows/)")
 	.option("--no-deps", "Skip dependency installation")
 	.option("-f, --force", "Force reinstall even if package exists")
@@ -103,7 +106,10 @@ program
 	.command("uninstall")
 	.argument("<name...>", "Package name(s) to uninstall")
 	.option("-g, --global", "Uninstall from global location (~/.cw/workflows/)")
-	.option("-f, --force", "Force uninstall even if other packages depend on this one")
+	.option(
+		"-f, --force",
+		"Force uninstall even if other packages depend on this one",
+	)
 	.option("-v, --verbose", "Enable verbose output")
 	.description("Remove installed workflow packages")
 	.action(async (names: string[], options) => {
@@ -117,7 +123,10 @@ program
 // Update command - update workflow packages
 program
 	.command("update")
-	.argument("[name...]", "Package name(s) to update (or --all for all packages)")
+	.argument(
+		"[name...]",
+		"Package name(s) to update (or --all for all packages)",
+	)
 	.option("-a, --all", "Update all installed packages")
 	.option("-g, --global", "Update from global location (~/.cw/workflows/)")
 	.option("-n, --dry-run", "Show what would be updated without making changes")
@@ -135,7 +144,10 @@ program
 // List command - list installed workflow packages
 program
 	.command("list")
-	.option("-g, --global", "List packages from global location (~/.cw/workflows/)")
+	.option(
+		"-g, --global",
+		"List packages from global location (~/.cw/workflows/)",
+	)
 	.option("-a, --all", "List packages from both project and global locations")
 	.option("-o, --outdated", "Show only packages with available updates")
 	.option("--json", "Output in JSON format")

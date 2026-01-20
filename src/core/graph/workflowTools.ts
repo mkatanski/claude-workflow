@@ -78,9 +78,7 @@ import type {
 	WorkflowCallOptions,
 	WorkflowCallResult,
 } from "../composition/types.js";
-import {
-	parseWorkflowReference,
-} from "../composition/reference.js";
+import { parseWorkflowReference } from "../composition/reference.js";
 import {
 	createCallStack,
 	checkCircular,
@@ -161,7 +159,9 @@ export interface WorkflowToolsConfig {
 	 * This is used as an alternative to the registry for loading workflow definitions.
 	 * Takes a resolved path and returns the workflow definition.
 	 */
-	workflowLoader?: (path: string) => Promise<LangGraphWorkflowDefinition | undefined>;
+	workflowLoader?: (
+		path: string,
+	) => Promise<LangGraphWorkflowDefinition | undefined>;
 }
 
 /**
@@ -893,12 +893,16 @@ export function createWorkflowTools(
 							sessionId: message.sessionId,
 							agentName: message.agentName,
 							raw: message.raw,
+							// Enhanced fields
+							usage: message.usage,
+							stopReason: message.stopReason,
+							fileInfo: message.fileInfo,
 						});
 					},
 				});
 
 				if (result.success) {
-					// Emit complete event
+					// Emit complete event with enhanced data
 					events?.agentSessionComplete({
 						label,
 						success: true,
@@ -906,6 +910,13 @@ export function createWorkflowTools(
 						sessionId: result.sessionId,
 						messageCount: result.messages.length,
 						duration: timer.elapsed(),
+						// Enhanced fields from result
+						numTurns: result.numTurns,
+						durationApiMs: result.durationApiMs,
+						costUsd: result.costUsd,
+						totalUsage: result.totalUsage,
+						modelUsage: result.modelUsage,
+						permissionDenials: result.permissionDenials,
 					});
 				} else {
 					// Emit error event
@@ -1147,10 +1158,13 @@ export function createWorkflowTools(
 			options?: ParallelWorkflowsOptions,
 		): Promise<ParallelWorkflowsResult> {
 			const timer = createTimer();
-			const maxConcurrency = options?.maxConcurrency ?? DEFAULT_WORKFLOW_CONCURRENCY;
+			const maxConcurrency =
+				options?.maxConcurrency ?? DEFAULT_WORKFLOW_CONCURRENCY;
 
 			// Generate workflow IDs for those that don't have them
-			const workflowIds = workflows.map((wf, index) => wf.id ?? `workflow_${index}`);
+			const workflowIds = workflows.map(
+				(wf, index) => wf.id ?? `workflow_${index}`,
+			);
 
 			// Emit start event
 			events?.parallelWorkflowsStart({
@@ -1269,10 +1283,17 @@ export function createWorkflowTools(
 							.filter((w) => w.success && w.output !== undefined)
 							.map((w) => ({ id: w.id, output: w.output }));
 					},
-					getErrors(): Array<{ id: string; error: import("../composition/types.js").WorkflowCallError }> {
+					getErrors(): Array<{
+						id: string;
+						error: import("../composition/types.js").WorkflowCallError;
+					}> {
 						return transformedWorkflows
 							.filter((w) => !w.success && w.error !== undefined)
-							.map((w) => ({ id: w.id, error: w.error as import("../composition/types.js").WorkflowCallError }));
+							.map((w) => ({
+								id: w.id,
+								error:
+									w.error as import("../composition/types.js").WorkflowCallError,
+							}));
 					},
 					isSuccessful(id: string): boolean {
 						const workflow = transformedWorkflows.find((w) => w.id === id);
@@ -1312,7 +1333,10 @@ export function createWorkflowTools(
 					getSuccessfulOutputs(): Array<{ id: string; output: unknown }> {
 						return [];
 					},
-					getErrors(): Array<{ id: string; error: import("../composition/types.js").WorkflowCallError }> {
+					getErrors(): Array<{
+						id: string;
+						error: import("../composition/types.js").WorkflowCallError;
+					}> {
 						return workflows.map((wf, index) => ({
 							id: wf.id ?? `workflow_${index}`,
 							error: {
@@ -1385,10 +1409,18 @@ export function createWorkflowTools(
 			const workflowVersion = parsedRef.version ?? "0.0.0";
 
 			// Step 2: Check for circular calls before proceeding
-			const circularCheck = checkCircular(callStack, workflowName, workflowVersion);
+			const circularCheck = checkCircular(
+				callStack,
+				workflowName,
+				workflowVersion,
+			);
 
 			if (circularCheck.isCircular) {
-				const error = createCircularCallError(callStack, workflowName, workflowVersion);
+				const error = createCircularCallError(
+					callStack,
+					workflowName,
+					workflowVersion,
+				);
 
 				events?.workflowCallError({
 					calledWorkflowName: workflowName,
@@ -1439,7 +1471,8 @@ export function createWorkflowTools(
 			// that happen before we can start execution (circular calls, resolution failures).
 			let workflowDefinition: LangGraphWorkflowDefinition | undefined;
 			let resolvedVersion = workflowVersion;
-			let resolvedSource: "project" | "project-installed" | "global" = "project";
+			let resolvedSource: "project" | "project-installed" | "global" =
+				"project";
 
 			// Try to resolve using registry if available
 			if (config.registry) {
@@ -1448,7 +1481,10 @@ export function createWorkflowTools(
 				if (resolveResult._tag === "ok") {
 					const resolved = resolveResult.value;
 					resolvedVersion = resolved.metadata.version;
-					resolvedSource = resolved.source as "project" | "project-installed" | "global";
+					resolvedSource = resolved.source as
+						| "project"
+						| "project-installed"
+						| "global";
 
 					// Try to load the workflow definition
 					if (config.workflowLoader) {
@@ -1470,9 +1506,12 @@ export function createWorkflowTools(
 					return {
 						success: false,
 						error: {
-							code: error.code === "VERSION_NOT_FOUND" ? "VERSION_NOT_FOUND"
-								: error.code === "WORKFLOW_NOT_FOUND" ? "WORKFLOW_NOT_FOUND"
-								: "WORKFLOW_NOT_FOUND",
+							code:
+								error.code === "VERSION_NOT_FOUND"
+									? "VERSION_NOT_FOUND"
+									: error.code === "WORKFLOW_NOT_FOUND"
+										? "WORKFLOW_NOT_FOUND"
+										: "WORKFLOW_NOT_FOUND",
 							message: errorMessage,
 							availableVersions: error.availableVersions,
 						},
@@ -1491,7 +1530,7 @@ export function createWorkflowTools(
 				const errorMessage = config.registry
 					? `Workflow "${workflowName}" could not be loaded. The workflow was resolved but the definition could not be loaded.`
 					: `Workflow "${workflowName}" not found. No workflow registry is configured. ` +
-					  `To use workflow composition, ensure the workflow registry is available.`;
+						`To use workflow composition, ensure the workflow registry is available.`;
 
 				events?.workflowCallError({
 					calledWorkflowName: workflowName,
