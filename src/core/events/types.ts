@@ -784,11 +784,14 @@ export interface ToolAgentSessionStartPayload {
 export interface ToolAgentSessionMessagePayload {
 	label?: string;
 	messageType: "assistant" | "tool_call" | "tool_result" | "error" | "system";
+	/** Subtype for more specific categorization (e.g., "text", "thinking", "tool_use", "init", "completion") */
+	subtype?: string;
 	content?: string;
 	toolName?: string;
 	sessionId?: string;
-	subtype?: string;
 	agentName?: string;
+	/** Raw SDK message for debugging - always present */
+	raw: unknown;
 }
 
 export interface ToolAgentSessionCompletePayload {

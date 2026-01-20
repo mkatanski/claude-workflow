@@ -7,15 +7,19 @@
  */
 
 import type {
-	AgentErrorType,
-	AgentMessageSubtype,
-	AgentMessageType,
 	BuiltInTool,
 	ModelSpec,
 	PermissionMode,
 	SubagentDefinition,
 	ToolsConfig,
 } from "../tools/claudeAgent.types.js";
+import type {
+	AgentMessage,
+	AgentSessionResult,
+} from "../tools/claudeAgent.js";
+
+// Re-export types that are used by consumers of tools.ts
+export type { AgentMessage, AgentSessionResult } from "../tools/claudeAgent.js";
 import type {
 	AddOptions,
 	CommitOptions,
@@ -570,50 +574,6 @@ export interface AgentSessionOptions {
 	resume?: string;
 	/** Human-readable label for event display */
 	label?: string;
-}
-
-/**
- * Message from an agent session conversation.
- */
-export interface AgentMessage {
-	/** Type of the message */
-	type: AgentMessageType;
-	/** Text content (for assistant/error messages) */
-	content?: string;
-	/** Tool name (for tool_call/tool_result) */
-	toolName?: string;
-	/** Tool input parameters */
-	toolInput?: unknown;
-	/** Tool execution result */
-	toolResult?: unknown;
-	/** Error message */
-	error?: string;
-	/** Session ID for tracking */
-	sessionId?: string;
-	/** Message subtype for system messages */
-	subtype?: AgentMessageSubtype;
-	/** Agent name for subagent messages */
-	agentName?: string;
-}
-
-/**
- * Result of an agent session execution.
- */
-export interface AgentSessionResult {
-	/** Whether the session completed successfully */
-	success: boolean;
-	/** Final output text from the session */
-	output: string;
-	/** All messages from the session */
-	messages: AgentMessage[];
-	/** Session ID for resume capability */
-	sessionId?: string;
-	/** Duration of the session in milliseconds */
-	duration: number;
-	/** Error message if session failed */
-	error?: string;
-	/** Error type category */
-	errorType?: AgentErrorType;
 }
 
 /**

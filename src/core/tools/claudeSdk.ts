@@ -155,14 +155,18 @@ export class ClaudeSdkTool extends BaseTool {
 					output,
 					gotoStep,
 					loopSignal: LoopSignal.NONE,
+					attempts: attempt + 1,
 				};
 			} catch (error) {
 				if (error instanceof OutputValidationError) {
 					lastError = error.message;
 					if (attempt === maxRetries - 1) {
-						return errorResult(
-							`Output validation failed after ${maxRetries} attempts: ${error.message}`,
-						);
+						return {
+							...errorResult(
+								`Output validation failed after ${maxRetries} attempts: ${error.message}`,
+							),
+							attempts: maxRetries,
+						};
 					}
 				} else {
 					throw error;
@@ -170,7 +174,10 @@ export class ClaudeSdkTool extends BaseTool {
 			}
 		}
 
-		return errorResult("Max retries exceeded");
+		return {
+			...errorResult("Max retries exceeded"),
+			attempts: maxRetries,
+		};
 	}
 
 	private buildSystemPrompt(step: StepConfig): string {

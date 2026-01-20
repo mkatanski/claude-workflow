@@ -614,7 +614,7 @@ export function createWorkflowTools(
 					success: result.success,
 					result: data,
 					duration: timer.elapsed(),
-					attempts: 1, // Note: actual retry count would need to come from the tool
+					attempts: result.attempts ?? 1,
 				});
 
 				return {
@@ -627,7 +627,7 @@ export function createWorkflowTools(
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 
-				// Emit error event
+				// Emit error event (unexpected exception - attempts unknown)
 				events?.claudeSdkError({
 					prompt,
 					label,
@@ -870,7 +870,7 @@ export function createWorkflowTools(
 			});
 
 			try {
-				// Execute the agent session
+				// Execute the agent session with streaming callback
 				const result = await claudeAgentTool.executeSession(prompt, {
 					model: options?.model,
 					tools: Array.isArray(options?.tools) ? options.tools : undefined,
@@ -882,20 +882,20 @@ export function createWorkflowTools(
 					maxBudgetUsd: options?.maxBudgetUsd,
 					resume: options?.resume,
 					label,
+					// Stream message events in real-time
+					onMessage: (message) => {
+						events?.agentSessionMessage({
+							label,
+							messageType: message.type,
+							subtype: message.subtype,
+							content: message.content,
+							toolName: message.toolName,
+							sessionId: message.sessionId,
+							agentName: message.agentName,
+							raw: message.raw,
+						});
+					},
 				});
-
-				// Emit message events for each message in the session
-				for (const message of result.messages) {
-					events?.agentSessionMessage({
-						label,
-						messageType: message.type,
-						content: message.content,
-						toolName: message.toolName,
-						sessionId: message.sessionId,
-						subtype: message.subtype,
-						agentName: message.agentName,
-					});
-				}
 
 				if (result.success) {
 					// Emit complete event

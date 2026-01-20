@@ -27,11 +27,18 @@ import {
 } from "./claudeAgent.types.ts";
 
 /**
+ * Subtype for assistant messages to distinguish content types.
+ */
+export type AssistantMessageSubtype = "text" | "thinking" | "tool_use";
+
+/**
  * Message from an agent session conversation.
  */
 export interface AgentMessage {
 	/** Type of the message */
 	type: AgentMessageType;
+	/** Subtype for more specific categorization */
+	subtype?: AgentMessageSubtype | AssistantMessageSubtype;
 	/** Text content (for assistant/error messages) */
 	content?: string;
 	/** Tool name (for tool_call/tool_result) */
@@ -44,10 +51,10 @@ export interface AgentMessage {
 	error?: string;
 	/** Session ID for tracking */
 	sessionId?: string;
-	/** Message subtype for system messages */
-	subtype?: AgentMessageSubtype;
 	/** Agent name for subagent messages */
 	agentName?: string;
+	/** Raw SDK message for debugging - always present */
+	raw: unknown;
 }
 
 /**
@@ -69,6 +76,14 @@ export interface AgentSessionResult {
 	/** Error type category */
 	errorType?: AgentErrorType;
 }
+
+/**
+ * Callback for streaming messages during agent session.
+ */
+export type AgentMessageCallback = (message: AgentMessage) => void;
+
+// Re-export types that are used by tools.ts
+export type { AgentMessageType, AgentMessageSubtype, AgentErrorType } from "./claudeAgent.types.ts";
 
 /**
  * Options for executing an agent session.
@@ -98,6 +113,8 @@ export interface AgentSessionOptions {
 	preToolUseHooks?: PreToolUseHook[];
 	/** Post tool use hooks */
 	postToolUseHooks?: PostToolUseHook[];
+	/** Callback for streaming messages in real-time */
+	onMessage?: AgentMessageCallback;
 }
 
 /**
@@ -215,14 +232,19 @@ export class ClaudeAgentTool extends BaseTool {
 
 			// Iterate through all messages from the AsyncGenerator
 			for await (const sdkMessage of queryResult) {
-				const agentMessage = this.convertMessage(sdkMessage);
+				const agentMessages = this.convertMessage(sdkMessage);
 
-				if (agentMessage) {
+				for (const agentMessage of agentMessages) {
 					messages.push(agentMessage);
 
 					// Track session ID
 					if (agentMessage.sessionId && !sessionId) {
 						sessionId = agentMessage.sessionId;
+					}
+
+					// Call streaming callback if provided
+					if (options?.onMessage) {
+						options.onMessage(agentMessage);
 					}
 				}
 
@@ -275,100 +297,183 @@ export class ClaudeAgentTool extends BaseTool {
 
 	/**
 	 * Convert an SDK message to our AgentMessage format.
+	 * Returns an array since one SDK message might produce multiple agent messages.
+	 * Each message includes the raw SDK message for debugging.
 	 */
-	private convertMessage(sdkMessage: unknown): AgentMessage | null {
+	private convertMessage(sdkMessage: unknown): AgentMessage[] {
 		const msg = sdkMessage as Record<string, unknown>;
 		const type = msg.type as string;
 		const sessionId = msg.session_id as string | undefined;
+		const messages: AgentMessage[] = [];
 
 		switch (type) {
 			case "assistant": {
-				// Extract text content from assistant message
+				// Extract content from assistant message
 				const apiMessage = msg.message as Record<string, unknown> | undefined;
 				const content = apiMessage?.content as unknown[] | undefined;
-				let textContent = "";
 
 				if (Array.isArray(content)) {
 					for (const block of content) {
-						if (
-							typeof block === "object" &&
-							block !== null &&
-							(block as Record<string, unknown>).type === "text"
-						) {
-							textContent +=
-								((block as Record<string, unknown>).text as string) ?? "";
+						if (typeof block !== "object" || block === null) continue;
+
+						const blockObj = block as Record<string, unknown>;
+						const blockType = blockObj.type as string;
+
+						// Handle text blocks
+						if (blockType === "text") {
+							const text = blockObj.text as string;
+							if (text) {
+								messages.push({
+									type: "assistant",
+									subtype: "text",
+									content: text,
+									sessionId,
+									raw: sdkMessage,
+								});
+							}
 						}
+
+						// Handle thinking blocks
+						if (blockType === "thinking") {
+							const thinking = blockObj.thinking as string;
+							if (thinking) {
+								messages.push({
+									type: "assistant",
+									subtype: "thinking",
+									content: thinking,
+									sessionId,
+									raw: sdkMessage,
+								});
+							}
+						}
+
 						// Handle tool_use blocks
-						if (
-							typeof block === "object" &&
-							block !== null &&
-							(block as Record<string, unknown>).type === "tool_use"
-						) {
-							const toolBlock = block as Record<string, unknown>;
-							return {
+						if (blockType === "tool_use") {
+							messages.push({
 								type: "tool_call",
-								toolName: toolBlock.name as string,
-								toolInput: toolBlock.input,
+								subtype: "tool_use",
+								toolName: blockObj.name as string,
+								toolInput: blockObj.input,
 								sessionId,
-							};
+								raw: sdkMessage,
+							});
 						}
 					}
 				}
-
-				if (textContent) {
-					return {
-						type: "assistant",
-						content: textContent,
-						sessionId,
-					};
-				}
-				return null;
+				break;
 			}
 
 			case "user": {
-				// Skip user messages in the output (they're the prompts)
-				return null;
+				// Check if this is a tool result message
+				const apiMessage = msg.message as Record<string, unknown> | undefined;
+				const content = apiMessage?.content as unknown[] | undefined;
+
+				if (Array.isArray(content)) {
+					for (const block of content) {
+						if (typeof block !== "object" || block === null) continue;
+
+						const blockObj = block as Record<string, unknown>;
+						const blockType = blockObj.type as string;
+
+						// Handle tool_result blocks
+						if (blockType === "tool_result") {
+							const toolResult = blockObj.content as string | undefined;
+							const toolUseId = blockObj.tool_use_id as string | undefined;
+							const isError = blockObj.is_error as boolean | undefined;
+
+							messages.push({
+								type: "tool_result",
+								toolResult: toolResult,
+								toolName: toolUseId, // Use tool_use_id as identifier
+								sessionId,
+								error: isError ? toolResult : undefined,
+								raw: sdkMessage,
+							});
+						}
+					}
+				}
+				break;
 			}
 
 			case "system": {
 				const subtype = msg.subtype as string | undefined;
 
 				if (subtype === "init") {
-					return {
+					messages.push({
 						type: "system",
 						subtype: "init",
 						sessionId,
 						content: `Session initialized with model: ${msg.model as string}`,
-					};
+						raw: sdkMessage,
+					});
+				} else if (subtype === "subagent_start") {
+					const agentName = msg.agent_name as string | undefined;
+					messages.push({
+						type: "system",
+						subtype: "subagent_start",
+						sessionId,
+						agentName,
+						content: `Starting subagent: ${agentName}`,
+						raw: sdkMessage,
+					});
+				} else if (subtype === "subagent_end") {
+					const agentName = msg.agent_name as string | undefined;
+					messages.push({
+						type: "system",
+						subtype: "subagent_end",
+						sessionId,
+						agentName,
+						content: `Subagent completed: ${agentName}`,
+						raw: sdkMessage,
+					});
+				} else {
+					// Unknown system subtype - still capture it
+					messages.push({
+						type: "system",
+						subtype: subtype as AgentMessageSubtype,
+						sessionId,
+						raw: sdkMessage,
+					});
 				}
-
-				return null;
+				break;
 			}
 
 			case "result": {
 				const subtype = msg.subtype as string | undefined;
 
 				if (subtype === "success") {
-					return {
+					messages.push({
 						type: "system",
 						subtype: "completion",
 						sessionId,
 						content: msg.result as string,
-					};
+						raw: sdkMessage,
+					});
+				} else {
+					// Error result
+					const errors = msg.errors as string[] | undefined;
+					messages.push({
+						type: "error",
+						error: errors?.join("; ") ?? "Unknown error",
+						sessionId,
+						raw: sdkMessage,
+					});
 				}
-
-				// Error result
-				const errors = msg.errors as string[] | undefined;
-				return {
-					type: "error",
-					error: errors?.join("; ") ?? "Unknown error",
-					sessionId,
-				};
+				break;
 			}
 
 			default:
-				return null;
+				// Unknown message type - still capture it with raw data
+				messages.push({
+					type: "system",
+					content: `Unknown message type: ${type}`,
+					sessionId,
+					raw: sdkMessage,
+				});
+				break;
 		}
+
+		return messages;
 	}
 
 	/**

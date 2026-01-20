@@ -15,6 +15,8 @@ export interface ToolResult {
 	error?: string;
 	gotoStep?: string;
 	loopSignal: LoopSignal;
+	/** Number of attempts made (for tools with retry logic) */
+	attempts?: number;
 }
 
 /**

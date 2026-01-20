@@ -15,6 +15,10 @@ import type {
 	NodeErrorEvent,
 	NodeStartEvent,
 	RouterDecisionEvent,
+	ToolAgentSessionCompleteEvent,
+	ToolAgentSessionErrorEvent,
+	ToolAgentSessionMessageEvent,
+	ToolAgentSessionStartEvent,
 	ToolBashCompleteEvent,
 	ToolBashErrorEvent,
 	ToolBashStartEvent,
@@ -110,6 +114,9 @@ const icons = {
 	plug: "\uf1e6", //  (fa-plug)
 	list: "\uf03a", //  (fa-list)
 	cube: "\uf1b2", //  (fa-cube)
+	robot: "\uee0d", //  agent message
+	hammer: "\uf0ad", //  (fa-wrench)
+	thinking: "\udb85\ude9f", // 󱚟 thinking
 
 	// Workflow
 	rocket: "\ueb44", //  (nf-cod-rocket)
@@ -250,6 +257,20 @@ export class ConsoleRenderer extends BaseRenderer {
 				break;
 			case "tool:claudeSdk:retry":
 				this.renderClaudeSdkRetry(event);
+				break;
+
+			// Tool: AgentSession
+			case "tool:agentSession:start":
+				this.renderAgentSessionStart(event);
+				break;
+			case "tool:agentSession:message":
+				this.renderAgentSessionMessage(event);
+				break;
+			case "tool:agentSession:complete":
+				this.renderAgentSessionComplete(event);
+				break;
+			case "tool:agentSession:error":
+				this.renderAgentSessionError(event);
 				break;
 
 			// Tool: Hook
@@ -704,6 +725,143 @@ export class ConsoleRenderer extends BaseRenderer {
 	}
 
 	// ==========================================================================
+	// Tool: AgentSession Rendering
+	// ==========================================================================
+
+	private renderAgentSessionStart(event: ToolAgentSessionStartEvent): void {
+		const { label, prompt, model, hasSubagents, isResume } = event.payload;
+		const displayText = label || this.truncate(prompt, 50);
+		const resumeTag = isResume ? " (resume)" : "";
+		const subagentTag = hasSubagents ? " +subagents" : "";
+
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.robot}  [agent:${model}${subagentTag}${resumeTag}] ${displayText}`,
+				"brightMagenta",
+			),
+		);
+	}
+
+	private renderAgentSessionMessage(
+		event: ToolAgentSessionMessageEvent,
+	): void {
+		const { messageType, content, toolName, agentName, subtype, raw } =
+			event.payload;
+
+		// Track if we rendered parsed content
+		let renderedParsed = false;
+
+		switch (messageType) {
+			case "assistant": {
+				if (subtype === "thinking") {
+					// Thinking message
+					const indented = this.indentMultiline(content ?? "");
+					console.log(
+						this.colorize(`${INDENT}${icons.thinking}  ${indented}`, "dim"),
+					);
+					renderedParsed = !!content;
+				} else {
+					// Regular assistant text message
+					const indented = this.indentMultiline(content ?? "");
+					console.log(
+						this.colorize(
+							`${INDENT}${icons.robot}  ${indented}`,
+							"brightMagenta",
+						),
+					);
+					renderedParsed = !!content;
+				}
+				break;
+			}
+			case "tool_call":
+				console.log(
+					this.colorize(`${INDENT}${icons.hammer}  tool: ${toolName}`, "dim"),
+				);
+				renderedParsed = !!toolName;
+				break;
+			case "tool_result":
+				console.log(
+					this.colorize(
+						`${INDENT}${icons.success}  tool result received`,
+						"dim",
+					),
+				);
+				renderedParsed = true;
+				break;
+			case "error": {
+				const indented = this.indentMultiline(content ?? "unknown error");
+				console.log(
+					this.colorize(`${INDENT}${icons.error}  ${indented}`, "red"),
+				);
+				renderedParsed = true;
+				break;
+			}
+			case "system":
+				if (subtype === "subagent_start" && agentName) {
+					console.log(
+						this.colorize(
+							`${INDENT}${icons.cube}  subagent started: ${agentName}`,
+							"cyan",
+						),
+					);
+					renderedParsed = true;
+				} else if (subtype === "subagent_end" && agentName) {
+					console.log(
+						this.colorize(
+							`${INDENT}${icons.cube}  subagent completed: ${agentName}`,
+							"dim",
+						),
+					);
+					renderedParsed = true;
+				}
+				break;
+		}
+
+		// Show raw JSON: always in verbose mode, or as fallback when no parsed content
+		if (this.config.verbose || !renderedParsed) {
+			const rawJson = JSON.stringify(raw, null, 2);
+			const indentedRaw = this.indentMultiline(rawJson, `${INDENT}   `);
+			console.log(this.colorize(`${INDENT}   ${indentedRaw}`, "dim"));
+		}
+	}
+
+	private renderAgentSessionComplete(
+		event: ToolAgentSessionCompleteEvent,
+	): void {
+		const { success, duration, messageCount } = event.payload;
+
+		if (!success) {
+			// Error will be shown by error handler
+			return;
+		}
+
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.success}  session completed (${this.formatDuration(duration)}, ${messageCount} msgs)`,
+				"dim",
+			),
+		);
+	}
+
+	private renderAgentSessionError(event: ToolAgentSessionErrorEvent): void {
+		const { error, errorType } = event.payload;
+
+		console.log("");
+		console.log(
+			this.colorize(
+				`${INDENT}${icons.error}  AGENT SESSION ERROR`,
+				"brightRed",
+				"bold",
+			),
+		);
+		if (errorType && errorType !== "UNKNOWN") {
+			console.log(this.colorize(`${INDENT}   Type: ${errorType}`, "red"));
+		}
+		console.log(this.colorize(`${INDENT}   Error: ${error}`, "red"));
+		console.log("");
+	}
+
+	// ==========================================================================
 	// Tool: Hook Rendering
 	// ==========================================================================
 
@@ -860,7 +1018,7 @@ export class ConsoleRenderer extends BaseRenderer {
 		const { color, icon } = levelConfig[level] ?? levelConfig.info;
 
 		// Handle multiline messages - indent subsequent lines
-		const indentedMessage = message.replace(/\n/g, `\n${INDENT}  `);
+		const indentedMessage = this.indentMultiline(message, `${INDENT}  `);
 
 		// Format the message
 		let output = `${INDENT}${icon} ${indentedMessage}`;
@@ -963,5 +1121,14 @@ export class ConsoleRenderer extends BaseRenderer {
 	private separator(style: "heavy" | "light" = "light"): string {
 		const char = style === "heavy" ? "━" : "─";
 		return char.repeat(this.consoleConfig.separatorWidth);
+	}
+
+	/**
+	 * Indent multiline text - subsequent lines get the specified indent.
+	 * @param text The text to indent
+	 * @param indent The indentation string for subsequent lines (defaults to INDENT + 2 spaces for icon alignment)
+	 */
+	private indentMultiline(text: string, indent: string = `${INDENT}   `): string {
+		return text.replace(/\n/g, `\n${indent}`);
 	}
 }
