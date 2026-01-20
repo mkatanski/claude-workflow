@@ -12,6 +12,8 @@ import type { StepConfig } from "../../../types/index.ts";
 import type { ToolResult } from "../types.ts";
 import { BaseTool } from "../types.ts";
 import { LoopSignal } from "../../../types/index.ts";
+import { resolve, relative, dirname } from "node:path";
+import { realpathSync } from "node:fs";
 import type {
 	GitConfig,
 	GitError,
@@ -35,6 +37,7 @@ import type {
 	LogOptions,
 	WorktreeAddOptions,
 	WorktreeRemoveOptions,
+	WorktreeAddResult,
 	StashOptions,
 	StashPopOptions,
 } from "./types.ts";
@@ -1180,21 +1183,26 @@ export class GitTool extends BaseTool implements GitOperations {
 	 * Add a new worktree.
 	 *
 	 * Uses `git worktree add` to create a new working tree at the specified path.
+	 * Returns both absolute and relative paths for easy chaining with other tools.
 	 *
 	 * @param options - Worktree add options
 	 * @param config - Git configuration
-	 * @returns Success or error
+	 * @returns WorktreeAddResult with paths and operation result
 	 *
 	 * @example
 	 * ```typescript
 	 * // Create a worktree for an existing branch
-	 * const result = await gitTool.worktreeAdd({
+	 * const { absolutePath, result } = await gitTool.worktreeAdd({
 	 *   path: "../my-feature",
 	 *   branch: "feature/my-feature"
 	 * });
+	 * if (result._tag === "ok") {
+	 *   // Use absolutePath with agentSession
+	 *   await tools.agentSession("Implement feature", { workingDirectory: absolutePath });
+	 * }
 	 *
 	 * // Create a new branch in the worktree
-	 * const result = await gitTool.worktreeAdd({
+	 * const { absolutePath } = await gitTool.worktreeAdd({
 	 *   path: "../new-feature",
 	 *   newBranch: "feature/new-feature"
 	 * });
@@ -1216,19 +1224,47 @@ export class GitTool extends BaseTool implements GitOperations {
 	async worktreeAdd(
 		options: WorktreeAddOptions,
 		config?: GitConfig,
-	): Promise<GitResult<void>> {
-		const { path, branch, newBranch, force, detach } = options;
+	): Promise<WorktreeAddResult> {
+		const { path: worktreePath, branch, newBranch, force, detach } = options;
+		const cwd = config?.cwd ?? process.cwd();
 
 		// Validate path is provided
-		if (!path || !path.trim()) {
-			return this.err(
-				createGitError(
-					"CommandFailed",
-					"Worktree path is required",
-					"git worktree add",
+		if (!worktreePath || !worktreePath.trim()) {
+			return {
+				absolutePath: "",
+				relativePath: "",
+				relativeToGitRoot: "",
+				result: this.err(
+					createGitError(
+						"CommandFailed",
+						"Worktree path is required",
+						"git worktree add",
+					),
 				),
-			);
+			};
 		}
+
+		// Get git repository root and normalize paths to handle symlinks (e.g., /var -> /private/var on macOS)
+		const gitRootResult = await this.runGitCommand(
+			["rev-parse", "--show-toplevel"],
+			config,
+		);
+		const normalizedCwd = realpathSync(cwd);
+		const gitRoot = gitRootResult.success
+			? realpathSync(gitRootResult.stdout.trim())
+			: normalizedCwd;
+
+		// Compute absolute path, normalizing the parent directory to resolve symlinks consistently
+		// (the worktree directory itself doesn't exist yet, so we normalize its parent)
+		const resolvedPath = resolve(cwd, worktreePath);
+		const parentDir = dirname(resolvedPath);
+		const worktreeName = resolvedPath.slice(parentDir.length + 1);
+		const normalizedParent = realpathSync(parentDir);
+		const absolutePath = resolve(normalizedParent, worktreeName);
+
+		// Compute relative paths
+		const relativePath = relative(normalizedCwd, absolutePath);
+		const relativeToGitRoot = relative(gitRoot, absolutePath);
 
 		// Build the command arguments
 		const args: string[] = ["worktree", "add"];
@@ -1249,28 +1285,38 @@ export class GitTool extends BaseTool implements GitOperations {
 		}
 
 		// Add the path
-		args.push(path);
+		args.push(worktreePath);
 
 		// Add the branch/commit-ish if specified (and not creating new branch)
 		if (branch && !newBranch) {
 			args.push(branch);
 		}
 
-		const result = await this.runGitCommand(args, config);
+		const commandResult = await this.runGitCommand(args, config);
 
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || `Failed to add worktree at '${path}'`,
-					`git ${args.join(" ")}`,
-					result.exitCode,
+		if (!commandResult.success) {
+			const errorType = detectGitError(commandResult.stderr);
+			return {
+				absolutePath,
+				relativePath,
+				relativeToGitRoot,
+				result: this.err(
+					createGitError(
+						errorType,
+						commandResult.stderr || `Failed to add worktree at '${worktreePath}'`,
+						`git ${args.join(" ")}`,
+						commandResult.exitCode,
+					),
 				),
-			);
+			};
 		}
 
-		return this.ok(undefined);
+		return {
+			absolutePath,
+			relativePath,
+			relativeToGitRoot,
+			result: this.ok(undefined),
+		};
 	}
 
 	/**

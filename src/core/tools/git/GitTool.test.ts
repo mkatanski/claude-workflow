@@ -735,7 +735,13 @@ describe("GitTool Worktree Lifecycle", () => {
 			{ path: worktreePath, newBranch: worktreeBranch },
 			config,
 		);
-		expect(addResult._tag).toBe("ok");
+		expect(addResult.result._tag).toBe("ok");
+		// relativePath is computed relative to cwd
+		expect(addResult.relativePath).toBe("../test-worktree");
+		// relativeToGitRoot is computed relative to git repository root (same as cwd in this test)
+		expect(addResult.relativeToGitRoot).toBe("../test-worktree");
+		// absolutePath contains the worktree directory name
+		expect(addResult.absolutePath).toContain("test-worktree");
 
 		// Step 2: Verify worktree appears in list
 		const listResult = await fixture.git.worktreeList(config);
@@ -770,6 +776,85 @@ describe("GitTool Worktree Lifecycle", () => {
 			{ name: worktreeBranch, force: true },
 			config,
 		);
+	});
+
+	it("should return error result when path is empty", async () => {
+		const config = { cwd: fixture.repoPath };
+
+		const result = await fixture.git.worktreeAdd(
+			{ path: "", newBranch: "test-branch" },
+			config,
+		);
+
+		expect(result.result._tag).toBe("err");
+		expect(result.absolutePath).toBe("");
+		expect(result.relativePath).toBe("");
+		expect(result.relativeToGitRoot).toBe("");
+		if (result.result._tag === "err") {
+			expect(result.result.error.message).toContain("path is required");
+		}
+	});
+
+	it("should handle worktree inside repo with relative path", async () => {
+		const config = { cwd: fixture.repoPath };
+		const innerWorktreePath = ".worktrees/inner-test";
+		const worktreeBranch = "inner-worktree-branch";
+
+		// Create parent directory
+		await mkdir(join(fixture.repoPath, ".worktrees"), { recursive: true });
+
+		const addResult = await fixture.git.worktreeAdd(
+			{ path: innerWorktreePath, newBranch: worktreeBranch },
+			config,
+		);
+
+		expect(addResult.result._tag).toBe("ok");
+		// relativePath should be exactly what we provided (relative to cwd)
+		expect(addResult.relativePath).toBe(".worktrees/inner-test");
+		// relativeToGitRoot should be same since cwd is git root
+		expect(addResult.relativeToGitRoot).toBe(".worktrees/inner-test");
+		// absolutePath should end with our path
+		expect(addResult.absolutePath).toMatch(/\.worktrees\/inner-test$/);
+
+		// Clean up
+		await fixture.git.worktreeRemove({ path: innerWorktreePath, force: true }, config);
+		await fixture.git.deleteBranch({ name: worktreeBranch, force: true }, config);
+		await rm(join(fixture.repoPath, ".worktrees"), { recursive: true, force: true });
+	});
+
+	it("should compute different relativePath and relativeToGitRoot when cwd differs from git root", async () => {
+		// Create a subdirectory to use as cwd
+		const subDir = join(fixture.repoPath, "subdir");
+		await mkdir(subDir, { recursive: true });
+
+		const config = { cwd: subDir };
+		const worktreeRelativePath = "../../sibling-worktree";
+		const worktreeBranch = "sibling-worktree-branch";
+
+		const addResult = await fixture.git.worktreeAdd(
+			{ path: worktreeRelativePath, newBranch: worktreeBranch },
+			config,
+		);
+
+		expect(addResult.result._tag).toBe("ok");
+		// relativePath is relative to cwd (subdir)
+		expect(addResult.relativePath).toBe("../../sibling-worktree");
+		// relativeToGitRoot is relative to git root (one level up from subdir)
+		expect(addResult.relativeToGitRoot).toBe("../sibling-worktree");
+		// absolutePath should contain the worktree name
+		expect(addResult.absolutePath).toContain("sibling-worktree");
+
+		// Clean up
+		await fixture.git.worktreeRemove(
+			{ path: addResult.absolutePath, force: true },
+			{ cwd: fixture.repoPath },
+		);
+		await fixture.git.deleteBranch(
+			{ name: worktreeBranch, force: true },
+			{ cwd: fixture.repoPath },
+		);
+		await rm(addResult.absolutePath, { recursive: true, force: true });
+		await rm(subDir, { recursive: true, force: true });
 	});
 });
 

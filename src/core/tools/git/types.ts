@@ -420,6 +420,21 @@ export interface WorktreeRemoveOptions {
 	label?: string;
 }
 
+/**
+ * Result of adding a worktree.
+ * Contains path information for easy chaining with other tools.
+ */
+export interface WorktreeAddResult {
+	/** Absolute path to the created worktree */
+	absolutePath: string;
+	/** Path relative to the cwd used when creating the worktree */
+	relativePath: string;
+	/** Path relative to the git repository root */
+	relativeToGitRoot: string;
+	/** The underlying git operation result */
+	result: GitResult<void>;
+}
+
 // =============================================================================
 // Stash Types
 // =============================================================================
@@ -546,11 +561,11 @@ export interface GitOperations {
 
 	// --- Worktree Operations ---
 
-	/** Add a worktree */
+	/** Add a worktree (returns paths for easy chaining with other tools) */
 	worktreeAdd(
 		options: WorktreeAddOptions,
 		config?: GitConfig,
-	): Promise<GitResult<void>>;
+	): Promise<WorktreeAddResult>;
 
 	/** Remove a worktree */
 	worktreeRemove(

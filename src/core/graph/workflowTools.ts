@@ -58,6 +58,7 @@ import type {
 	SwitchBranchOptions,
 	WorktreeAddOptions,
 	WorktreeRemoveOptions,
+	WorktreeAddResult,
 } from "../tools/git/index.ts";
 import { GitTool } from "../tools/git/index.ts";
 import { HookTool } from "../tools/hook.ts";
@@ -1952,13 +1953,17 @@ function createGitOperationsWrapper(
 		async worktreeAdd(
 			options: WorktreeAddOptions,
 			config?: GitConfig,
-		): Promise<GitResult<void>> {
+		): Promise<WorktreeAddResult> {
 			const timer = createTimer();
-			const result = await gitTool.worktreeAdd(options, mergeConfig(config));
+			const worktreeResult = await gitTool.worktreeAdd(
+				options,
+				mergeConfig(config),
+			);
 
-			if (result._tag === "ok") {
+			if (worktreeResult.result._tag === "ok") {
 				events?.emit("tool:git:worktree:add", {
 					path: options.path,
+					absolutePath: worktreeResult.absolutePath,
 					branch: options.branch ?? options.newBranch ?? "HEAD",
 					created: true,
 					label: options.label,
@@ -1967,14 +1972,14 @@ function createGitOperationsWrapper(
 			} else {
 				emitGitError(
 					"worktreeAdd",
-					result.error.type,
-					result.error.message,
-					result.error.command,
+					worktreeResult.result.error.type,
+					worktreeResult.result.error.message,
+					worktreeResult.result.error.command,
 					options.label,
 				);
 			}
 
-			return result;
+			return worktreeResult;
 		},
 
 		async worktreeRemove(

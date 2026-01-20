@@ -1056,6 +1056,7 @@ export interface ToolGitBranchDeletePayload {
 
 export interface ToolGitWorktreeAddPayload {
 	path: string;
+	absolutePath: string;
 	branch: string;
 	created: boolean;
 	label?: string;

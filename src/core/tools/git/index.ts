@@ -31,6 +31,7 @@ export {
 	type GitWorktree,
 	type WorktreeAddOptions,
 	type WorktreeRemoveOptions,
+	type WorktreeAddResult,
 	type GitStashEntry,
 	type StashOptions,
 	type StashPopOptions,
