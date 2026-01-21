@@ -61,6 +61,8 @@ export interface SubagentDefinition {
 	tools: BuiltInTool[];
 	/** Model to use for the subagent */
 	model: ModelSpec;
+	/** Working directory for the subagent (defaults to parent's workingDirectory) */
+	workingDirectory?: string;
 }
 
 /**
@@ -142,7 +144,7 @@ export interface ClaudeAgentConfig {
 export const MODEL_ALIASES: Record<ModelAlias, string> = {
 	sonnet: "claude-sonnet-4-20250514",
 	opus: "claude-opus-4-20250514",
-	haiku: "claude-haiku-4-20250514",
+	haiku: "claude-3-5-haiku-20241022",
 };
 
 /**

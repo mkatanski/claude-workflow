@@ -832,6 +832,7 @@ export class ConsoleRenderer extends BaseRenderer {
 			agentName,
 			fileInfo,
 			stopReason,
+			error,
 		} = payload;
 
 		switch (messageType) {
@@ -842,7 +843,7 @@ export class ConsoleRenderer extends BaseRenderer {
 				return this.renderToolCallMessage(toolName, toolInput);
 
 			case "tool_result":
-				return this.renderToolResultMessage(fileInfo);
+				return this.renderToolResultMessage(fileInfo, error);
 
 			case "error":
 				return this.renderErrorMessage(content);
@@ -1061,7 +1062,17 @@ export class ConsoleRenderer extends BaseRenderer {
 	 */
 	private renderToolResultMessage(
 		fileInfo: AgentSessionFileInfo | undefined,
+		error: string | undefined,
 	): boolean {
+		// Always display errors (from tool results with is_error: true)
+		if (error) {
+			const indented = this.indentMultiline(error);
+			console.log(
+				this.colorize(`${INDENT}   ${icons.error} ${indented}`, "red"),
+			);
+			return true;
+		}
+
 		if (fileInfo) {
 			console.log(
 				this.colorize(

@@ -853,6 +853,9 @@ export interface ToolAgentSessionMessagePayload {
 
 	/** Tool result file info (for tool_result messages from Read tool) */
 	fileInfo?: AgentSessionFileInfo;
+
+	/** Error message if tool execution failed (for tool_result with is_error: true) */
+	error?: string;
 }
 
 export interface ToolAgentSessionCompletePayload {

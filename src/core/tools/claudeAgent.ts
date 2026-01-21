@@ -314,15 +314,26 @@ export class ClaudeAgentTool extends BaseTool {
 			// Build hooks configuration
 			const hooks = this.buildHooks(options);
 
-			// Build agents configuration
-			const agents = this.buildAgents(options);
+			// Resolve working directory for this session
+			const workingDirectory =
+				options?.workingDirectory ?? this.config?.workingDirectory;
+
+			if (!workingDirectory) {
+				throw new Error(
+					"workingDirectory is required for agent session. " +
+						"Provide it via options.workingDirectory or config.workingDirectory",
+				);
+			}
+
+			// Build agents configuration (subagents inherit workingDirectory)
+			const agents = this.buildAgents(options, workingDirectory);
 
 			// Create the query with SDK
 			const queryResult = query({
 				prompt,
 				options: {
 					model,
-					cwd: options?.workingDirectory ?? this.config?.workingDirectory,
+					cwd: workingDirectory,
 					systemPrompt: options?.systemPrompt ?? this.config?.systemPrompt,
 					allowedTools:
 						options?.tools ?? (this.config?.tools as string[] | undefined),
@@ -890,8 +901,12 @@ export class ClaudeAgentTool extends BaseTool {
 
 	/**
 	 * Build agents configuration from options.
+	 * Subagents inherit the parent's workingDirectory unless explicitly overridden.
 	 */
-	private buildAgents(options?: AgentSessionOptions):
+	private buildAgents(
+		options?: AgentSessionOptions,
+		parentWorkingDirectory?: string,
+	):
 		| Record<
 				string,
 				{
@@ -899,6 +914,7 @@ export class ClaudeAgentTool extends BaseTool {
 					tools?: string[];
 					prompt: string;
 					model?: "sonnet" | "opus" | "haiku" | "inherit";
+					cwd?: string;
 				}
 		  >
 		| undefined {
@@ -915,17 +931,22 @@ export class ClaudeAgentTool extends BaseTool {
 				tools?: string[];
 				prompt: string;
 				model?: "sonnet" | "opus" | "haiku" | "inherit";
+				cwd?: string;
 			}
 		> = {};
 
 		for (const [name, definition] of Object.entries(agents)) {
 			// Pass model alias directly to SDK - it expects short names like 'sonnet', 'opus', 'haiku', or 'inherit'
 			const modelAlias = this.normalizeModelAlias(definition.model);
+			// Subagent inherits parent's workingDirectory unless explicitly set
+			const cwd =
+				definition.workingDirectory ?? parentWorkingDirectory ?? undefined;
 			result[name] = {
 				description: definition.description,
 				prompt: definition.prompt,
 				tools: definition.tools,
 				model: modelAlias,
+				cwd,
 			};
 		}
 

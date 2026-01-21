@@ -1006,6 +1006,7 @@ export function createWorkflowTools(
 							usage: message.usage,
 							stopReason: message.stopReason,
 							fileInfo: message.fileInfo,
+							error: message.error,
 						});
 					},
 				});
@@ -1289,6 +1290,7 @@ DO NOT implement anything. ONLY create a detailed plan.`;
 								usage: message.usage,
 								stopReason: message.stopReason,
 								fileInfo: message.fileInfo,
+								error: message.error,
 							});
 						},
 					},
@@ -1508,6 +1510,7 @@ Start with Step 1 now. Do not just describe what you will do - actually write th
 							usage: message.usage,
 							stopReason: message.stopReason,
 							fileInfo: message.fileInfo,
+							error: message.error,
 						});
 					},
 				},
