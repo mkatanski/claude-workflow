@@ -33,8 +33,14 @@ program
 	.option("--json", "Use JSON renderer for structured output")
 	.option("--debug", "Enable debug mode with enhanced logging")
 	.option("--checkpoint", "Enable checkpointing for resumable execution")
-	.option("--thread-id <id>", "Thread ID for checkpoint tracking (optional, uses latest if not provided)")
-	.option("--resume", "Resume from existing checkpoint (uses latest thread ID if --thread-id not provided)")
+	.option(
+		"--thread-id <id>",
+		"Thread ID for checkpoint tracking (optional, uses latest if not provided)",
+	)
+	.option(
+		"--resume",
+		"Resume from existing checkpoint (uses latest thread ID if --thread-id not provided)",
+	)
 	.description("Run a workflow in the specified project")
 	.action(async (projectPath: string, options) => {
 		await runWorkflow(projectPath, {

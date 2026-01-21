@@ -954,8 +954,8 @@ export function createWorkflowTools(
 			const toolsList = Array.isArray(effectiveTools)
 				? effectiveTools
 				: effectiveTools &&
-					  "type" in effectiveTools &&
-					  effectiveTools.type === "preset"
+						"type" in effectiveTools &&
+						effectiveTools.type === "preset"
 					? [effectiveTools.preset]
 					: undefined;
 

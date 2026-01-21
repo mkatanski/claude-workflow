@@ -114,7 +114,10 @@ export interface CheckpointerConfig {
  */
 export interface WorkflowRunOptions {
 	/** Callback invoked after each node completes with current state */
-	onNodeComplete?: (nodeName: string, variables: Record<string, unknown>) => void;
+	onNodeComplete?: (
+		nodeName: string,
+		variables: Record<string, unknown>,
+	) => void;
 }
 
 /**
@@ -719,9 +722,10 @@ export class WorkflowGraph {
 		this.events.workflowStateInitialized(this.workflowName, initialVars ?? {});
 
 		// Build invoke config (with thread_id for checkpointing if enabled)
-		const invokeConfig = this.checkpointer && this.threadId
-			? { configurable: { thread_id: this.threadId } }
-			: undefined;
+		const invokeConfig =
+			this.checkpointer && this.threadId
+				? { configurable: { thread_id: this.threadId } }
+				: undefined;
 
 		try {
 			// When resuming, pass null to let LangGraph restore from checkpoint
@@ -836,7 +840,10 @@ export class WorkflowGraph {
 	 * Get current state snapshot for checkpointing.
 	 * Returns variables and last completed node.
 	 */
-	getCurrentState(): { variables: Record<string, unknown>; lastCompletedNode: string | null } {
+	getCurrentState(): {
+		variables: Record<string, unknown>;
+		lastCompletedNode: string | null;
+	} {
 		return {
 			variables: this._context?.variables ?? {},
 			lastCompletedNode: this.lastCompletedNode,

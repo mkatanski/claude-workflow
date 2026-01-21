@@ -918,9 +918,7 @@ export class ConsoleRenderer extends BaseRenderer {
 		const inputSummary = this.formatToolInput(toolName, toolInput);
 
 		// Display tool name with input summary
-		console.log(
-			this.colorize(`${INDENT}${icons.hammer}  ${toolName}`, "cyan"),
-		);
+		console.log(this.colorize(`${INDENT}${icons.hammer}  ${toolName}`, "cyan"));
 
 		// Always show input summary if available (dimmed)
 		if (inputSummary) {
@@ -1303,11 +1301,7 @@ export class ConsoleRenderer extends BaseRenderer {
 
 		console.log("");
 		console.log(
-			this.colorize(
-				`${icons.plan}  PLANNING PHASE`,
-				"brightCyan",
-				"bold",
-			),
+			this.colorize(`${icons.plan}  PLANNING PHASE`, "brightCyan", "bold"),
 		);
 		console.log(
 			this.colorize(`${INDENT}${icons.brain}  ${model}`, "brightMagenta"),
@@ -1321,9 +1315,7 @@ export class ConsoleRenderer extends BaseRenderer {
 		}
 	}
 
-	private renderPlanningPhaseComplete(
-		event: PlanningPhaseCompleteEvent,
-	): void {
+	private renderPlanningPhaseComplete(event: PlanningPhaseCompleteEvent): void {
 		const { planPath, criticalFiles, duration, success, error } = event.payload;
 
 		if (!success) {
@@ -1391,9 +1383,7 @@ export class ConsoleRenderer extends BaseRenderer {
 		console.log(
 			this.colorize(`${INDENT}${icons.brain}  ${model}`, "brightMagenta"),
 		);
-		console.log(
-			this.colorize(`${INDENT}   Plan: ${fileName}`, "dim"),
-		);
+		console.log(this.colorize(`${INDENT}   Plan: ${fileName}`, "dim"));
 
 		if (this.config.verbose) {
 			if (workingDirectory) {

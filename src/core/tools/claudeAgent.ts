@@ -357,6 +357,22 @@ export class ClaudeAgentTool extends BaseTool {
 
 			// Iterate through all messages from the AsyncGenerator
 			for await (const sdkMessage of queryResult) {
+				// Log SDK init message to debug cwd issues
+				if (sdkMessage.type === "system" && sdkMessage.subtype === "init") {
+					const initMsg = sdkMessage as { cwd?: string; model?: string };
+					console.log(
+						`[AgentSession] SDK initialized with cwd: ${initMsg.cwd}`,
+					);
+					console.log(
+						`[AgentSession] Requested workingDirectory: ${workingDirectory}`,
+					);
+					if (initMsg.cwd !== workingDirectory) {
+						console.warn(
+							`[AgentSession] WARNING: SDK cwd "${initMsg.cwd}" does not match requested workingDirectory "${workingDirectory}"!`,
+						);
+					}
+				}
+
 				const agentMessages = this.convertMessage(sdkMessage);
 
 				for (const agentMessage of agentMessages) {

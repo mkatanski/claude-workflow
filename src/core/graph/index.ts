@@ -53,7 +53,10 @@ export {
 	loadLatestThread,
 	clearLatestThread,
 } from "./checkpointStorage.ts";
-export type { PersistedCheckpoint, LatestThreadInfo } from "./checkpointStorage.ts";
+export type {
+	PersistedCheckpoint,
+	LatestThreadInfo,
+} from "./checkpointStorage.ts";
 
 // Workflow definition types
 export type {

@@ -263,7 +263,9 @@ async function runLangGraphWorkflow(
 		if (!resolvedThreadId) {
 			const latestThread = loadLatestThread(projectPath);
 			if (!latestThread) {
-				console.error("No checkpoint found to resume. Use --thread-id to specify one.");
+				console.error(
+					"No checkpoint found to resume. Use --thread-id to specify one.",
+				);
 				process.exit(1);
 			}
 			resolvedThreadId = latestThread.threadId;
@@ -340,7 +342,9 @@ async function runLangGraphWorkflow(
 
 	// Track checkpoint state for SIGINT handling
 	// Using explicit type annotation to ensure TypeScript tracks mutations in callbacks
-	let checkpointState: { current: PersistedCheckpoint | null } = { current: null };
+	let checkpointState: { current: PersistedCheckpoint | null } = {
+		current: null,
+	};
 	let interrupted = false;
 
 	// Helper to save checkpoint and print resume command
@@ -349,7 +353,11 @@ async function runLangGraphWorkflow(
 			console.log(`\n${reason}. Saving checkpoint...`);
 			saveCheckpoint(projectPath, checkpointState.current);
 			// Save as latest thread for easy resume
-			saveLatestThread(projectPath, checkpointState.current.threadId, definition.name);
+			saveLatestThread(
+				projectPath,
+				checkpointState.current.threadId,
+				definition.name,
+			);
 			console.log(`Resume with: cw run --resume -w ${definition.name}`);
 		}
 	};

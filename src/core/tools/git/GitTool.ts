@@ -1,79 +1,296 @@
 /**
- * Git tool implementation.
+ * Git tool implementation using simple-git.
  *
  * Provides Git repository operations for workflow automation.
- * Wraps Git CLI commands with proper error handling, Result types,
- * and event emission for observability.
+ * Uses simple-git library for proper async handling and better TypeScript support.
  */
 
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
+import { type SimpleGit, type StatusResult, simpleGit } from "simple-git";
+import type { StepConfig } from "../../../types/index.ts";
+import { LoopSignal } from "../../../types/index.ts";
 import type { ExecutionContext } from "../../context/execution.ts";
 import type { TmuxManager } from "../../tmux/manager.ts";
-import type { StepConfig } from "../../../types/index.ts";
 import type { ToolResult } from "../types.ts";
 import { BaseTool } from "../types.ts";
-import { LoopSignal } from "../../../types/index.ts";
-import { resolve, relative, dirname } from "node:path";
-import { realpathSync } from "node:fs";
 import type {
-	GitConfig,
-	GitError,
-	GitResult,
-	GitOperations,
-	GitStatus,
-	GitRemote,
-	GitBranch,
-	GitCommit,
-	GitDiff,
-	GitWorktree,
-	GitStashEntry,
-	CreateBranchOptions,
-	SwitchBranchOptions,
-	DeleteBranchOptions,
-	ListBranchesOptions,
-	CommitOptions,
 	AddOptions,
-	ResetOptions,
+	CommitOptions,
+	CreateBranchOptions,
+	DeleteBranchOptions,
 	DiffOptions,
 	DiffPatchOptions,
 	DiffPatchResult,
+	GitBranch,
+	GitCommit,
+	GitConfig,
+	GitDiff,
+	GitDiffFile,
+	GitError,
+	GitFileStatus,
+	GitOperations,
+	GitRemote,
+	GitResult,
+	GitStashEntry,
+	GitStatus,
+	GitWorktree,
+	ListBranchesOptions,
 	LogOptions,
-	WorktreeAddOptions,
-	WorktreeRemoveOptions,
-	WorktreeAddResult,
+	ResetOptions,
 	StashOptions,
 	StashPopOptions,
+	SwitchBranchOptions,
+	WorktreeAddOptions,
+	WorktreeAddResult,
+	WorktreeRemoveOptions,
 } from "./types.ts";
-import { createGitError } from "./types.ts";
-import {
-	detectGitError,
-	parseStatusPorcelain,
-	parseRemotes,
-	parseBranchList,
-	BRANCH_FORMAT,
-	parseLogOutput,
-	LOG_FORMAT,
-	parseDiffNumstat,
-	parseWorktreeList,
-	parseStashList,
-	STASH_FORMAT,
-} from "./parsers.ts";
+import { createGitError, type GitErrorType } from "./types.ts";
 
 // =============================================================================
-// Command Execution Types
+// Helper Functions
 // =============================================================================
 
 /**
- * Result of running a Git command.
+ * Create a simple-git instance for the given working directory.
  */
-interface GitCommandResult {
-	/** Exit code of the command */
-	exitCode: number;
-	/** Standard output */
-	stdout: string;
-	/** Standard error */
-	stderr: string;
-	/** Whether the command succeeded (exit code 0) */
-	success: boolean;
+function createGit(cwd?: string, config?: GitConfig): SimpleGit {
+	const baseDir = cwd ?? config?.cwd ?? process.cwd();
+	const git = simpleGit(baseDir);
+
+	// Configure environment variables for author info
+	if (config?.authorName || config?.authorEmail) {
+		const env: Record<string, string> = {};
+		if (config.authorName) {
+			env.GIT_AUTHOR_NAME = config.authorName;
+			env.GIT_COMMITTER_NAME = config.authorName;
+		}
+		if (config.authorEmail) {
+			env.GIT_AUTHOR_EMAIL = config.authorEmail;
+			env.GIT_COMMITTER_EMAIL = config.authorEmail;
+		}
+		git.env(env);
+	}
+
+	return git;
+}
+
+/**
+ * Detect Git error type from error message.
+ */
+function detectGitErrorType(message: string): GitErrorType {
+	const lowerMessage = message.toLowerCase();
+
+	if (lowerMessage.includes("not a git repository")) {
+		return "NotARepository";
+	}
+	if (lowerMessage.includes("already exists")) {
+		if (lowerMessage.includes("branch")) {
+			return "BranchExists";
+		}
+		return "WorktreeExists";
+	}
+	if (lowerMessage.includes("branch") && lowerMessage.includes("not found")) {
+		return "BranchNotFound";
+	}
+	if (
+		lowerMessage.includes("merge conflict") ||
+		lowerMessage.includes("automatic merge failed")
+	) {
+		return "MergeConflict";
+	}
+	if (
+		lowerMessage.includes("uncommitted changes") ||
+		lowerMessage.includes("would be overwritten") ||
+		lowerMessage.includes("please commit your changes")
+	) {
+		return "DirtyWorkingTree";
+	}
+	if (
+		lowerMessage.includes("is not a working tree") ||
+		lowerMessage.includes("is not registered")
+	) {
+		return "WorktreeNotFound";
+	}
+	if (
+		lowerMessage.includes("no stash") ||
+		(lowerMessage.includes("stash@{") && lowerMessage.includes("not found"))
+	) {
+		return "StashNotFound";
+	}
+	if (lowerMessage.includes("invalid branch name")) {
+		return "InvalidBranchName";
+	}
+
+	return "CommandFailed";
+}
+
+/**
+ * Convert simple-git error to GitError.
+ */
+function toGitError(error: unknown, command?: string): GitError {
+	const message = error instanceof Error ? error.message : String(error);
+	const errorType = detectGitErrorType(message);
+	return createGitError(errorType, message, command);
+}
+
+/**
+ * Parse status result from simple-git to our GitStatus format.
+ */
+function parseSimpleGitStatus(status: StatusResult): GitStatus {
+	const staged: GitFileStatus[] = [];
+	const unstaged: GitFileStatus[] = [];
+
+	// Process staged files
+	for (const file of status.staged) {
+		const fileStatus = status.files.find((f) => f.path === file);
+		staged.push({
+			path: file,
+			index: fileStatus?.index ?? "A",
+			workingTree: ".",
+		});
+	}
+
+	// Process modified (unstaged) files
+	for (const file of status.modified) {
+		if (!status.staged.includes(file)) {
+			unstaged.push({
+				path: file,
+				index: ".",
+				workingTree: "M",
+			});
+		}
+	}
+
+	// Process deleted files
+	for (const file of status.deleted) {
+		if (!status.staged.includes(file)) {
+			unstaged.push({
+				path: file,
+				index: ".",
+				workingTree: "D",
+			});
+		}
+	}
+
+	return {
+		branch: status.current ?? "HEAD",
+		upstream: status.tracking ?? undefined,
+		ahead: status.ahead,
+		behind: status.behind,
+		staged,
+		unstaged,
+		untracked: status.not_added,
+		isClean: status.isClean(),
+	};
+}
+
+/**
+ * Parse worktree list output from git worktree list --porcelain.
+ */
+function parseWorktreeListOutput(output: string): GitWorktree[] {
+	if (!output.trim()) {
+		return [];
+	}
+
+	const worktrees: GitWorktree[] = [];
+	const blocks = output.split(/\n\n+/).filter((block) => block.trim());
+
+	for (const block of blocks) {
+		const lines = block.split("\n").filter((line) => line.trim());
+
+		let path = "";
+		let head = "";
+		let branch: string | undefined;
+		let main = false;
+		let bare = false;
+		let detached = false;
+		let locked = false;
+		let lockReason: string | undefined;
+		let prunable = false;
+
+		for (const line of lines) {
+			if (line.startsWith("worktree ")) {
+				path = line.substring("worktree ".length);
+				main = worktrees.length === 0;
+			} else if (line.startsWith("HEAD ")) {
+				head = line.substring("HEAD ".length);
+			} else if (line.startsWith("branch ")) {
+				const refPath = line.substring("branch ".length);
+				if (refPath.startsWith("refs/heads/")) {
+					branch = refPath.substring("refs/heads/".length);
+				} else {
+					branch = refPath;
+				}
+			} else if (line === "detached") {
+				detached = true;
+			} else if (line === "bare") {
+				bare = true;
+			} else if (line.startsWith("locked")) {
+				locked = true;
+				const reason = line.substring("locked".length).trim();
+				if (reason) {
+					lockReason = reason;
+				}
+			} else if (line.startsWith("prunable")) {
+				prunable = true;
+			}
+		}
+
+		if (path && head) {
+			worktrees.push({
+				path,
+				head,
+				branch,
+				main,
+				bare,
+				detached,
+				locked,
+				lockReason,
+				prunable,
+			});
+		}
+	}
+
+	return worktrees;
+}
+
+/**
+ * Parse stash list output.
+ */
+function parseStashListOutput(output: string): GitStashEntry[] {
+	if (!output.trim()) {
+		return [];
+	}
+
+	const entries: GitStashEntry[] = [];
+	const lines = output.split("\n").filter((line) => line.trim());
+
+	for (const line of lines) {
+		// Format: stash@{0}: WIP on branch: message
+		const match = line.match(/^(stash@\{(\d+)\}):\s*(.*)$/);
+		if (match) {
+			const [, ref, indexStr, fullMessage] = match;
+			const index = parseInt(indexStr, 10);
+
+			// Extract branch from message
+			let branch = "unknown";
+			const branchMatch = fullMessage.match(/^(?:WIP )?[Oo]n ([^:]+):/);
+			if (branchMatch) {
+				branch = branchMatch[1];
+			}
+
+			entries.push({
+				index,
+				ref,
+				branch,
+				message: fullMessage,
+				date: new Date(), // simple-git doesn't provide date in basic list
+			});
+		}
+	}
+
+	return entries;
 }
 
 // =============================================================================
@@ -81,7 +298,7 @@ interface GitCommandResult {
 // =============================================================================
 
 /**
- * Git tool for workflow automation.
+ * Git tool for workflow automation using simple-git.
  *
  * Provides a comprehensive set of Git operations including:
  * - Repository status (status, isRepo, getBranch, getRemotes)
@@ -92,32 +309,8 @@ interface GitCommandResult {
  * - Stash operations (stash, pop, list)
  *
  * All operations return Result<T, GitError> for proper error handling.
- *
- * @example
- * ```typescript
- * const gitTool = new GitTool();
- *
- * // Check if directory is a git repository
- * const isRepoResult = await gitTool.isRepo({ cwd: "/path/to/project" });
- *
- * // Create a new branch
- * const createResult = await gitTool.createBranch({
- *   name: "feature/my-feature",
- *   checkout: true
- * });
- *
- * // Commit changes
- * const commitResult = await gitTool.commit({
- *   message: "Add new feature"
- * });
- * ```
  */
 export class GitTool extends BaseTool implements GitOperations {
-	/**
-	 * Default timeout for Git commands in milliseconds.
-	 */
-	private static readonly DEFAULT_TIMEOUT = 60_000; // 1 minute
-
 	/**
 	 * Tool identifier.
 	 */
@@ -131,13 +324,8 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Validate step configuration for Git operations.
-	 *
-	 * @param step - Step configuration to validate
-	 * @throws Error if configuration is invalid
 	 */
 	validateStep(step: StepConfig): void {
-		// Git tool validates configuration at operation level
-		// This is a minimal validation for the legacy step-based system
 		if (step.tool !== "git") {
 			throw new Error(`Invalid tool type: expected "git", got "${step.tool}"`);
 		}
@@ -145,25 +333,13 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Execute a Git operation from step configuration.
-	 *
-	 * This method is part of the legacy step-based workflow system.
-	 * For new workflows, use the GitOperations methods directly.
-	 *
-	 * @param step - Step configuration
-	 * @param context - Execution context
-	 * @param _tmuxManager - Tmux manager (unused, Git runs in subprocess)
-	 * @returns Tool result
 	 */
 	async execute(
 		step: StepConfig,
 		context: ExecutionContext,
 		_tmuxManager: TmuxManager,
 	): Promise<ToolResult> {
-		// Git operations are typically invoked through WorkflowTools.git()
-		// This execute method provides compatibility with the legacy step system
 		const cwd = context.interpolateOptional(step.cwd) ?? context.projectPath;
-
-		// For legacy compatibility, execute a status check by default
 		const result = await this.status({ cwd });
 
 		if (result._tag === "ok") {
@@ -182,135 +358,8 @@ export class GitTool extends BaseTool implements GitOperations {
 	}
 
 	// =============================================================================
-	// Command Execution Infrastructure
+	// Result Helpers
 	// =============================================================================
-
-	/**
-	 * Run a Git command and return the result.
-	 *
-	 * @param args - Git command arguments (without "git" prefix)
-	 * @param config - Git configuration including cwd
-	 * @param timeout - Command timeout in milliseconds
-	 * @returns Command execution result
-	 */
-	protected async runGitCommand(
-		args: string[],
-		config?: GitConfig,
-		timeout: number = GitTool.DEFAULT_TIMEOUT,
-	): Promise<GitCommandResult> {
-		const cwd = config?.cwd ?? process.cwd();
-
-		// Build environment variables
-		const env: Record<string, string> = { ...process.env } as Record<
-			string,
-			string
-		>;
-
-		// Set author information if provided
-		if (config?.authorName) {
-			env.GIT_AUTHOR_NAME = config.authorName;
-			env.GIT_COMMITTER_NAME = config.authorName;
-		}
-		if (config?.authorEmail) {
-			env.GIT_AUTHOR_EMAIL = config.authorEmail;
-			env.GIT_COMMITTER_EMAIL = config.authorEmail;
-		}
-
-		try {
-			const proc = Bun.spawn(["git", ...args], {
-				cwd,
-				env,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-
-			// Set up timeout
-			const timeoutPromise = new Promise<never>((_, reject) => {
-				setTimeout(() => {
-					proc.kill();
-					reject(new Error(`Git command timed out after ${timeout}ms`));
-				}, timeout);
-			});
-
-			const [stdout, stderr] = await Promise.race([
-				Promise.all([
-					new Response(proc.stdout).text(),
-					new Response(proc.stderr).text(),
-				]),
-				timeoutPromise,
-			]);
-
-			const exitCode = await proc.exited;
-
-			return {
-				exitCode,
-				stdout: stdout.trim(),
-				stderr: stderr.trim(),
-				success: exitCode === 0,
-			};
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return {
-				exitCode: -1,
-				stdout: "",
-				stderr: message,
-				success: false,
-			};
-		}
-	}
-
-	/**
-	 * Run a Git command and return a Result type.
-	 *
-	 * @param args - Git command arguments
-	 * @param config - Git configuration
-	 * @param parser - Optional parser for successful output
-	 * @returns Result with parsed output or GitError
-	 */
-	protected async runGitCommandWithResult<T>(
-		args: string[],
-		config?: GitConfig,
-		parser?: (stdout: string) => T,
-	): Promise<GitResult<T>> {
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return {
-				_tag: "err",
-				error: createGitError(
-					errorType,
-					result.stderr || "Git command failed",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			};
-		}
-
-		if (parser) {
-			try {
-				return {
-					_tag: "ok",
-					value: parser(result.stdout),
-				};
-			} catch (parseError) {
-				return {
-					_tag: "err",
-					error: createGitError(
-						"CommandFailed",
-						`Failed to parse Git output: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
-						`git ${args.join(" ")}`,
-					),
-				};
-			}
-		}
-
-		// Return stdout as T (caller must ensure type compatibility)
-		return {
-			_tag: "ok",
-			value: result.stdout as unknown as T,
-		};
-	}
 
 	/**
 	 * Create an Ok result.
@@ -332,127 +381,64 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Get repository status including branch, staging area, and working tree.
-	 *
-	 * Uses `git status --porcelain=v2 --branch` for reliable parsing.
-	 *
-	 * @param config - Git configuration
-	 * @returns Repository status including branch, staged/unstaged files, and tracking info
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.status({ cwd: "/path/to/repo" });
-	 * if (result._tag === "ok") {
-	 *   console.log(`Branch: ${result.value.branch}`);
-	 *   console.log(`Clean: ${result.value.isClean}`);
-	 * }
-	 * ```
 	 */
 	async status(config?: GitConfig): Promise<GitResult<GitStatus>> {
-		return this.runGitCommandWithResult<GitStatus>(
-			["status", "--porcelain=v2", "--branch"],
-			config,
-			parseStatusPorcelain,
-		);
+		try {
+			const git = createGit(config?.cwd, config);
+			const status = await git.status();
+			return this.ok(parseSimpleGitStatus(status));
+		} catch (error) {
+			return this.err(toGitError(error, "git status"));
+		}
 	}
 
 	/**
 	 * Check if the current directory is inside a Git repository.
-	 *
-	 * Uses `git rev-parse --is-inside-work-tree` which returns "true" if inside
-	 * a Git working tree.
-	 *
-	 * @param config - Git configuration
-	 * @returns True if inside a Git repository, false otherwise
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.isRepo({ cwd: "/path/to/check" });
-	 * if (result._tag === "ok" && result.value) {
-	 *   console.log("This is a Git repository");
-	 * }
-	 * ```
 	 */
 	async isRepo(config?: GitConfig): Promise<GitResult<boolean>> {
-		const result = await this.runGitCommand(
-			["rev-parse", "--is-inside-work-tree"],
-			config,
-		);
-
-		// If the command succeeds and outputs "true", it's a repository
-		if (result.success && result.stdout.trim() === "true") {
-			return this.ok(true);
+		try {
+			const git = createGit(config?.cwd, config);
+			const isRepo = await git.checkIsRepo();
+			return this.ok(isRepo);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message.toLowerCase().includes("not a git repository")) {
+				return this.ok(false);
+			}
+			return this.err(toGitError(error, "git rev-parse --is-inside-work-tree"));
 		}
-
-		// If it fails with "not a git repository", return false (not an error)
-		if (result.stderr.toLowerCase().includes("not a git repository")) {
-			return this.ok(false);
-		}
-
-		// Other failures are actual errors
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to check repository status",
-					"git rev-parse --is-inside-work-tree",
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(false);
 	}
 
 	/**
 	 * Get the current branch name.
-	 *
-	 * Uses `git rev-parse --abbrev-ref HEAD` which returns the branch name
-	 * or "HEAD" if in detached HEAD state.
-	 *
-	 * @param config - Git configuration
-	 * @returns Current branch name or "HEAD" if detached
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.getBranch({ cwd: "/path/to/repo" });
-	 * if (result._tag === "ok") {
-	 *   console.log(`Current branch: ${result.value}`);
-	 * }
-	 * ```
 	 */
 	async getBranch(config?: GitConfig): Promise<GitResult<string>> {
-		return this.runGitCommandWithResult<string>(
-			["rev-parse", "--abbrev-ref", "HEAD"],
-			config,
-			(stdout) => stdout.trim(),
-		);
+		try {
+			const git = createGit(config?.cwd, config);
+			const branch = await git.revparse(["--abbrev-ref", "HEAD"]);
+			return this.ok(branch.trim());
+		} catch (error) {
+			return this.err(toGitError(error, "git rev-parse --abbrev-ref HEAD"));
+		}
 	}
 
 	/**
 	 * Get list of configured remote repositories.
-	 *
-	 * Uses `git remote -v` to get both fetch and push URLs for each remote.
-	 *
-	 * @param config - Git configuration
-	 * @returns Array of remote configurations with names and URLs
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.getRemotes({ cwd: "/path/to/repo" });
-	 * if (result._tag === "ok") {
-	 *   for (const remote of result.value) {
-	 *     console.log(`${remote.name}: ${remote.fetchUrl}`);
-	 *   }
-	 * }
-	 * ```
 	 */
 	async getRemotes(config?: GitConfig): Promise<GitResult<GitRemote[]>> {
-		return this.runGitCommandWithResult<GitRemote[]>(
-			["remote", "-v"],
-			config,
-			parseRemotes,
-		);
+		try {
+			const git = createGit(config?.cwd, config);
+			const remotes = await git.getRemotes(true);
+			return this.ok(
+				remotes.map((r) => ({
+					name: r.name,
+					fetchUrl: r.refs.fetch ?? "",
+					pushUrl: r.refs.push ?? r.refs.fetch ?? "",
+				})),
+			);
+		} catch (error) {
+			return this.err(toGitError(error, "git remote -v"));
+		}
 	}
 
 	// =============================================================================
@@ -461,25 +447,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Create a new branch.
-	 *
-	 * Uses `git branch <name> [<start-point>]` or `git checkout -b` if checkout is requested.
-	 *
-	 * @param options - Branch creation options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Create a branch without checking it out
-	 * const result = await gitTool.createBranch({ name: "feature/my-feature" });
-	 *
-	 * // Create and checkout a branch from a specific commit
-	 * const result = await gitTool.createBranch({
-	 *   name: "feature/my-feature",
-	 *   from: "develop",
-	 *   checkout: true
-	 * });
-	 * ```
 	 */
 	async createBranch(
 		options: CreateBranchOptions,
@@ -487,7 +454,6 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { name, from, checkout } = options;
 
-		// Validate branch name is provided
 		if (!name || !name.trim()) {
 			return this.err(
 				createGitError(
@@ -498,66 +464,31 @@ export class GitTool extends BaseTool implements GitOperations {
 			);
 		}
 
-		let args: string[];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		if (checkout) {
-			// Use checkout -b to create and switch to the branch
-			args = ["checkout", "-b", name];
-			if (from) {
-				args.push(from);
+			if (checkout) {
+				if (from) {
+					await git.checkoutBranch(name, from);
+				} else {
+					await git.checkoutLocalBranch(name);
+				}
+			} else {
+				const args = ["branch", name];
+				if (from) {
+					args.push(from);
+				}
+				await git.raw(args);
 			}
-		} else {
-			// Use branch to just create the branch
-			args = ["branch", name];
-			if (from) {
-				args.push(from);
-			}
+
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, `git branch ${name}`));
 		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || `Failed to create branch '${name}'`,
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * Switch to a branch.
-	 *
-	 * Uses `git switch <name>` or `git switch -c <name>` if create is requested.
-	 * Falls back to `git checkout` for broader compatibility.
-	 *
-	 * @param options - Branch switch options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Switch to an existing branch
-	 * const result = await gitTool.switchBranch({ name: "develop" });
-	 *
-	 * // Create and switch to a new branch
-	 * const result = await gitTool.switchBranch({
-	 *   name: "feature/new-feature",
-	 *   create: true
-	 * });
-	 *
-	 * // Force switch (discard local changes)
-	 * const result = await gitTool.switchBranch({
-	 *   name: "main",
-	 *   force: true
-	 * });
-	 * ```
 	 */
 	async switchBranch(
 		options: SwitchBranchOptions,
@@ -565,7 +496,6 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { name, create, force } = options;
 
-		// Validate branch name is provided
 		if (!name || !name.trim()) {
 			return this.err(
 				createGitError(
@@ -576,57 +506,27 @@ export class GitTool extends BaseTool implements GitOperations {
 			);
 		}
 
-		// Build the command arguments
-		// Use checkout for broader compatibility with older Git versions
-		const args: string[] = ["checkout"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		if (create) {
-			args.push("-b");
+			if (create) {
+				await git.checkoutLocalBranch(name);
+			} else {
+				const checkoutOptions: string[] = [];
+				if (force) {
+					checkoutOptions.push("-f");
+				}
+				await git.checkout(name, checkoutOptions);
+			}
+
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, `git checkout ${name}`));
 		}
-
-		if (force) {
-			args.push("-f");
-		}
-
-		args.push(name);
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || `Failed to switch to branch '${name}'`,
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * Delete a branch.
-	 *
-	 * Uses `git branch -d <name>` or `git branch -D <name>` for force delete.
-	 *
-	 * @param options - Branch deletion options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Delete a merged branch
-	 * const result = await gitTool.deleteBranch({ name: "feature/completed" });
-	 *
-	 * // Force delete an unmerged branch
-	 * const result = await gitTool.deleteBranch({
-	 *   name: "feature/abandoned",
-	 *   force: true
-	 * });
-	 * ```
 	 */
 	async deleteBranch(
 		options: DeleteBranchOptions,
@@ -634,7 +534,6 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { name, force } = options;
 
-		// Validate branch name is provided
 		if (!name || !name.trim()) {
 			return this.err(
 				createGitError(
@@ -645,52 +544,19 @@ export class GitTool extends BaseTool implements GitOperations {
 			);
 		}
 
-		// Build the command arguments
-		// -d for safe delete (only merged branches)
-		// -D for force delete (even unmerged branches)
-		const args = ["branch", force ? "-D" : "-d", name];
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
+		try {
+			const git = createGit(config?.cwd, config);
+			await git.deleteLocalBranch(name, force);
+			return this.ok(undefined);
+		} catch (error) {
 			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || `Failed to delete branch '${name}'`,
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
+				toGitError(error, `git branch -${force ? "D" : "d"} ${name}`),
 			);
 		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * List branches.
-	 *
-	 * Uses `git branch --format` with a custom format for reliable parsing.
-	 * Supports listing local branches, remote branches, or all branches.
-	 *
-	 * @param options - Branch listing options
-	 * @param config - Git configuration
-	 * @returns Array of branch information
-	 *
-	 * @example
-	 * ```typescript
-	 * // List local branches
-	 * const result = await gitTool.listBranches();
-	 *
-	 * // List remote branches
-	 * const result = await gitTool.listBranches({ remote: true });
-	 *
-	 * // List all branches
-	 * const result = await gitTool.listBranches({ all: true });
-	 *
-	 * // List branches matching a pattern
-	 * const result = await gitTool.listBranches({ pattern: "feature/*" });
-	 * ```
 	 */
 	async listBranches(
 		options?: ListBranchesOptions,
@@ -698,25 +564,46 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<GitBranch[]>> {
 		const { remote, all, pattern } = options ?? {};
 
-		// Build the command arguments
-		const args = ["branch", `--format=${BRANCH_FORMAT}`];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		if (all) {
-			args.push("-a");
-		} else if (remote) {
-			args.push("-r");
+			// Build branch command args
+			const args: string[] = ["branch", "-v", "--no-abbrev"];
+
+			if (all) {
+				args.push("-a");
+			} else if (remote) {
+				args.push("-r");
+			}
+
+			if (pattern) {
+				args.push("--list", pattern);
+			}
+
+			const output = await git.raw(args);
+			const branches: GitBranch[] = [];
+
+			for (const line of output.split("\n").filter((l) => l.trim())) {
+				const current = line.startsWith("*");
+				const trimmedLine = line.replace(/^\*?\s*/, "");
+
+				// Parse: branch_name commit_hash commit_message
+				const parts = trimmedLine.match(/^(\S+)\s+([a-f0-9]+)\s*(.*)$/);
+				if (parts) {
+					const [, branchName, commit, message] = parts;
+					branches.push({
+						name: branchName,
+						current,
+						commit,
+						message: message || undefined,
+					});
+				}
+			}
+
+			return this.ok(branches);
+		} catch (error) {
+			return this.err(toGitError(error, "git branch"));
 		}
-
-		// Add pattern filter if provided
-		if (pattern) {
-			args.push("--list", pattern);
-		}
-
-		return this.runGitCommandWithResult<GitBranch[]>(
-			args,
-			config,
-			parseBranchList,
-		);
 	}
 
 	// =============================================================================
@@ -725,31 +612,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Create a commit.
-	 *
-	 * Uses `git commit` with the provided message and options.
-	 * Returns the commit hash on success.
-	 *
-	 * @param options - Commit options
-	 * @param config - Git configuration
-	 * @returns Commit hash on success
-	 *
-	 * @example
-	 * ```typescript
-	 * // Create a simple commit
-	 * const result = await gitTool.commit({ message: "Add new feature" });
-	 *
-	 * // Create an empty commit
-	 * const result = await gitTool.commit({
-	 *   message: "Empty commit for CI trigger",
-	 *   allowEmpty: true
-	 * });
-	 *
-	 * // Amend the previous commit
-	 * const result = await gitTool.commit({
-	 *   message: "Updated commit message",
-	 *   amend: true
-	 * });
-	 * ```
 	 */
 	async commit(
 		options: CommitOptions,
@@ -757,7 +619,6 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<string>> {
 		const { message, allowEmpty, amend, author, email } = options;
 
-		// Validate message is provided
 		if (!message || !message.trim()) {
 			return this.err(
 				createGitError(
@@ -768,142 +629,72 @@ export class GitTool extends BaseTool implements GitOperations {
 			);
 		}
 
-		// Build the command arguments
-		const args: string[] = ["commit"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Apply message prefix from config if provided
-		let finalMessage = message;
-		if (config?.messagePrefix) {
-			finalMessage = `${config.messagePrefix}${message}`;
-		}
-
-		args.push("-m", finalMessage);
-
-		if (allowEmpty) {
-			args.push("--allow-empty");
-		}
-
-		if (amend) {
-			args.push("--amend");
-		}
-
-		// Handle author override
-		if (author || email) {
-			const authorName = author ?? config?.authorName ?? "";
-			const authorEmail = email ?? config?.authorEmail ?? "";
-			if (authorName && authorEmail) {
-				args.push("--author", `${authorName} <${authorEmail}>`);
+			let finalMessage = message;
+			if (config?.messagePrefix) {
+				finalMessage = `${config.messagePrefix}${message}`;
 			}
+
+			// Build commit command args
+			const args: string[] = ["commit", "-m", finalMessage];
+
+			if (allowEmpty) {
+				args.push("--allow-empty");
+			}
+
+			if (amend) {
+				args.push("--amend");
+			}
+
+			if (author || email) {
+				const authorName = author ?? config?.authorName ?? "";
+				const authorEmail = email ?? config?.authorEmail ?? "";
+				if (authorName && authorEmail) {
+					args.push("--author", `${authorName} <${authorEmail}>`);
+				}
+			}
+
+			await git.raw(args);
+
+			// Get the commit hash
+			const hash = await git.revparse(["HEAD"]);
+			return this.ok(hash.trim());
+		} catch (error) {
+			return this.err(toGitError(error, "git commit"));
 		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to create commit",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		// Extract commit hash from output
-		// After a successful commit, we can get the hash with rev-parse
-		const hashResult = await this.runGitCommand(["rev-parse", "HEAD"], config);
-
-		if (!hashResult.success) {
-			// Commit succeeded but couldn't get hash - return a partial success message
-			return this.ok("commit created");
-		}
-
-		return this.ok(hashResult.stdout.trim());
 	}
 
 	/**
 	 * Stage files for commit.
-	 *
-	 * Uses `git add` with the provided paths or options.
-	 *
-	 * @param options - Add options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Stage specific files
-	 * const result = await gitTool.add({ paths: ["src/index.ts", "README.md"] });
-	 *
-	 * // Stage all changes
-	 * const result = await gitTool.add({ all: true });
-	 *
-	 * // Force add ignored files
-	 * const result = await gitTool.add({ paths: ["build/"], force: true });
-	 * ```
 	 */
 	async add(options: AddOptions, config?: GitConfig): Promise<GitResult<void>> {
 		const { paths, all, force } = options;
 
-		// Build the command arguments
-		const args: string[] = ["add"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		if (force) {
-			args.push("-f");
+			if (all) {
+				await git.add("-A");
+			} else if (paths && paths.length > 0) {
+				if (force) {
+					await git.raw(["add", "-f", "--", ...paths]);
+				} else {
+					await git.add(paths);
+				}
+			} else {
+				await git.add(".");
+			}
+
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, "git add"));
 		}
-
-		if (all) {
-			args.push("-A");
-		} else if (paths && paths.length > 0) {
-			args.push("--", ...paths);
-		} else {
-			// Default to staging all changes in current directory
-			args.push(".");
-		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to stage files",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * Unstage files or reset the repository.
-	 *
-	 * Uses `git reset` with various modes:
-	 * - Without mode/target: Unstages files (mixed reset to HEAD)
-	 * - With mode and target: Resets to the specified commit
-	 *
-	 * @param options - Reset options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Unstage all files
-	 * const result = await gitTool.reset();
-	 *
-	 * // Unstage specific files
-	 * const result = await gitTool.reset({ paths: ["src/index.ts"] });
-	 *
-	 * // Soft reset to previous commit (keep changes staged)
-	 * const result = await gitTool.reset({ mode: "soft", target: "HEAD~1" });
-	 *
-	 * // Hard reset to specific commit (discard all changes)
-	 * const result = await gitTool.reset({ mode: "hard", target: "origin/main" });
-	 * ```
 	 */
 	async reset(
 		options?: ResetOptions,
@@ -911,39 +702,28 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { paths, mode, target } = options ?? {};
 
-		// Build the command arguments
-		const args: string[] = ["reset"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Add reset mode if specified
-		if (mode) {
-			args.push(`--${mode}`);
+			const args: string[] = ["reset"];
+
+			if (mode) {
+				args.push(`--${mode}`);
+			}
+
+			if (target) {
+				args.push(target);
+			}
+
+			if (paths && paths.length > 0) {
+				args.push("--", ...paths);
+			}
+
+			await git.raw(args);
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, "git reset"));
 		}
-
-		// Add target if specified
-		if (target) {
-			args.push(target);
-		}
-
-		// Add paths if specified (must come after -- separator)
-		if (paths && paths.length > 0) {
-			args.push("--", ...paths);
-		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to reset",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	// =============================================================================
@@ -952,33 +732,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Get a diff of changes.
-	 *
-	 * Uses `git diff` with various options to compare changes.
-	 *
-	 * @param options - Diff options
-	 * @param config - Git configuration
-	 * @returns Diff result with file changes and statistics
-	 *
-	 * @example
-	 * ```typescript
-	 * // Show unstaged changes
-	 * const result = await gitTool.diff();
-	 *
-	 * // Show staged changes
-	 * const result = await gitTool.diff({ staged: true });
-	 *
-	 * // Compare to a specific ref
-	 * const result = await gitTool.diff({ ref: "HEAD~3" });
-	 *
-	 * // Compare between two refs
-	 * const result = await gitTool.diff({ ref: "main", refTo: "feature-branch" });
-	 *
-	 * // Show only file names
-	 * const result = await gitTool.diff({ nameOnly: true });
-	 *
-	 * // Filter to specific paths
-	 * const result = await gitTool.diff({ paths: ["src/", "tests/"] });
-	 * ```
 	 */
 	async diff(
 		options?: DiffOptions,
@@ -986,123 +739,134 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<GitDiff>> {
 		const { staged, ref, refTo, nameOnly, stat, paths } = options ?? {};
 
-		// Build the command arguments
-		const args: string[] = ["diff"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Use --numstat for structured output (unless nameOnly is requested)
-		if (nameOnly) {
-			args.push("--name-only");
-		} else {
-			args.push("--numstat");
-		}
+			const diffOptions: string[] = [];
 
-		// Add --cached for staged changes
-		if (staged) {
-			args.push("--cached");
-		}
-
-		// Add ref comparisons
-		if (ref) {
-			if (refTo) {
-				// Compare between two refs: ref..refTo
-				args.push(`${ref}...${refTo}`);
+			if (nameOnly) {
+				diffOptions.push("--name-only");
 			} else {
-				// Compare to a specific ref
-				args.push(ref);
+				diffOptions.push("--numstat");
 			}
-		}
 
-		// Add path filters (must come after -- separator)
-		if (paths && paths.length > 0) {
-			args.push("--", ...paths);
-		}
+			if (staged) {
+				diffOptions.push("--cached");
+			}
 
-		const result = await this.runGitCommand(args, config);
+			if (ref) {
+				if (refTo) {
+					diffOptions.push(`${ref}...${refTo}`);
+				} else {
+					diffOptions.push(ref);
+				}
+			}
 
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to get diff",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
+			if (paths && paths.length > 0) {
+				diffOptions.push("--", ...paths);
+			}
 
-		// Parse the output based on the format used
-		if (nameOnly) {
-			// For nameOnly, create a basic diff with just file paths
-			const filePaths = result.stdout
-				.split("\n")
-				.map((line) => line.trim())
-				.filter(Boolean);
+			const output = await git.diff(diffOptions);
 
-			return this.ok({
-				files: filePaths.map((path) => ({
-					path,
-					type: "modified" as const,
-					additions: 0,
-					deletions: 0,
-				})),
-				totalAdditions: 0,
-				totalDeletions: 0,
-			});
-		}
+			if (nameOnly) {
+				const filePaths = output
+					.split("\n")
+					.map((line) => line.trim())
+					.filter(Boolean);
 
-		// Parse numstat output
-		const diff = parseDiffNumstat(result.stdout);
+				return this.ok({
+					files: filePaths.map((path) => ({
+						path,
+						type: "modified" as const,
+						additions: 0,
+						deletions: 0,
+					})),
+					totalAdditions: 0,
+					totalDeletions: 0,
+				});
+			}
 
-		// If stat was requested, get the raw output as well
-		if (stat) {
-			const statResult = await this.runGitCommand(
-				[
-					"diff",
+			// Parse numstat output
+			const files: GitDiffFile[] = [];
+			let totalAdditions = 0;
+			let totalDeletions = 0;
+
+			for (const line of output.split("\n").filter((l) => l.trim())) {
+				const parts = line.split("\t");
+				if (parts.length >= 3) {
+					const [addStr, delStr, ...pathParts] = parts;
+					let path = pathParts.join("\t");
+					let originalPath: string | undefined;
+					let type: GitDiffFile["type"] = "modified";
+
+					const binary = addStr === "-" && delStr === "-";
+					const additions = binary ? 0 : parseInt(addStr, 10);
+					const deletions = binary ? 0 : parseInt(delStr, 10);
+
+					// Handle renames
+					if (path.includes(" => ")) {
+						const renameParts = path.split(" => ");
+						if (renameParts.length === 2) {
+							if (renameParts[0].includes("{")) {
+								const match = path.match(/^(.*)?\{(.*) => (.*)\}(.*)$/);
+								if (match) {
+									const [, prefix, oldPart, newPart, suffix] = match;
+									originalPath = (prefix || "") + oldPart + (suffix || "");
+									path = (prefix || "") + newPart + (suffix || "");
+								}
+							} else {
+								originalPath = renameParts[0];
+								path = renameParts[1];
+							}
+							type = "renamed";
+						}
+					}
+
+					if (type === "modified") {
+						if (additions > 0 && deletions === 0) {
+							type = "added";
+						} else if (additions === 0 && deletions > 0) {
+							type = "deleted";
+						}
+					}
+
+					totalAdditions += additions;
+					totalDeletions += deletions;
+
+					files.push({
+						path,
+						type,
+						originalPath,
+						additions,
+						deletions,
+						binary,
+					});
+				}
+			}
+
+			const diff: GitDiff = {
+				files,
+				totalAdditions,
+				totalDeletions,
+			};
+
+			if (stat) {
+				const statOptions = [
+					...diffOptions.filter((o) => o !== "--numstat"),
 					"--stat",
-					...(staged ? ["--cached"] : []),
-					...(ref ? [ref] : []),
-					...(refTo ? [`...${refTo}`] : []),
-					...(paths && paths.length > 0 ? ["--", ...paths] : []),
-				],
-				config,
-			);
-			if (statResult.success) {
-				diff.raw = statResult.stdout;
+				];
+				const statOutput = await git.diff(statOptions);
+				diff.raw = statOutput;
 			}
-		}
 
-		return this.ok(diff);
+			return this.ok(diff);
+		} catch (error) {
+			return this.err(toGitError(error, "git diff"));
+		}
 	}
 
 	/**
 	 * Get raw patch diff from a base branch to HEAD.
-	 *
-	 * This is useful for code review scenarios where you need the actual
-	 * diff content (patch) of all changes made on a feature branch since
-	 * it diverged from the base branch.
-	 *
-	 * @param options - DiffPatch options
-	 * @param config - Git configuration
-	 * @returns DiffPatchResult with raw patch content and stats
-	 *
-	 * @example
-	 * ```typescript
-	 * // Get all changes from main to HEAD
-	 * const result = await gitTool.diffPatch({ baseBranch: "main" });
-	 *
-	 * // Get changes with commit limit
-	 * const result = await gitTool.diffPatch({
-	 *   baseBranch: "develop",
-	 *   commitLimit: 5
-	 * });
-	 *
-	 * // Filter to specific paths
-	 * const result = await gitTool.diffPatch({
-	 *   baseBranch: "main",
-	 *   paths: ["src/"]
-	 * });
-	 * ```
 	 */
 	async diffPatch(
 		options: DiffPatchOptions,
@@ -1110,109 +874,82 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<DiffPatchResult>> {
 		const { baseBranch, commitLimit, paths } = options;
 
-		// First, find the merge base between baseBranch and HEAD
-		const mergeBaseResult = await this.runGitCommand(
-			["merge-base", baseBranch, "HEAD"],
-			config,
-		);
+		try {
+			const git = createGit(config?.cwd, config);
 
-		if (!mergeBaseResult.success) {
-			const errorType = detectGitError(mergeBaseResult.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					mergeBaseResult.stderr || `Failed to find merge base with ${baseBranch}`,
-					`git merge-base ${baseBranch} HEAD`,
-					mergeBaseResult.exitCode,
-				),
-			);
-		}
+			// Find merge base
+			const mergeBase = await git.raw(["merge-base", baseBranch, "HEAD"]);
+			const mergeBaseHash = mergeBase.trim();
 
-		const mergeBase = mergeBaseResult.stdout.trim();
+			// Determine diff range
+			let diffRange = mergeBaseHash;
 
-		// Determine the range to diff
-		let diffRange: string;
-		if (commitLimit && commitLimit > 0) {
-			// Get the commit hash N commits back from HEAD
-			const logResult = await this.runGitCommand(
-				["rev-parse", `HEAD~${commitLimit - 1}`],
-				config,
-			);
+			if (commitLimit && commitLimit > 0) {
+				try {
+					const nCommitsBack = await git.revparse([`HEAD~${commitLimit - 1}`]);
+					const nCommitsBackHash = nCommitsBack.trim();
 
-			if (logResult.success) {
-				// Use the older of merge-base or N commits back
-				const nCommitsBack = logResult.stdout.trim();
-				// Check which is older by seeing if merge-base is ancestor of nCommitsBack
-				const ancestorResult = await this.runGitCommand(
-					["merge-base", "--is-ancestor", mergeBase, nCommitsBack],
-					config,
-				);
-				diffRange = ancestorResult.success ? nCommitsBack : mergeBase;
-			} else {
-				// If we can't get N commits back (not enough commits), use merge-base
-				diffRange = mergeBase;
+					// Check which is older
+					try {
+						await git.raw([
+							"merge-base",
+							"--is-ancestor",
+							mergeBaseHash,
+							nCommitsBackHash,
+						]);
+						diffRange = nCommitsBackHash;
+					} catch {
+						// mergeBase is not ancestor, keep using it
+					}
+				} catch {
+					// Not enough commits, use merge base
+				}
 			}
-		} else {
-			diffRange = mergeBase;
+
+			// Get patch
+			const patchArgs: string[] = [diffRange, "HEAD"];
+			if (paths && paths.length > 0) {
+				patchArgs.push("--", ...paths);
+			}
+
+			const patch = await git.diff(patchArgs);
+
+			// Get stats
+			const statArgs: string[] = ["--stat", diffRange, "HEAD"];
+			if (paths && paths.length > 0) {
+				statArgs.push("--", ...paths);
+			}
+
+			const statOutput = await git.diff(statArgs);
+
+			// Parse stats
+			let filesChanged = 0;
+			let additions = 0;
+			let deletions = 0;
+
+			if (statOutput) {
+				const statLines = statOutput.trim().split("\n");
+				const summaryLine = statLines[statLines.length - 1];
+
+				const filesMatch = summaryLine.match(/(\d+)\s+files?\s+changed/);
+				const addMatch = summaryLine.match(/(\d+)\s+insertions?\(\+\)/);
+				const delMatch = summaryLine.match(/(\d+)\s+deletions?\(-\)/);
+
+				if (filesMatch) filesChanged = parseInt(filesMatch[1], 10);
+				if (addMatch) additions = parseInt(addMatch[1], 10);
+				if (delMatch) deletions = parseInt(delMatch[1], 10);
+			}
+
+			return this.ok({
+				patch,
+				filesChanged,
+				additions,
+				deletions,
+				hasChanges: patch.length > 0,
+			});
+		} catch (error) {
+			return this.err(toGitError(error, "git diff"));
 		}
-
-		// Get the raw patch diff
-		const patchArgs: string[] = ["diff", diffRange, "HEAD"];
-
-		// Add path filters (must come after -- separator)
-		if (paths && paths.length > 0) {
-			patchArgs.push("--", ...paths);
-		}
-
-		const patchResult = await this.runGitCommand(patchArgs, config);
-
-		if (!patchResult.success) {
-			const errorType = detectGitError(patchResult.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					patchResult.stderr || "Failed to get patch diff",
-					`git ${patchArgs.join(" ")}`,
-					patchResult.exitCode,
-				),
-			);
-		}
-
-		const patch = patchResult.stdout;
-
-		// Get stats using --stat
-		const statArgs: string[] = ["diff", "--stat", diffRange, "HEAD"];
-		if (paths && paths.length > 0) {
-			statArgs.push("--", ...paths);
-		}
-
-		const statResult = await this.runGitCommand(statArgs, config);
-
-		// Parse stats from the last line (e.g., "3 files changed, 10 insertions(+), 5 deletions(-)")
-		let filesChanged = 0;
-		let additions = 0;
-		let deletions = 0;
-
-		if (statResult.success && statResult.stdout) {
-			const statLines = statResult.stdout.trim().split("\n");
-			const summaryLine = statLines[statLines.length - 1];
-
-			const filesMatch = summaryLine.match(/(\d+)\s+files?\s+changed/);
-			const addMatch = summaryLine.match(/(\d+)\s+insertions?\(\+\)/);
-			const delMatch = summaryLine.match(/(\d+)\s+deletions?\(-\)/);
-
-			if (filesMatch) filesChanged = parseInt(filesMatch[1], 10);
-			if (addMatch) additions = parseInt(addMatch[1], 10);
-			if (delMatch) deletions = parseInt(delMatch[1], 10);
-		}
-
-		return this.ok({
-			patch,
-			filesChanged,
-			additions,
-			deletions,
-			hasChanges: patch.length > 0,
-		});
 	}
 
 	// =============================================================================
@@ -1221,42 +958,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Get commit log history.
-	 *
-	 * Uses `git log` with a custom format for reliable parsing.
-	 *
-	 * @param options - Log options
-	 * @param config - Git configuration
-	 * @returns Array of commit objects
-	 *
-	 * @example
-	 * ```typescript
-	 * // Get last 10 commits (default)
-	 * const result = await gitTool.log();
-	 *
-	 * // Get last 5 commits
-	 * const result = await gitTool.log({ limit: 5 });
-	 *
-	 * // Get commits from a specific branch
-	 * const result = await gitTool.log({ from: "feature-branch" });
-	 *
-	 * // Get commits between two refs
-	 * const result = await gitTool.log({ from: "v1.0.0", to: "v2.0.0" });
-	 *
-	 * // Filter by author
-	 * const result = await gitTool.log({ author: "John" });
-	 *
-	 * // Filter by commit message
-	 * const result = await gitTool.log({ grep: "fix:" });
-	 *
-	 * // Filter by date range
-	 * const result = await gitTool.log({
-	 *   since: "2024-01-01",
-	 *   until: "2024-12-31"
-	 * });
-	 *
-	 * // Filter to specific paths
-	 * const result = await gitTool.log({ paths: ["src/"] });
-	 * ```
 	 */
 	async log(
 		options?: LogOptions,
@@ -1265,56 +966,62 @@ export class GitTool extends BaseTool implements GitOperations {
 		const { limit, from, to, author, grep, since, until, paths } =
 			options ?? {};
 
-		// Build the command arguments
-		const args: string[] = ["log", `--format=${LOG_FORMAT}`];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Add limit (default to 50 if not specified to prevent huge outputs)
-		const commitLimit = limit ?? 50;
-		args.push(`-n`, `${commitLimit}`);
+			const logOptions: Record<string, string | number | boolean | undefined> =
+				{};
 
-		// Add ref range
-		if (from && to) {
-			// Range between two refs
-			args.push(`${from}..${to}`);
-		} else if (from) {
-			// Starting from a specific ref
-			args.push(from);
-		} else if (to) {
-			// Up to a specific ref
-			args.push(to);
+			const maxCount = limit ?? 50;
+			logOptions.maxCount = maxCount;
+
+			if (from && to) {
+				logOptions.from = from;
+				logOptions.to = to;
+			} else if (from) {
+				logOptions.from = from;
+			} else if (to) {
+				logOptions.to = to;
+			}
+
+			if (author) {
+				logOptions["--author"] = author;
+			}
+
+			if (grep) {
+				logOptions["--grep"] = grep;
+			}
+
+			if (since) {
+				const sinceStr = since instanceof Date ? since.toISOString() : since;
+				logOptions["--since"] = sinceStr;
+			}
+
+			if (until) {
+				const untilStr = until instanceof Date ? until.toISOString() : until;
+				logOptions["--until"] = untilStr;
+			}
+
+			if (paths && paths.length > 0) {
+				logOptions.file = paths.join(" ");
+			}
+
+			const log = await git.log(logOptions);
+
+			const commits: GitCommit[] = log.all.map((entry) => ({
+				hash: entry.hash,
+				shortHash: entry.hash.substring(0, 7),
+				author: entry.author_name,
+				email: entry.author_email,
+				date: new Date(entry.date),
+				subject: entry.message,
+				body: entry.body || undefined,
+			}));
+
+			return this.ok(commits);
+		} catch (error) {
+			return this.err(toGitError(error, "git log"));
 		}
-
-		// Add author filter
-		if (author) {
-			args.push(`--author=${author}`);
-		}
-
-		// Add message filter (grep)
-		if (grep) {
-			args.push(`--grep=${grep}`);
-		}
-
-		// Add date filters
-		if (since) {
-			const sinceStr = since instanceof Date ? since.toISOString() : since;
-			args.push(`--since=${sinceStr}`);
-		}
-
-		if (until) {
-			const untilStr = until instanceof Date ? until.toISOString() : until;
-			args.push(`--until=${untilStr}`);
-		}
-
-		// Add path filters (must come after -- separator)
-		if (paths && paths.length > 0) {
-			args.push("--", ...paths);
-		}
-
-		return this.runGitCommandWithResult<GitCommit[]>(
-			args,
-			config,
-			parseLogOutput,
-		);
 	}
 
 	// =============================================================================
@@ -1323,45 +1030,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Add a new worktree.
-	 *
-	 * Uses `git worktree add` to create a new working tree at the specified path.
-	 * Returns both absolute and relative paths for easy chaining with other tools.
-	 *
-	 * @param options - Worktree add options
-	 * @param config - Git configuration
-	 * @returns WorktreeAddResult with paths and operation result
-	 *
-	 * @example
-	 * ```typescript
-	 * // Create a worktree for an existing branch
-	 * const { absolutePath, result } = await gitTool.worktreeAdd({
-	 *   path: "../my-feature",
-	 *   branch: "feature/my-feature"
-	 * });
-	 * if (result._tag === "ok") {
-	 *   // Use absolutePath with agentSession
-	 *   await tools.agentSession("Implement feature", { workingDirectory: absolutePath });
-	 * }
-	 *
-	 * // Create a new branch in the worktree
-	 * const { absolutePath } = await gitTool.worktreeAdd({
-	 *   path: "../new-feature",
-	 *   newBranch: "feature/new-feature"
-	 * });
-	 *
-	 * // Create a detached HEAD worktree
-	 * const result = await gitTool.worktreeAdd({
-	 *   path: "../detached",
-	 *   detach: true
-	 * });
-	 *
-	 * // Force creation (remove existing if needed)
-	 * const result = await gitTool.worktreeAdd({
-	 *   path: "../my-feature",
-	 *   branch: "feature/my-feature",
-	 *   force: true
-	 * });
-	 * ```
 	 */
 	async worktreeAdd(
 		options: WorktreeAddOptions,
@@ -1370,7 +1038,6 @@ export class GitTool extends BaseTool implements GitOperations {
 		const { path: worktreePath, branch, newBranch, force, detach } = options;
 		const cwd = config?.cwd ?? process.cwd();
 
-		// Validate path is provided
 		if (!worktreePath || !worktreePath.trim()) {
 			return {
 				absolutePath: "",
@@ -1386,104 +1053,103 @@ export class GitTool extends BaseTool implements GitOperations {
 			};
 		}
 
-		// Get git repository root and normalize paths to handle symlinks (e.g., /var -> /private/var on macOS)
-		const gitRootResult = await this.runGitCommand(
-			["rev-parse", "--show-toplevel"],
-			config,
-		);
-		const normalizedCwd = realpathSync(cwd);
-		const gitRoot = gitRootResult.success
-			? realpathSync(gitRootResult.stdout.trim())
-			: normalizedCwd;
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Compute absolute path, normalizing the parent directory to resolve symlinks consistently
-		// (the worktree directory itself doesn't exist yet, so we normalize its parent)
-		const resolvedPath = resolve(cwd, worktreePath);
-		const parentDir = dirname(resolvedPath);
-		const worktreeName = resolvedPath.slice(parentDir.length + 1);
-		const normalizedParent = realpathSync(parentDir);
-		const absolutePath = resolve(normalizedParent, worktreeName);
+			// Get git repository root and normalize paths
+			const gitRootOutput = await git.revparse(["--show-toplevel"]);
+			const normalizedCwd = realpathSync(cwd);
+			const gitRoot = realpathSync(gitRootOutput.trim());
 
-		// Compute relative paths
-		const relativePath = relative(normalizedCwd, absolutePath);
-		const relativeToGitRoot = relative(gitRoot, absolutePath);
+			// Compute absolute path
+			const resolvedPath = resolve(cwd, worktreePath);
+			const parentDir = dirname(resolvedPath);
+			const worktreeName = resolvedPath.slice(parentDir.length + 1);
 
-		// Build the command arguments
-		const args: string[] = ["worktree", "add"];
+			// Ensure parent exists before trying to normalize
+			let normalizedParent: string;
+			try {
+				normalizedParent = realpathSync(parentDir);
+			} catch {
+				// Parent doesn't exist, use resolved path as-is
+				normalizedParent = parentDir;
+			}
+			const absolutePath = resolve(normalizedParent, worktreeName);
 
-		// Add force flag if specified
-		if (force) {
-			args.push("--force");
-		}
+			// Compute relative paths
+			const relativePath = relative(normalizedCwd, absolutePath);
+			const relativeToGitRoot = relative(gitRoot, absolutePath);
 
-		// Add detach flag if specified
-		if (detach) {
-			args.push("--detach");
-		}
+			// Build worktree add command
+			const args: string[] = ["worktree", "add"];
 
-		// Add new branch creation if specified
-		if (newBranch) {
-			args.push("-b", newBranch);
-		}
+			if (force) {
+				args.push("--force");
+			}
 
-		// Add the path
-		args.push(worktreePath);
+			if (detach) {
+				args.push("--detach");
+			}
 
-		// Add the branch/commit-ish if specified (and not creating new branch)
-		if (branch && !newBranch) {
-			args.push(branch);
-		}
+			if (newBranch) {
+				args.push("-b", newBranch);
+			}
 
-		const commandResult = await this.runGitCommand(args, config);
+			args.push(worktreePath);
 
-		if (!commandResult.success) {
-			const errorType = detectGitError(commandResult.stderr);
+			if (branch && !newBranch) {
+				args.push(branch);
+			}
+
+			await git.raw(args);
+
+			// Wait for worktree to be fully created
+			const maxRetries = 20;
+			const retryDelayMs = 50;
+
+			for (let i = 0; i < maxRetries; i++) {
+				// Check if the worktree directory and .git file exist
+				const worktreeExists = existsSync(absolutePath);
+				const gitFileExists = existsSync(resolve(absolutePath, ".git"));
+
+				if (worktreeExists && gitFileExists) {
+					return {
+						absolutePath,
+						relativePath,
+						relativeToGitRoot,
+						result: this.ok(undefined),
+					};
+				}
+
+				// Wait before retrying
+				await new Promise((r) => setTimeout(r, retryDelayMs));
+			}
+
 			return {
 				absolutePath,
 				relativePath,
 				relativeToGitRoot,
 				result: this.err(
 					createGitError(
-						errorType,
-						commandResult.stderr ||
-							`Failed to add worktree at '${worktreePath}'`,
+						"CommandFailed",
+						`Worktree created but directory not ready after ${maxRetries * retryDelayMs}ms: ${absolutePath}`,
 						`git ${args.join(" ")}`,
-						commandResult.exitCode,
 					),
 				),
 			};
+		} catch (error) {
+			const resolvedPath = resolve(cwd, worktreePath);
+			return {
+				absolutePath: resolvedPath,
+				relativePath: relative(cwd, resolvedPath),
+				relativeToGitRoot: "",
+				result: this.err(toGitError(error, "git worktree add")),
+			};
 		}
-
-		return {
-			absolutePath,
-			relativePath,
-			relativeToGitRoot,
-			result: this.ok(undefined),
-		};
 	}
 
 	/**
 	 * Remove a worktree.
-	 *
-	 * Uses `git worktree remove` to delete a working tree.
-	 *
-	 * @param options - Worktree remove options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Remove a clean worktree
-	 * const result = await gitTool.worktreeRemove({
-	 *   path: "../my-feature"
-	 * });
-	 *
-	 * // Force remove a worktree with uncommitted changes
-	 * const result = await gitTool.worktreeRemove({
-	 *   path: "../my-feature",
-	 *   force: true
-	 * });
-	 * ```
 	 */
 	async worktreeRemove(
 		options: WorktreeRemoveOptions,
@@ -1491,7 +1157,6 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { path, force } = options;
 
-		// Validate path is provided
 		if (!path || !path.trim()) {
 			return this.err(
 				createGitError(
@@ -1502,58 +1167,35 @@ export class GitTool extends BaseTool implements GitOperations {
 			);
 		}
 
-		// Build the command arguments
-		const args: string[] = ["worktree", "remove"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Add force flag if specified
-		if (force) {
-			args.push("--force");
+			const args: string[] = ["worktree", "remove"];
+
+			if (force) {
+				args.push("--force");
+			}
+
+			args.push(path);
+
+			await git.raw(args);
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, `git worktree remove ${path}`));
 		}
-
-		// Add the path
-		args.push(path);
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || `Failed to remove worktree at '${path}'`,
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * List all worktrees.
-	 *
-	 * Uses `git worktree list --porcelain` for reliable parsing.
-	 *
-	 * @param config - Git configuration
-	 * @returns Array of worktree information
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.worktreeList();
-	 * if (result._tag === "ok") {
-	 *   for (const worktree of result.value) {
-	 *     console.log(`${worktree.path} -> ${worktree.branch ?? "detached"}`);
-	 *   }
-	 * }
-	 * ```
 	 */
 	async worktreeList(config?: GitConfig): Promise<GitResult<GitWorktree[]>> {
-		return this.runGitCommandWithResult<GitWorktree[]>(
-			["worktree", "list", "--porcelain"],
-			config,
-			parseWorktreeList,
-		);
+		try {
+			const git = createGit(config?.cwd, config);
+			const output = await git.raw(["worktree", "list", "--porcelain"]);
+			return this.ok(parseWorktreeListOutput(output));
+		} catch (error) {
+			return this.err(toGitError(error, "git worktree list"));
+		}
 	}
 
 	// =============================================================================
@@ -1562,33 +1204,6 @@ export class GitTool extends BaseTool implements GitOperations {
 
 	/**
 	 * Create a stash.
-	 *
-	 * Uses `git stash push` to save working tree and index state.
-	 *
-	 * @param options - Stash options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Create a basic stash
-	 * const result = await gitTool.stash();
-	 *
-	 * // Create a stash with a message
-	 * const result = await gitTool.stash({
-	 *   message: "WIP: feature implementation"
-	 * });
-	 *
-	 * // Include untracked files
-	 * const result = await gitTool.stash({
-	 *   includeUntracked: true
-	 * });
-	 *
-	 * // Stash only working tree (keep staged changes)
-	 * const result = await gitTool.stash({
-	 *   keepIndex: true
-	 * });
-	 * ```
 	 */
 	async stash(
 		options?: StashOptions,
@@ -1597,68 +1212,36 @@ export class GitTool extends BaseTool implements GitOperations {
 		const { message, includeUntracked, includeIgnored, keepIndex } =
 			options ?? {};
 
-		// Build the command arguments
-		const args: string[] = ["stash", "push"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Add message if provided
-		if (message) {
-			args.push("-m", message);
+			const args: string[] = ["push"];
+
+			if (message) {
+				args.push("-m", message);
+			}
+
+			if (includeUntracked) {
+				args.push("--include-untracked");
+			}
+
+			if (includeIgnored) {
+				args.push("--all");
+			}
+
+			if (keepIndex) {
+				args.push("--keep-index");
+			}
+
+			await git.stash(args);
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, "git stash push"));
 		}
-
-		// Add untracked files option
-		if (includeUntracked) {
-			args.push("--include-untracked");
-		}
-
-		// Add ignored files option (implies untracked)
-		if (includeIgnored) {
-			args.push("--all");
-		}
-
-		// Keep index option (only stash working tree)
-		if (keepIndex) {
-			args.push("--keep-index");
-		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to create stash",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * Pop a stash (apply and remove).
-	 *
-	 * Uses `git stash pop` to apply stashed changes and remove from stash list.
-	 *
-	 * @param options - Stash pop options
-	 * @param config - Git configuration
-	 * @returns Success or error
-	 *
-	 * @example
-	 * ```typescript
-	 * // Pop the most recent stash
-	 * const result = await gitTool.stashPop();
-	 *
-	 * // Pop a specific stash by index
-	 * const result = await gitTool.stashPop({ index: 2 });
-	 *
-	 * // Pop and restore index state
-	 * const result = await gitTool.stashPop({
-	 *   restoreIndex: true
-	 * });
-	 * ```
 	 */
 	async stashPop(
 		options?: StashPopOptions,
@@ -1666,59 +1249,36 @@ export class GitTool extends BaseTool implements GitOperations {
 	): Promise<GitResult<void>> {
 		const { index, restoreIndex } = options ?? {};
 
-		// Build the command arguments
-		const args: string[] = ["stash", "pop"];
+		try {
+			const git = createGit(config?.cwd, config);
 
-		// Add index restoration option
-		if (restoreIndex) {
-			args.push("--index");
+			const args: string[] = ["pop"];
+
+			if (restoreIndex) {
+				args.push("--index");
+			}
+
+			if (index !== undefined) {
+				args.push(`stash@{${index}}`);
+			}
+
+			await git.stash(args);
+			return this.ok(undefined);
+		} catch (error) {
+			return this.err(toGitError(error, "git stash pop"));
 		}
-
-		// Add specific stash index if provided
-		if (index !== undefined) {
-			args.push(`stash@{${index}}`);
-		}
-
-		const result = await this.runGitCommand(args, config);
-
-		if (!result.success) {
-			const errorType = detectGitError(result.stderr);
-			return this.err(
-				createGitError(
-					errorType,
-					result.stderr || "Failed to pop stash",
-					`git ${args.join(" ")}`,
-					result.exitCode,
-				),
-			);
-		}
-
-		return this.ok(undefined);
 	}
 
 	/**
 	 * List all stashes.
-	 *
-	 * Uses `git stash list` with a custom format for reliable parsing.
-	 *
-	 * @param config - Git configuration
-	 * @returns Array of stash entry information
-	 *
-	 * @example
-	 * ```typescript
-	 * const result = await gitTool.stashList();
-	 * if (result._tag === "ok") {
-	 *   for (const stash of result.value) {
-	 *     console.log(`${stash.ref}: ${stash.message}`);
-	 *   }
-	 * }
-	 * ```
 	 */
 	async stashList(config?: GitConfig): Promise<GitResult<GitStashEntry[]>> {
-		return this.runGitCommandWithResult<GitStashEntry[]>(
-			["stash", "list", `--format=${STASH_FORMAT}`],
-			config,
-			parseStashList,
-		);
+		try {
+			const git = createGit(config?.cwd, config);
+			const result = await git.stash(["list"]);
+			return this.ok(parseStashListOutput(result));
+		} catch (error) {
+			return this.err(toGitError(error, "git stash list"));
+		}
 	}
 }
