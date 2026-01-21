@@ -43,6 +43,8 @@ import type {
 	CreateBranchOptions,
 	DeleteBranchOptions,
 	DiffOptions,
+	DiffPatchOptions,
+	DiffPatchResult,
 	GitBranch,
 	GitCommit,
 	GitConfig,
@@ -137,7 +139,7 @@ import { getMergedAgentDefinitions } from "../agents/agentRegistry.js";
 import { buildPlanModeSystemPrompt } from "../agents/planModePrompts.js";
 import { createPlanFromOutput, savePlan } from "../agents/planStorage.js";
 import type { PlanModeConfig } from "../agents/types.js";
-import { READ_ONLY_TOOLS } from "../agents/types.js";
+import { READ_ONLY_TOOLS, WRITE_TOOLS } from "../agents/types.js";
 
 /**
  * Configuration for creating WorkflowTools.
@@ -996,6 +998,7 @@ export function createWorkflowTools(
 							subtype: message.subtype,
 							content: message.content,
 							toolName: message.toolName,
+							toolInput: message.toolInput,
 							sessionId: message.sessionId,
 							agentName: message.agentName,
 							raw: message.raw,
@@ -1170,43 +1173,149 @@ export function createWorkflowTools(
 			} else {
 				// Run planning phase
 				const planningTimer = createTimer();
+				const planningLabel = label ? `${label}-planning` : "planning";
 
 				// Emit planning phase start event
 				events?.planningPhaseStart({
 					prompt,
 					model: planningModel,
-					label: label ? `${label}-planning` : "planning",
+					label: planningLabel,
 					workingDirectory: options.workingDirectory,
 				});
 
-				// Build planning system prompt
+				// Build planning system prompt - emphasize NO implementation
 				const planningSystemPrompt = buildPlanModeSystemPrompt(
-					`You are a planning agent. Create a comprehensive implementation plan for the given task.
+					`You are a PLANNING agent. Your ONLY job is to create an implementation plan that another agent will execute.
 
-Your plan MUST include:
-1. **Summary**: Brief description of what needs to be implemented
-2. **Files to Create/Modify**: List specific files with planned changes
-3. **Implementation Steps**: Ordered steps to implement the feature
-4. **Dependencies**: Any new dependencies needed
-5. **Test Strategy**: How to test the implementation
-6. **Risks**: Potential issues or blockers
+CRITICAL RULES:
+- You are in READ-ONLY mode - you CANNOT modify files
+- You CANNOT use Write, Edit, Bash, or NotebookEdit tools
+- You MUST NOT write any code to files
+- You MUST NOT execute any commands
+- Your ONLY output should be a written plan in markdown
 
-Output your plan in markdown format. Be thorough but concise.`,
+IMPORTANT: Another agent will read your plan and execute it step by step. Your plan must be detailed and actionable.
+
+## Required Plan Structure
+
+### 1. Summary
+Brief description of what needs to be implemented (2-3 sentences).
+
+### 2. Critical Files
+List ALL files that need to be read, created, or modified:
+- \`path/to/existing/file.ts\` - why it needs to be read/modified
+- \`path/to/new/file.ts\` - (CREATE) what this new file will contain
+
+### 3. Implementation Steps
+Numbered, detailed steps the implementation agent must follow IN ORDER.
+Each step MUST include:
+- **What**: Specific action to take (create file, add function, modify class, etc.)
+- **Where**: Exact file path
+- **How**: Key details about the implementation (function signature, logic, imports needed)
+- **Why**: Brief reason for this step (helps agent understand context)
+
+Example step format:
+\`\`\`
+### Step 1: Create the data types
+**File**: \`src/types/user.ts\` (CREATE)
+**Action**: Create new TypeScript interface for User
+**Details**:
+- Define User interface with id, name, email fields
+- Export the interface
+**Depends on**: None
+\`\`\`
+
+### 4. Dependencies
+Any new npm/bun packages needed (if none, say "None").
+
+### 5. Test Strategy
+How to verify the implementation works:
+- What tests to write or run
+- Manual verification steps
+
+### 6. Risks & Edge Cases
+Potential issues the implementation agent should watch for.
+
+Remember: Be specific and actionable. The implementation agent cannot ask you questions.`,
 				);
 
-				// Execute planning session with read-only tools
-				const planningResult = await claudeAgentTool.executeSession(prompt, {
-					model: options.planningModel ?? "opus",
-					tools: READ_ONLY_TOOLS,
-					disallowedTools: ["EnterPlanMode"],
-					systemPrompt: planningSystemPrompt,
-					permissionMode: "bypassPermissions",
+				// Emit agent session start for planning
+				events?.agentSessionStart({
+					prompt,
+					label: planningLabel,
+					model: planningModel,
+					tools: [...READ_ONLY_TOOLS],
 					workingDirectory: options.workingDirectory,
-					agents: getMergedAgentDefinitions(options.agentConfig),
-					maxBudgetUsd: options.maxBudgetUsd,
+					hasSubagents:
+						Object.keys(getMergedAgentDefinitions(options.agentConfig)).length >
+						0,
+					isResume: false,
 				});
 
+				// Wrap the prompt to make it explicitly a planning request
+				const planningPrompt = `Create an implementation plan for the following task:
+
+${prompt}
+
+DO NOT implement anything. ONLY create a detailed plan.`;
+
+				// Execute planning session with read-only tools
+				// Note: We explicitly disallow write tools as a safety measure,
+				// even though allowedTools should already restrict them
+				const planningResult = await claudeAgentTool.executeSession(
+					planningPrompt,
+					{
+						model: options.planningModel ?? "opus",
+						tools: READ_ONLY_TOOLS,
+						disallowedTools: ["EnterPlanMode", ...WRITE_TOOLS],
+						systemPrompt: planningSystemPrompt,
+						permissionMode: "bypassPermissions",
+						workingDirectory: options.workingDirectory,
+						agents: getMergedAgentDefinitions(options.agentConfig),
+						maxBudgetUsd: options.maxBudgetUsd,
+						label: planningLabel,
+						// Stream message events in real-time
+						onMessage: (message) => {
+							events?.agentSessionMessage({
+								label: planningLabel,
+								messageType: message.type,
+								subtype: message.subtype,
+								content: message.content,
+								toolName: message.toolName,
+								toolInput: message.toolInput,
+								sessionId: message.sessionId,
+								agentName: message.agentName,
+								raw: message.raw,
+								usage: message.usage,
+								stopReason: message.stopReason,
+								fileInfo: message.fileInfo,
+							});
+						},
+					},
+				);
+
 				planningSessionId = planningResult.sessionId;
+
+				// Emit agent session complete/error for planning
+				if (planningResult.success) {
+					events?.agentSessionComplete({
+						label: planningLabel,
+						output: planningResult.output,
+						duration: planningTimer.elapsed(),
+						sessionId: planningSessionId,
+						success: true,
+						messageCount: planningResult.messages.length,
+						costUsd: planningResult.costUsd,
+						modelUsage: planningResult.modelUsage,
+					});
+				} else {
+					events?.agentSessionError({
+						label: planningLabel,
+						error: planningResult.error ?? "Planning failed",
+						errorType: planningResult.errorType ?? "UNKNOWN",
+						sessionId: planningSessionId,
+					});
+				}
 
 				// Emit planning phase complete event
 				const planningSuccess = planningResult.success;
@@ -1287,61 +1396,89 @@ Output your plan in markdown format. Be thorough but concise.`,
 
 			const implementationTimer = createTimer();
 
+			const implementationLabel = label
+				? `${label}-implementation`
+				: "implementation";
+
 			// Emit implementation phase start event
 			events?.implementationPhaseStart({
 				planPath: planInfo.path,
 				model: implementationModel,
-				label: label ? `${label}-implementation` : "implementation",
+				label: implementationLabel,
 				workingDirectory: options.workingDirectory,
 				isResume: !!options.resumeImplementation,
 				resumeSessionId: options.resumeImplementation,
 			});
 
-			// Build implementation system prompt with ReadPlan tool description
-			const implementationSystemPrompt = `You are implementing a plan that was created during the planning phase.
+			// Build implementation system prompt - be explicit about using tools
+			const implementationSystemPrompt = `You are an implementation agent. Your job is to EXECUTE the plan by writing actual code.
 
-## Important: Reading the Plan
+## CRITICAL: You Must Use Tools to Implement
 
-You have access to a special tool called "ReadPlan" that allows you to read the implementation plan.
-Use this tool whenever you need to:
-- Review the next steps to implement
-- Check the overall plan structure
-- Reference specific implementation details
-- Verify you're following the plan correctly
+You MUST use these tools to implement the plan:
+- **Write**: Create new files with code
+- **Edit**: Modify existing files
+- **Bash**: Run commands (install dependencies, run tests, etc.)
+- **Read**: Read existing files to understand current code
 
-**Always read the plan first before starting implementation, and re-read it whenever you need to remember what to do next.**
+DO NOT just describe what you would do. Actually DO IT using the tools above.
 
-## Your Task
+## Implementation Process
 
-Follow the implementation plan carefully and implement each step. The plan is available via the ReadPlan tool.
+For EACH step in the plan:
+1. Read the step details
+2. Use Write/Edit to create or modify the specified files
+3. Write the actual code as described
+4. Move to the next step
 
-Work methodically through the plan:
-1. Read the plan first to understand the full scope
-2. Implement each step in order
-3. Re-read the plan if you're unsure about next steps
-4. Test your implementation as you go`;
+## Guidelines
+- Execute each step in order
+- Write real, working code - not pseudocode or descriptions
+- If you need more context about the original task, use the TaskContext tool
+- Test your implementation as specified in the plan`;
 
-			// Create a custom tool definition for ReadPlan
-			// This will be passed to the agent as a subagent that can read the plan
-			const readPlanAgentDefinition: SubagentDefinition = {
+			// Create TaskContext tool for accessing original task details if needed
+			const taskContextAgentDefinition: SubagentDefinition = {
 				description:
-					"Read the implementation plan. Use this tool whenever you need to review the plan, check next steps, or verify implementation details. You should read the plan at the start and re-read it whenever needed.",
-				prompt: `Return the following implementation plan:\n\n${planInfo.content}`,
+					"Get the original task description and context. Use this if you need more background about what the user originally requested.",
+				prompt: `Return the original task context:\n\n${prompt}`,
 				tools: [],
 				model: "haiku",
 			};
 
-			// Build implementation prompt
-			const implementationPrompt = `Implement the following task according to the plan.
+			// Build implementation prompt with plan directly included
+			const implementationPrompt = `You must implement the following plan by writing actual code using Write, Edit, and Bash tools.
 
-## Original Task
-${prompt}
+## Implementation Plan
 
-## Instructions
-1. Use the ReadPlan tool to read and understand the implementation plan
-2. Follow the plan step by step
-3. Re-read the plan whenever you need to verify next steps
-4. Test your implementation as specified in the plan`;
+${planInfo.content}
+
+---
+
+## Your Task
+
+Go through each step above and EXECUTE it:
+1. For each "Create file" step → Use the **Write** tool to create the file with the specified code
+2. For each "Modify file" step → Use the **Edit** tool to make the changes
+3. For each "Run command" step → Use the **Bash** tool to execute it
+
+Start with Step 1 now. Do not just describe what you will do - actually write the code using the tools.`;
+
+			const implementationAgents = {
+				...getMergedAgentDefinitions(options.agentConfig),
+				TaskContext: taskContextAgentDefinition,
+			};
+
+			// Emit agent session start for implementation
+			events?.agentSessionStart({
+				prompt: implementationPrompt,
+				label: implementationLabel,
+				model: implementationModel,
+				workingDirectory: options.workingDirectory,
+				hasSubagents: Object.keys(implementationAgents).length > 0,
+				isResume: !!options.resumeImplementation,
+				resumeSessionId: options.resumeImplementation,
+			});
 
 			// Execute implementation session
 			const implementationResult = await claudeAgentTool.executeSession(
@@ -1352,16 +1489,52 @@ ${prompt}
 					systemPrompt: implementationSystemPrompt,
 					permissionMode: options.permissionMode ?? "acceptEdits",
 					workingDirectory: options.workingDirectory,
-					agents: {
-						...getMergedAgentDefinitions(options.agentConfig),
-						ReadPlan: readPlanAgentDefinition,
-					},
+					agents: implementationAgents,
 					maxBudgetUsd: options.maxBudgetUsd,
 					resume: options.resumeImplementation,
+					label: implementationLabel,
+					// Stream message events in real-time
+					onMessage: (message) => {
+						events?.agentSessionMessage({
+							label: implementationLabel,
+							messageType: message.type,
+							subtype: message.subtype,
+							content: message.content,
+							toolName: message.toolName,
+							toolInput: message.toolInput,
+							sessionId: message.sessionId,
+							agentName: message.agentName,
+							raw: message.raw,
+							usage: message.usage,
+							stopReason: message.stopReason,
+							fileInfo: message.fileInfo,
+						});
+					},
 				},
 			);
 
 			const implementationDuration = implementationTimer.elapsed();
+
+			// Emit agent session complete/error for implementation
+			if (implementationResult.success) {
+				events?.agentSessionComplete({
+					label: implementationLabel,
+					output: implementationResult.output,
+					duration: implementationDuration,
+					sessionId: implementationResult.sessionId,
+					success: true,
+					messageCount: implementationResult.messages.length,
+					costUsd: implementationResult.costUsd,
+					modelUsage: implementationResult.modelUsage,
+				});
+			} else {
+				events?.agentSessionError({
+					label: implementationLabel,
+					error: implementationResult.error ?? "Implementation failed",
+					errorType: implementationResult.errorType ?? "UNKNOWN",
+					sessionId: implementationResult.sessionId,
+				});
+			}
 
 			// Emit implementation phase complete event
 			events?.implementationPhaseComplete({
@@ -2362,6 +2535,13 @@ function createGitOperationsWrapper(
 			config?: GitConfig,
 		): Promise<GitResult<GitDiff>> {
 			return gitTool.diff(options, mergeConfig(config));
+		},
+
+		async diffPatch(
+			options: DiffPatchOptions,
+			config?: GitConfig,
+		): Promise<GitResult<DiffPatchResult>> {
+			return gitTool.diffPatch(options, mergeConfig(config));
 		},
 
 		// --- Log Operations ---

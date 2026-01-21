@@ -828,6 +828,7 @@ export class ConsoleRenderer extends BaseRenderer {
 			subtype,
 			content,
 			toolName,
+			toolInput,
 			agentName,
 			fileInfo,
 			stopReason,
@@ -838,7 +839,7 @@ export class ConsoleRenderer extends BaseRenderer {
 				return this.renderAssistantMessage(subtype, content, stopReason);
 
 			case "tool_call":
-				return this.renderToolCallMessage(toolName);
+				return this.renderToolCallMessage(toolName, toolInput);
 
 			case "tool_result":
 				return this.renderToolResultMessage(fileInfo);
@@ -904,13 +905,155 @@ export class ConsoleRenderer extends BaseRenderer {
 	/**
 	 * Render tool call message.
 	 */
-	private renderToolCallMessage(toolName: string | undefined): boolean {
-		if (toolName) {
-			console.log(
-				this.colorize(`${INDENT}${icons.hammer}  ${toolName}`, "cyan"),
-			);
+	private renderToolCallMessage(
+		toolName: string | undefined,
+		toolInput: unknown,
+	): boolean {
+		if (!toolName) {
+			return true;
 		}
+
+		// Format the tool input for display
+		const inputSummary = this.formatToolInput(toolName, toolInput);
+
+		// Display tool name with input summary
+		console.log(
+			this.colorize(`${INDENT}${icons.hammer}  ${toolName}`, "cyan"),
+		);
+
+		// Always show input summary if available (dimmed)
+		if (inputSummary) {
+			console.log(this.colorize(`${INDENT}   ${inputSummary}`, "dim"));
+		}
+
 		return true;
+	}
+
+	/**
+	 * Format tool input for display based on tool type.
+	 */
+	private formatToolInput(toolName: string, toolInput: unknown): string {
+		if (!toolInput || typeof toolInput !== "object") {
+			return "";
+		}
+
+		const input = toolInput as Record<string, unknown>;
+
+		switch (toolName) {
+			case "Task": {
+				// Show task description, subagent type, or prompt summary
+				const parts: string[] = [];
+				if (input.subagent_type) {
+					parts.push(`[${input.subagent_type}]`);
+				}
+				if (input.description) {
+					parts.push(String(input.description));
+				} else if (input.prompt) {
+					parts.push(this.truncate(String(input.prompt), 60));
+				}
+				return parts.join(" ");
+			}
+
+			case "Bash": {
+				// Show command (truncated)
+				if (input.command) {
+					return this.truncate(String(input.command), 80);
+				}
+				return "";
+			}
+
+			case "Read": {
+				// Show file path
+				if (input.file_path) {
+					const filePath = String(input.file_path);
+					// Show just filename or short path
+					const parts = filePath.split("/");
+					if (parts.length > 3) {
+						return `.../${parts.slice(-3).join("/")}`;
+					}
+					return filePath;
+				}
+				return "";
+			}
+
+			case "Write":
+			case "Edit": {
+				// Show file path
+				if (input.file_path) {
+					const filePath = String(input.file_path);
+					const parts = filePath.split("/");
+					if (parts.length > 3) {
+						return `.../${parts.slice(-3).join("/")}`;
+					}
+					return filePath;
+				}
+				return "";
+			}
+
+			case "Glob": {
+				// Show pattern
+				if (input.pattern) {
+					return String(input.pattern);
+				}
+				return "";
+			}
+
+			case "Grep": {
+				// Show pattern and optional path
+				const parts: string[] = [];
+				if (input.pattern) {
+					parts.push(`/${input.pattern}/`);
+				}
+				if (input.path) {
+					const pathStr = String(input.path);
+					const pathParts = pathStr.split("/");
+					if (pathParts.length > 2) {
+						parts.push(`.../${pathParts.slice(-2).join("/")}`);
+					} else {
+						parts.push(pathStr);
+					}
+				}
+				return parts.join(" ");
+			}
+
+			case "WebFetch": {
+				// Show URL
+				if (input.url) {
+					const url = String(input.url);
+					// Show just domain and path
+					try {
+						const parsed = new URL(url);
+						return `${parsed.hostname}${this.truncate(parsed.pathname, 40)}`;
+					} catch {
+						return this.truncate(url, 60);
+					}
+				}
+				return "";
+			}
+
+			case "WebSearch": {
+				// Show query
+				if (input.query) {
+					return this.truncate(String(input.query), 60);
+				}
+				return "";
+			}
+
+			default: {
+				// For unknown tools, show a brief summary of input keys
+				const keys = Object.keys(input);
+				if (keys.length === 0) {
+					return "";
+				}
+				// Show first meaningful value if simple
+				const firstKey = keys[0];
+				const firstValue = input[firstKey];
+				if (typeof firstValue === "string" && firstValue.length < 80) {
+					return this.truncate(firstValue, 60);
+				}
+				return "";
+			}
+		}
 	}
 
 	/**

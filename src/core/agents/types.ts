@@ -34,6 +34,17 @@ export const READ_ONLY_TOOLS: BuiltInTool[] = [
 ];
 
 /**
+ * Write tools that should be disallowed in read-only mode.
+ * These tools can modify files or execute commands.
+ */
+export const WRITE_TOOLS: BuiltInTool[] = [
+	"Write",
+	"Edit",
+	"Bash",
+	"NotebookEdit",
+];
+
+/**
  * Definition for a built-in agent.
  * Extends SubagentDefinition with additional metadata.
  */

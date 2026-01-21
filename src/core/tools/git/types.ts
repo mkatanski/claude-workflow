@@ -334,6 +334,37 @@ export interface DiffOptions {
 	label?: string;
 }
 
+/**
+ * Options for diffPatch operations.
+ * Gets raw patch diff from a base branch to HEAD.
+ */
+export interface DiffPatchOptions {
+	/** Base branch to compare from (e.g., "main", "develop") */
+	baseBranch: string;
+	/** Maximum number of commits to include (optional, defaults to all) */
+	commitLimit?: number;
+	/** Filter to specific paths */
+	paths?: string[];
+	/** Human-readable label for event display */
+	label?: string;
+}
+
+/**
+ * Result of diffPatch operation.
+ */
+export interface DiffPatchResult {
+	/** Raw patch content (the actual diff) */
+	patch: string;
+	/** Number of files changed */
+	filesChanged: number;
+	/** Total lines added */
+	additions: number;
+	/** Total lines deleted */
+	deletions: number;
+	/** Whether there are any changes */
+	hasChanges: boolean;
+}
+
 // =============================================================================
 // Log Types
 // =============================================================================
@@ -550,6 +581,15 @@ export interface GitOperations {
 
 	/** Get diff */
 	diff(options?: DiffOptions, config?: GitConfig): Promise<GitResult<GitDiff>>;
+
+	/**
+	 * Get raw patch diff from a base branch to HEAD.
+	 * Useful for code review of all changes on a feature branch.
+	 */
+	diffPatch(
+		options: DiffPatchOptions,
+		config?: GitConfig,
+	): Promise<GitResult<DiffPatchResult>>;
 
 	// --- Log Operations ---
 

@@ -34,6 +34,8 @@ import type {
 	AddOptions,
 	ResetOptions,
 	DiffOptions,
+	DiffPatchOptions,
+	DiffPatchResult,
 	LogOptions,
 	WorktreeAddOptions,
 	WorktreeRemoveOptions,
@@ -1071,6 +1073,146 @@ export class GitTool extends BaseTool implements GitOperations {
 		}
 
 		return this.ok(diff);
+	}
+
+	/**
+	 * Get raw patch diff from a base branch to HEAD.
+	 *
+	 * This is useful for code review scenarios where you need the actual
+	 * diff content (patch) of all changes made on a feature branch since
+	 * it diverged from the base branch.
+	 *
+	 * @param options - DiffPatch options
+	 * @param config - Git configuration
+	 * @returns DiffPatchResult with raw patch content and stats
+	 *
+	 * @example
+	 * ```typescript
+	 * // Get all changes from main to HEAD
+	 * const result = await gitTool.diffPatch({ baseBranch: "main" });
+	 *
+	 * // Get changes with commit limit
+	 * const result = await gitTool.diffPatch({
+	 *   baseBranch: "develop",
+	 *   commitLimit: 5
+	 * });
+	 *
+	 * // Filter to specific paths
+	 * const result = await gitTool.diffPatch({
+	 *   baseBranch: "main",
+	 *   paths: ["src/"]
+	 * });
+	 * ```
+	 */
+	async diffPatch(
+		options: DiffPatchOptions,
+		config?: GitConfig,
+	): Promise<GitResult<DiffPatchResult>> {
+		const { baseBranch, commitLimit, paths } = options;
+
+		// First, find the merge base between baseBranch and HEAD
+		const mergeBaseResult = await this.runGitCommand(
+			["merge-base", baseBranch, "HEAD"],
+			config,
+		);
+
+		if (!mergeBaseResult.success) {
+			const errorType = detectGitError(mergeBaseResult.stderr);
+			return this.err(
+				createGitError(
+					errorType,
+					mergeBaseResult.stderr || `Failed to find merge base with ${baseBranch}`,
+					`git merge-base ${baseBranch} HEAD`,
+					mergeBaseResult.exitCode,
+				),
+			);
+		}
+
+		const mergeBase = mergeBaseResult.stdout.trim();
+
+		// Determine the range to diff
+		let diffRange: string;
+		if (commitLimit && commitLimit > 0) {
+			// Get the commit hash N commits back from HEAD
+			const logResult = await this.runGitCommand(
+				["rev-parse", `HEAD~${commitLimit - 1}`],
+				config,
+			);
+
+			if (logResult.success) {
+				// Use the older of merge-base or N commits back
+				const nCommitsBack = logResult.stdout.trim();
+				// Check which is older by seeing if merge-base is ancestor of nCommitsBack
+				const ancestorResult = await this.runGitCommand(
+					["merge-base", "--is-ancestor", mergeBase, nCommitsBack],
+					config,
+				);
+				diffRange = ancestorResult.success ? nCommitsBack : mergeBase;
+			} else {
+				// If we can't get N commits back (not enough commits), use merge-base
+				diffRange = mergeBase;
+			}
+		} else {
+			diffRange = mergeBase;
+		}
+
+		// Get the raw patch diff
+		const patchArgs: string[] = ["diff", diffRange, "HEAD"];
+
+		// Add path filters (must come after -- separator)
+		if (paths && paths.length > 0) {
+			patchArgs.push("--", ...paths);
+		}
+
+		const patchResult = await this.runGitCommand(patchArgs, config);
+
+		if (!patchResult.success) {
+			const errorType = detectGitError(patchResult.stderr);
+			return this.err(
+				createGitError(
+					errorType,
+					patchResult.stderr || "Failed to get patch diff",
+					`git ${patchArgs.join(" ")}`,
+					patchResult.exitCode,
+				),
+			);
+		}
+
+		const patch = patchResult.stdout;
+
+		// Get stats using --stat
+		const statArgs: string[] = ["diff", "--stat", diffRange, "HEAD"];
+		if (paths && paths.length > 0) {
+			statArgs.push("--", ...paths);
+		}
+
+		const statResult = await this.runGitCommand(statArgs, config);
+
+		// Parse stats from the last line (e.g., "3 files changed, 10 insertions(+), 5 deletions(-)")
+		let filesChanged = 0;
+		let additions = 0;
+		let deletions = 0;
+
+		if (statResult.success && statResult.stdout) {
+			const statLines = statResult.stdout.trim().split("\n");
+			const summaryLine = statLines[statLines.length - 1];
+
+			const filesMatch = summaryLine.match(/(\d+)\s+files?\s+changed/);
+			const addMatch = summaryLine.match(/(\d+)\s+insertions?\(\+\)/);
+			const delMatch = summaryLine.match(/(\d+)\s+deletions?\(-\)/);
+
+			if (filesMatch) filesChanged = parseInt(filesMatch[1], 10);
+			if (addMatch) additions = parseInt(addMatch[1], 10);
+			if (delMatch) deletions = parseInt(delMatch[1], 10);
+		}
+
+		return this.ok({
+			patch,
+			filesChanged,
+			additions,
+			deletions,
+			hasChanges: patch.length > 0,
+		});
 	}
 
 	// =============================================================================

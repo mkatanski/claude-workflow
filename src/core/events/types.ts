@@ -833,6 +833,8 @@ export interface ToolAgentSessionMessagePayload {
 	subtype?: string;
 	content?: string;
 	toolName?: string;
+	/** Tool input parameters (for tool_call messages) */
+	toolInput?: unknown;
 	sessionId?: string;
 	agentName?: string;
 	/** Raw SDK message for debugging - always present */

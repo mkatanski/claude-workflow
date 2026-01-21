@@ -27,6 +27,8 @@ export {
 	type GitDiffFile,
 	type GitDiff,
 	type DiffOptions,
+	type DiffPatchOptions,
+	type DiffPatchResult,
 	type LogOptions,
 	type GitWorktree,
 	type WorktreeAddOptions,
