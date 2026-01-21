@@ -460,10 +460,10 @@ export class SubWorkflowExecutor {
 			const result = await graph.run(initialVars);
 
 			// Check for errors
-			if (result.error) {
+			if (result.state.error) {
 				return {
 					success: false,
-					errorMessage: result.error,
+					errorMessage: result.state.error,
 				};
 			}
 
@@ -472,9 +472,9 @@ export class SubWorkflowExecutor {
 			// 1. Explicitly set via _output variable
 			// 2. All variables (if no explicit output)
 			const output =
-				result.variables._output !== undefined
-					? result.variables._output
-					: this.extractOutput(result.variables);
+				result.state.variables._output !== undefined
+					? result.state.variables._output
+					: this.extractOutput(result.state.variables);
 
 			return {
 				success: true,

@@ -28,7 +28,8 @@ export type BuiltInTool =
 	| "WebFetch"
 	| "WebSearch"
 	| "NotebookEdit"
-	| "EnterPlanMode";
+	| "EnterPlanMode"
+	| "Skill";
 
 /**
  * Tools configuration options.

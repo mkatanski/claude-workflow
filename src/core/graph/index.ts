@@ -37,7 +37,23 @@ export type {
 	WorkflowGraphConfig,
 	NodeFunction,
 	RoutingFunction,
+	CheckpointerConfig,
+	WorkflowRunOptions,
+	WorkflowRunResult,
 } from "./workflowGraph.ts";
+
+// Checkpoint storage
+export {
+	saveCheckpoint,
+	loadCheckpoint,
+	deleteCheckpoint,
+	listCheckpoints,
+	checkpointExists,
+	saveLatestThread,
+	loadLatestThread,
+	clearLatestThread,
+} from "./checkpointStorage.ts";
+export type { PersistedCheckpoint, LatestThreadInfo } from "./checkpointStorage.ts";
 
 // Workflow definition types
 export type {

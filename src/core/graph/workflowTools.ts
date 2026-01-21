@@ -922,12 +922,8 @@ export function createWorkflowTools(
 
 			const isPlanMode = planModeConfig?.enabled === true;
 
-			// Determine tools - restrict to read-only in plan mode
-			const effectiveTools = isPlanMode
-				? READ_ONLY_TOOLS
-				: Array.isArray(options?.tools)
-					? options.tools
-					: undefined;
+			// Determine tools - restrict to read-only in plan mode, otherwise pass through (including presets)
+			const effectiveTools = isPlanMode ? READ_ONLY_TOOLS : options?.tools;
 
 			// Determine disallowed tools - block EnterPlanMode when plan mode is enabled
 			// This prevents the SDK's built-in plan mode from interfering with our custom plan mode
@@ -955,13 +951,13 @@ export function createWorkflowTools(
 			const model = resolveModel(options?.model ?? "sonnet");
 
 			// Determine tools list for event payload
-			const toolsList =
-				effectiveTools ??
-				(options?.tools &&
-				!Array.isArray(options.tools) &&
-				options.tools.type === "preset"
-					? [options.tools.preset]
-					: undefined);
+			const toolsList = Array.isArray(effectiveTools)
+				? effectiveTools
+				: effectiveTools &&
+					  "type" in effectiveTools &&
+					  effectiveTools.type === "preset"
+					? [effectiveTools.preset]
+					: undefined;
 
 			// Emit start event
 			events?.agentSessionStart({

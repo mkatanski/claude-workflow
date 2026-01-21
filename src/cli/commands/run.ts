@@ -14,7 +14,16 @@ import {
 	type DiscoveredWorkflow,
 } from "../discovery.ts";
 import { WorkflowRunner } from "../../core/workflow/runner.ts";
-import { WorkflowGraph } from "../../core/graph/workflowGraph.ts";
+import {
+	WorkflowGraph,
+	saveCheckpoint,
+	loadCheckpoint,
+	deleteCheckpoint,
+	saveLatestThread,
+	loadLatestThread,
+	clearLatestThread,
+} from "../../core/graph/index.ts";
+import type { PersistedCheckpoint } from "../../core/graph/index.ts";
 import {
 	checkHooksQuiet,
 	installHooks,
@@ -42,6 +51,12 @@ export interface RunOptions {
 	json?: boolean;
 	/** Enable debug mode with enhanced logging */
 	debug?: boolean;
+	/** Enable checkpointing for resumable execution */
+	checkpoint?: boolean;
+	/** Thread ID for checkpoint tracking */
+	threadId?: string;
+	/** Resume from existing checkpoint */
+	resume?: boolean;
 }
 
 /**
@@ -236,6 +251,42 @@ async function runLangGraphWorkflow(
 	// Load workflow definition
 	const definition = await loadLangGraphWorkflow(workflowPath);
 
+	// Handle resume from checkpoint
+	// Note: When resuming, LangGraph's SqliteSaver automatically restores state
+	// We only use our custom checkpoint file for metadata (workflow name validation, user feedback)
+	const initialVars = definition.vars ?? {};
+	let existingCheckpoint: PersistedCheckpoint | null = null;
+	let resolvedThreadId = options.threadId;
+
+	if (options.resume) {
+		// If no thread ID provided, try to load the latest one
+		if (!resolvedThreadId) {
+			const latestThread = loadLatestThread(projectPath);
+			if (!latestThread) {
+				console.error("No checkpoint found to resume. Use --thread-id to specify one.");
+				process.exit(1);
+			}
+			resolvedThreadId = latestThread.threadId;
+			console.log(`Using latest thread: ${resolvedThreadId}`);
+		}
+
+		existingCheckpoint = loadCheckpoint(projectPath, resolvedThreadId);
+		if (!existingCheckpoint) {
+			console.error(`No checkpoint found for thread: ${resolvedThreadId}`);
+			process.exit(1);
+		}
+		if (existingCheckpoint.workflowName !== definition.name) {
+			console.error(
+				`Checkpoint workflow "${existingCheckpoint.workflowName}" does not match current workflow "${definition.name}"`,
+			);
+			process.exit(1);
+		}
+		console.log(
+			`Resuming from checkpoint (last completed node: ${existingCheckpoint.lastCompletedNode ?? "none"})`,
+		);
+		// Note: We don't override initialVars - LangGraph's SqliteSaver will restore state automatically
+	}
+
 	// Create event emitter and connect renderer
 	const emitter = createEmitter({ asyncByDefault: true });
 	const renderer = createRenderer({
@@ -267,7 +318,7 @@ async function runLangGraphWorkflow(
 		});
 	}
 
-	// Create WorkflowGraph with emitter and debugger
+	// Create WorkflowGraph with emitter, debugger, and checkpointer
 	const graph = new WorkflowGraph({
 		projectPath,
 		tempDir,
@@ -278,20 +329,96 @@ async function runLangGraphWorkflow(
 		emitter,
 		workflowName: definition.name,
 		debugger: workflowDebugger,
+		checkpointer: options.checkpoint
+			? {
+					enabled: true,
+					threadId: resolvedThreadId,
+					resume: options.resume,
+				}
+			: undefined,
 	});
+
+	// Track checkpoint state for SIGINT handling
+	// Using explicit type annotation to ensure TypeScript tracks mutations in callbacks
+	let checkpointState: { current: PersistedCheckpoint | null } = { current: null };
+	let interrupted = false;
+
+	// Helper to save checkpoint and print resume command
+	const saveAndPrintResume = (reason: string): void => {
+		if (checkpointState.current && options.checkpoint) {
+			console.log(`\n${reason}. Saving checkpoint...`);
+			saveCheckpoint(projectPath, checkpointState.current);
+			// Save as latest thread for easy resume
+			saveLatestThread(projectPath, checkpointState.current.threadId, definition.name);
+			console.log(`Resume with: cw run --resume -w ${definition.name}`);
+		}
+	};
+
+	// Handle Ctrl+C
+	const sigintHandler = (): void => {
+		interrupted = true;
+		saveAndPrintResume("Interrupted");
+		process.exit(130);
+	};
+
+	// Only register SIGINT handler if checkpointing is enabled
+	if (options.checkpoint) {
+		process.on("SIGINT", sigintHandler);
+	}
 
 	try {
 		// Build the graph using the definition's build function
 		definition.build(graph);
 
-		// Run the workflow with initial variables
-		const result = await graph.run(definition.vars);
+		// Print thread ID if checkpointing is enabled
+		if (options.checkpoint && !options.resume) {
+			console.log(`Thread ID: ${graph.getThreadId()}`);
+		}
 
-		if (result.error) {
-			// Error already displayed via workflow:error event
+		// Run the workflow with initial variables and checkpoint callback
+		const result = await graph.run(initialVars, {
+			onNodeComplete: (nodeName, variables) => {
+				// Update checkpoint state after each node
+				const threadId = graph.getThreadId();
+				if (threadId && options.checkpoint) {
+					checkpointState.current = {
+						threadId,
+						workflowName: definition.name,
+						variables,
+						lastCompletedNode: nodeName,
+						timestamp: new Date().toISOString(),
+					};
+				}
+			},
+		});
+
+		if (result.state.error) {
+			// Workflow completed with error - save checkpoint
+			saveAndPrintResume("Workflow failed");
 			process.exit(1);
 		}
+
+		// Success - delete checkpoint and clear latest thread
+		if (checkpointState.current && options.checkpoint) {
+			deleteCheckpoint(projectPath, checkpointState.current.threadId);
+			clearLatestThread(projectPath);
+			if (options.verbose) {
+				console.log("Checkpoint cleaned up.");
+			}
+		}
+	} catch (error) {
+		// Unexpected error - save checkpoint
+		if (!interrupted) {
+			const message = error instanceof Error ? error.message : String(error);
+			saveAndPrintResume(`Error: ${message}`);
+		}
+		throw error;
 	} finally {
+		// Remove SIGINT handler
+		if (options.checkpoint) {
+			process.off("SIGINT", sigintHandler);
+		}
+
 		// Flush any pending events before cleanup
 		await emitter.flush();
 

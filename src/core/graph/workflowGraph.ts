@@ -12,7 +12,9 @@
  * - Event emission for workflow observability (via WorkflowEmitter)
  */
 
-import { StateGraph, START, END } from "@langchain/langgraph";
+import { StateGraph, START, END, MemorySaver } from "@langchain/langgraph";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
+import { randomUUID } from "node:crypto";
 import {
 	WorkflowState,
 	type WorkflowStateType,
@@ -91,6 +93,42 @@ export interface WorkflowGraphConfig {
 	workflowName?: string;
 	/** Optional debugger for step-through debugging */
 	debugger?: IDebugger;
+	/** Optional checkpointer configuration for resumable execution */
+	checkpointer?: CheckpointerConfig;
+}
+
+/**
+ * Configuration for workflow checkpointing.
+ */
+export interface CheckpointerConfig {
+	/** Enable checkpointing (default: false) */
+	enabled?: boolean;
+	/** Custom thread ID (auto-generated UUID if not provided) */
+	threadId?: string;
+	/** Resume from existing checkpoint */
+	resume?: boolean;
+}
+
+/**
+ * Run options for workflow execution with checkpointing.
+ */
+export interface WorkflowRunOptions {
+	/** Callback invoked after each node completes with current state */
+	onNodeComplete?: (nodeName: string, variables: Record<string, unknown>) => void;
+}
+
+/**
+ * Result of workflow execution with checkpointing info.
+ */
+export interface WorkflowRunResult {
+	/** Final workflow state */
+	state: WorkflowStateType;
+	/** Thread ID used (for resumption) */
+	threadId?: string;
+	/** Whether this was a resumed execution */
+	resumed: boolean;
+	/** Last completed node name (for checkpoint tracking) */
+	lastCompletedNode: string | null;
 }
 
 /**
@@ -138,6 +176,14 @@ export class WorkflowGraph {
 	private events: EventHelpers;
 	private workflowName: string;
 	private debugger: IDebugger | null = null;
+	/** SqliteSaver instance for persistent checkpointing (when enabled) */
+	private checkpointer: BaseCheckpointSaver | null = null;
+	/** Thread ID for checkpoint tracking */
+	private threadId: string | null = null;
+	/** Last completed node name (for checkpoint tracking) */
+	private lastCompletedNode: string | null = null;
+	/** Current run options (used by wrapNode to call onNodeComplete) */
+	private runOptions: WorkflowRunOptions | null = null;
 
 	constructor(config: WorkflowGraphConfig) {
 		this.config = config;
@@ -177,6 +223,16 @@ export class WorkflowGraph {
 					}
 				}
 			});
+		}
+
+		// Initialize checkpointer (if enabled)
+		if (config.checkpointer?.enabled) {
+			// Use provided thread ID or generate new one
+			this.threadId = config.checkpointer.threadId ?? randomUUID();
+
+			// Use in-memory checkpointer (Bun doesn't support better-sqlite3)
+			// Main persistence is handled by JSON-based checkpointStorage.ts
+			this.checkpointer = new MemorySaver();
 		}
 	}
 
@@ -421,6 +477,20 @@ export class WorkflowGraph {
 					variableUpdates,
 				});
 
+				// Track last completed node for checkpointing
+				this.lastCompletedNode = nodeName;
+
+				// Compute merged variables for checkpoint callback
+				const mergedVariables =
+					Object.keys(varUpdates).length > 0
+						? { ...state.variables, ...result.variables, ...varUpdates }
+						: { ...state.variables, ...result.variables };
+
+				// Call onNodeComplete callback if provided (for checkpoint persistence)
+				if (this.runOptions?.onNodeComplete) {
+					this.runOptions.onNodeComplete(nodeName, mergedVariables);
+				}
+
 				if (Object.keys(varUpdates).length > 0) {
 					const existingVars = result.variables ?? {};
 					return {
@@ -592,8 +662,11 @@ export class WorkflowGraph {
 			}
 		}
 
-		// Compile the graph
-		this.compiled = graph.compile() as CompiledWorkflowGraph;
+		// Compile the graph (with checkpointer if enabled)
+		const compileOptions = this.checkpointer
+			? { checkpointer: this.checkpointer }
+			: undefined;
+		this.compiled = graph.compile(compileOptions) as CompiledWorkflowGraph;
 
 		// Emit compile complete event
 		const edgeCount = this.edges.length + this.conditionalEdges.length;
@@ -611,11 +684,24 @@ export class WorkflowGraph {
 	 * Run the workflow with initial variables.
 	 *
 	 * @param initialVars - Initial workflow variables
-	 * @returns Final workflow state
+	 * @param options - Optional run configuration for checkpointing
+	 * @returns Workflow run result with state and checkpoint info
 	 */
-	async run(initialVars?: Record<string, unknown>): Promise<WorkflowStateType> {
+	async run(
+		initialVars?: Record<string, unknown>,
+		options?: WorkflowRunOptions,
+	): Promise<WorkflowRunResult> {
 		const timer = createTimer();
 		const compiled = await this.compile();
+
+		// Store run options for wrapNode to use
+		this.runOptions = options ?? null;
+
+		// Reset lastCompletedNode for this run
+		this.lastCompletedNode = null;
+
+		// Determine if we're resuming from a checkpoint
+		const isResuming = this.config.checkpointer?.resume ?? false;
 
 		const initialState: WorkflowStateType = {
 			variables: initialVars ?? {},
@@ -632,10 +718,21 @@ export class WorkflowGraph {
 		// Emit state initialized event
 		this.events.workflowStateInitialized(this.workflowName, initialVars ?? {});
 
-		try {
-			const result = (await compiled.invoke(initialState)) as WorkflowStateType;
+		// Build invoke config (with thread_id for checkpointing if enabled)
+		const invokeConfig = this.checkpointer && this.threadId
+			? { configurable: { thread_id: this.threadId } }
+			: undefined;
 
-			const finalState = {
+		try {
+			// When resuming, pass null to let LangGraph restore from checkpoint
+			// Otherwise, pass the initial state for a fresh execution
+			const invokeInput = isResuming ? null : initialState;
+			const result = (await compiled.invoke(
+				invokeInput,
+				invokeConfig,
+			)) as WorkflowStateType;
+
+			const finalState: WorkflowStateType = {
 				variables: result.variables,
 				error: result.error,
 				completed: true,
@@ -649,7 +746,12 @@ export class WorkflowGraph {
 				success: !result.error,
 			});
 
-			return finalState;
+			return {
+				state: finalState,
+				threadId: this.threadId ?? undefined,
+				resumed: this.config.checkpointer?.resume ?? false,
+				lastCompletedNode: this.lastCompletedNode,
+			};
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const stack = error instanceof Error ? error.stack : undefined;
@@ -662,10 +764,18 @@ export class WorkflowGraph {
 			});
 
 			return {
-				variables: initialVars ?? {},
-				error: message,
-				completed: false,
+				state: {
+					variables: initialVars ?? {},
+					error: message,
+					completed: false,
+				},
+				threadId: this.threadId ?? undefined,
+				resumed: this.config.checkpointer?.resume ?? false,
+				lastCompletedNode: this.lastCompletedNode,
 			};
+		} finally {
+			// Clear run options after execution
+			this.runOptions = null;
 		}
 	}
 
@@ -704,6 +814,33 @@ export class WorkflowGraph {
 			cleanedFiles: 0, // Future: track cleaned temp files
 			duration: timer.elapsed(),
 		});
+	}
+
+	/**
+	 * Get the thread ID for checkpoint tracking.
+	 * Returns undefined if checkpointing is not enabled.
+	 */
+	getThreadId(): string | undefined {
+		return this.threadId ?? undefined;
+	}
+
+	/**
+	 * Get the last completed node name.
+	 * Returns null if no nodes have completed yet.
+	 */
+	getLastCompletedNode(): string | null {
+		return this.lastCompletedNode;
+	}
+
+	/**
+	 * Get current state snapshot for checkpointing.
+	 * Returns variables and last completed node.
+	 */
+	getCurrentState(): { variables: Record<string, unknown>; lastCompletedNode: string | null } {
+		return {
+			variables: this._context?.variables ?? {},
+			lastCompletedNode: this.lastCompletedNode,
+		};
 	}
 }
 

@@ -22,6 +22,7 @@ import {
 	type PreToolUseHook,
 	resolveModel,
 	type SubagentDefinition,
+	type ToolsConfig,
 } from "./claudeAgent.types.ts";
 import type { ToolResult } from "./types.ts";
 import { BaseTool, errorResult } from "./types.ts";
@@ -200,8 +201,8 @@ export type {
 export interface AgentSessionOptions {
 	/** Model to use (alias or full ID) */
 	model?: string;
-	/** Tools to allow */
-	tools?: BuiltInTool[];
+	/** Tools to allow (array of tools or preset like { type: "preset", preset: "claude_code" }) */
+	tools?: ToolsConfig;
 	/** Tools to disallow */
 	disallowedTools?: BuiltInTool[];
 	/** System prompt to use */
@@ -328,6 +329,11 @@ export class ClaudeAgentTool extends BaseTool {
 			// Build agents configuration (subagents inherit workingDirectory)
 			const agents = this.buildAgents(options, workingDirectory);
 
+			// Resolve tools config to SDK format
+			const resolvedTools = this.resolveToolsConfig(
+				options?.tools ?? this.config?.tools,
+			);
+
 			// Create the query with SDK
 			const queryResult = query({
 				prompt,
@@ -335,8 +341,7 @@ export class ClaudeAgentTool extends BaseTool {
 					model,
 					cwd: workingDirectory,
 					systemPrompt: options?.systemPrompt ?? this.config?.systemPrompt,
-					allowedTools:
-						options?.tools ?? (this.config?.tools as string[] | undefined),
+					allowedTools: resolvedTools,
 					disallowedTools:
 						options?.disallowedTools ?? this.config?.disallowedTools,
 					permissionMode:
@@ -772,6 +777,30 @@ export class ClaudeAgentTool extends BaseTool {
 		}
 
 		return denials.length > 0 ? denials : undefined;
+	}
+
+	/**
+	 * Resolve tools config to SDK format.
+	 * Handles both array of tools and preset configuration.
+	 */
+	private resolveToolsConfig(
+		tools: ToolsConfig | undefined,
+	): string[] | undefined {
+		if (!tools) {
+			return undefined;
+		}
+
+		// Handle array of tools
+		if (Array.isArray(tools)) {
+			return tools.length > 0 ? tools : undefined;
+		}
+
+		// Handle preset configuration - pass undefined to use all SDK tools
+		if (tools.type === "preset" && tools.preset === "claude_code") {
+			return undefined;
+		}
+
+		return undefined;
 	}
 
 	/**
