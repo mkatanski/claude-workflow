@@ -37,6 +37,8 @@ import {
 	DebugRenderer,
 	type WorkflowRenderer,
 } from "../../core/events/index.ts";
+import type { DebugCommand } from "../../core/events/renderers/debug.ts";
+// Note: DebugRenderer is used at runtime so regular import is needed
 import { Debugger, createDebugger } from "../../core/debugger/index.ts";
 
 /**
@@ -301,6 +303,9 @@ async function runLangGraphWorkflow(
 
 	// Create debugger if in debug mode
 	let workflowDebugger: Debugger | undefined;
+	// Flag to track if user requested quit from debug interface
+	// This is set when quit command is issued but actual cleanup happens in finally block
+	const debugState = { cleanupRequested: false };
 	if (options.debug) {
 		workflowDebugger = createDebugger({
 			onBreakpointHit: (_hit) => {
@@ -310,6 +315,7 @@ async function runLangGraphWorkflow(
 			onStateChange: (_state) => {
 				// State change handling is done through event system
 			},
+			emitter, // Pass emitter to debugger for event emission
 		});
 
 		// Start debugger with initial configuration
@@ -318,6 +324,49 @@ async function runLangGraphWorkflow(
 			breakpoints: [], // Breakpoints can be set interactively
 			breakOnStart: false,
 		});
+
+		// Connect DebugRenderer command handler to debugger
+		if (renderer instanceof DebugRenderer) {
+			const debugRenderer = renderer as DebugRenderer;
+			debugRenderer.setCommandHandler(
+				(command: DebugCommand, _args?: string[]) => {
+					if (!workflowDebugger) return;
+
+					switch (command) {
+						case "continue":
+							workflowDebugger.continue();
+							break;
+						case "step-over":
+							workflowDebugger.stepOver();
+							break;
+						case "step-in":
+							workflowDebugger.stepIn();
+							break;
+						case "step-out":
+							workflowDebugger.stepOut();
+							break;
+						case "quit":
+							debugState.cleanupRequested = true;
+							workflowDebugger.continue(); // Resume to allow cleanup
+							break;
+						case "inspect":
+							// Inspect variables - results shown through event system
+							const variables = workflowDebugger.inspectVariables({});
+							for (const varInfo of variables) {
+								if (emitter) {
+									void emitter.emit("debug:variable:inspect", {
+										nodeName: workflowDebugger.context?.currentNode ?? "unknown",
+										variableName: varInfo.name,
+										value: varInfo.value,
+										scope: varInfo.scope,
+									});
+								}
+							}
+							break;
+					}
+				},
+			);
+		}
 	}
 
 	// Create WorkflowGraph with emitter, debugger, and checkpointer

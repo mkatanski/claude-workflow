@@ -34,6 +34,7 @@ import type {
 import { BreakpointManager } from "./breakpoints";
 import { VariableInspector } from "./inspector";
 import { ReplayEngine } from "./replay";
+import type { WorkflowEmitter } from "../events/emitter";
 
 // ============================================================================
 // Types
@@ -62,6 +63,8 @@ export interface DebugEventCallbacks {
 	onStateChange?: (state: DebugExecutionState) => void | Promise<void>;
 	/** Called when a checkpoint is created */
 	onCheckpoint?: (checkpoint: ExecutionCheckpoint) => void | Promise<void>;
+	/** Optional event emitter for debug events */
+	emitter?: WorkflowEmitter;
 }
 
 /**
@@ -93,6 +96,7 @@ export class Debugger implements IDebugger {
 	private replayEngine: ReplayEngine;
 	private disposed = false;
 	private eventCallbacks: DebugEventCallbacks = {};
+	private emitter: WorkflowEmitter | undefined;
 	private executionControl: ExecutionControl = {
 		stepMode: "continue",
 		resumeResolver: null,
@@ -100,9 +104,11 @@ export class Debugger implements IDebugger {
 		stepTarget: null,
 		stepStackDepth: 0,
 	};
+	private pauseStartTime: number | null = null;
 
 	constructor(callbacks?: DebugEventCallbacks) {
 		this.eventCallbacks = callbacks ?? {};
+		this.emitter = callbacks?.emitter;
 
 		// Initialize components
 		this.breakpointManager = new BreakpointManager({
@@ -340,6 +346,11 @@ export class Debugger implements IDebugger {
 			return;
 		}
 
+		// Calculate pause duration
+		const pauseDuration = this.pauseStartTime
+			? Date.now() - this.pauseStartTime
+			: 0;
+
 		this.executionControl.stepMode = mode;
 		this.executionControl.shouldPause = false;
 
@@ -350,6 +361,22 @@ export class Debugger implements IDebugger {
 			this.executionControl.stepStackDepth = this._context.callStack.length - 1;
 		}
 
+		// Emit debug:execution:resume event
+		if (this.emitter && this._context) {
+			// Map step mode to valid resume mode (excluding "pause" which isn't a resume mode)
+			const resumeMode: "continue" | "step-over" | "step-in" | "step-out" =
+				mode === "step-into"
+					? "step-in"
+					: mode === "pause"
+						? "continue" // If somehow called with pause, treat as continue
+						: mode;
+			void this.emitter.emit("debug:execution:resume", {
+				nodeName: this._context.currentNode ?? "unknown",
+				resumeMode,
+				duration: pauseDuration,
+			});
+		}
+
 		// Resolve the pause promise to resume execution
 		if (this.executionControl.resumeResolver) {
 			this.executionControl.resumeResolver();
@@ -357,6 +384,7 @@ export class Debugger implements IDebugger {
 		}
 
 		this._state = mode === "continue" ? "running" : "stepping";
+		this.pauseStartTime = null;
 
 		void this.eventCallbacks.onResume?.(mode);
 		void this.notifyStateChange(this._state);
@@ -374,8 +402,35 @@ export class Debugger implements IDebugger {
 
 		const previousState = this._state;
 		this._state = "paused";
+		this.pauseStartTime = Date.now();
 
 		this.debug(`Paused execution: ${reason}`);
+
+		// Determine pause reason type
+		let pauseReason: "breakpoint" | "step" | "exception" | "pause-request" =
+			"pause-request";
+		if (reason.toLowerCase().includes("breakpoint")) {
+			pauseReason = "breakpoint";
+		} else if (
+			reason.toLowerCase().includes("step") ||
+			reason.toLowerCase().includes("step over") ||
+			reason.toLowerCase().includes("step into") ||
+			reason.toLowerCase().includes("step out")
+		) {
+			pauseReason = "step";
+		} else if (reason.toLowerCase().includes("exception")) {
+			pauseReason = "exception";
+		}
+
+		// Emit debug:execution:pause event
+		if (this.emitter && this._context) {
+			void this.emitter.emit("debug:execution:pause", {
+				nodeName: this._context.currentNode ?? "unknown",
+				reason: pauseReason,
+				variables: this._context.variables,
+				callStack: this._context.callStack.map((frame) => frame.name),
+			});
+		}
 
 		// Create the wait promise BEFORE any async operations
 		// This ensures resumeResolver is set before continue() can be called
@@ -405,6 +460,17 @@ export class Debugger implements IDebugger {
 		// Update context
 		this._context = hit.context;
 
+		// Emit debug:breakpoint:hit event
+		if (this.emitter) {
+			void this.emitter.emit("debug:breakpoint:hit", {
+				breakpointId: hit.breakpoint.id,
+				nodeName: hit.context.currentNode ?? "unknown",
+				condition: hit.breakpoint.condition,
+				hitCount: hit.hitCount,
+				variables: hit.context.variables,
+			});
+		}
+
 		// Notify callback
 		void this.eventCallbacks.onBreakpointHit?.(hit);
 
@@ -430,6 +496,25 @@ export class Debugger implements IDebugger {
 		}
 
 		this._context = context;
+
+		// Emit debug:step:before event if stepping
+		if (
+			this.emitter &&
+			this.executionControl.stepMode !== "continue" &&
+			this.executionControl.stepMode !== "pause"
+		) {
+			const stepType =
+				this.executionControl.stepMode === "step-into"
+					? "step-in"
+					: this.executionControl.stepMode === "step-out"
+						? "step-out"
+						: "step-over";
+			void this.emitter.emit("debug:step:before", {
+				nodeName,
+				stepType,
+				variables: context.variables,
+			});
+		}
 
 		// Check node breakpoints (before)
 		const breakpointHit = this.breakpointManager.checkNodeBreakpoint(
@@ -464,6 +549,7 @@ export class Debugger implements IDebugger {
 	async afterNodeExecution(
 		nodeName: string,
 		context: DebugContext,
+		duration?: number,
 	): Promise<void> {
 		this.checkDisposed();
 
@@ -471,7 +557,36 @@ export class Debugger implements IDebugger {
 			return;
 		}
 
+		// Compute variable changes (simplified: just use current variables)
+		const previousVars = this._context?.variables ?? {};
+		const variableChanges: Record<string, unknown> = {};
+		for (const [key, value] of Object.entries(context.variables)) {
+			if (JSON.stringify(previousVars[key]) !== JSON.stringify(value)) {
+				variableChanges[key] = value;
+			}
+		}
+
 		this._context = context;
+
+		// Emit debug:step:after event if stepping
+		if (
+			this.emitter &&
+			this.executionControl.stepMode !== "continue" &&
+			this.executionControl.stepMode !== "pause"
+		) {
+			const stepType =
+				this.executionControl.stepMode === "step-into"
+					? "step-in"
+					: this.executionControl.stepMode === "step-out"
+						? "step-out"
+						: "step-over";
+			void this.emitter.emit("debug:step:after", {
+				nodeName,
+				stepType,
+				duration: duration ?? 0,
+				variableChanges,
+			});
+		}
 
 		// Create checkpoint
 		this.createCheckpoint(nodeName);
@@ -576,10 +691,17 @@ export class Debugger implements IDebugger {
 
 		switch (stepMode) {
 			case "step-over":
-				// Pause at every node at the same level
-				if (!stepTarget || nodeName !== stepTarget) {
+				// Step-over: pause at the NEXT node after the step target
+				// stepTarget is the node we stepped FROM, so we pause when we reach a DIFFERENT node
+				if (stepTarget && nodeName !== stepTarget) {
+					// We've moved past the step target, pause here
+					this.executionControl.stepTarget = null; // Reset for next step
+					await this.pauseExecution(`Step over to: ${nodeName}`);
+				} else if (!stepTarget) {
+					// No step target set (shouldn't happen normally), pause immediately
 					await this.pauseExecution(`Step over to: ${nodeName}`);
 				}
+				// If nodeName === stepTarget, we're still on the same node, don't pause yet
 				break;
 
 			case "step-into":

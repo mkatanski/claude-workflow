@@ -94,6 +94,13 @@ import type {
 	CircuitBreakerTestPayload,
 	CircuitBreakerTripPayload,
 	CircuitBreakerRejectedPayload,
+	// Debug events
+	DebugBreakpointHitPayload,
+	DebugStepBeforePayload,
+	DebugStepAfterPayload,
+	DebugVariableInspectPayload,
+	DebugExecutionPausePayload,
+	DebugExecutionResumePayload,
 	// Infrastructure events
 	TmuxPaneCreatePayload,
 	TmuxPaneClosePayload,
@@ -634,6 +641,34 @@ export function createEventHelpers(emitter: WorkflowEmitter) {
 
 		cleanupComplete(payload: CleanupCompletePayload) {
 			return emitter.emit("cleanup:complete", payload);
+		},
+
+		// ========================================================================
+		// Debug Events
+		// ========================================================================
+
+		debugBreakpointHit(payload: DebugBreakpointHitPayload) {
+			return emitter.emit("debug:breakpoint:hit", payload);
+		},
+
+		debugStepBefore(payload: DebugStepBeforePayload) {
+			return emitter.emit("debug:step:before", payload);
+		},
+
+		debugStepAfter(payload: DebugStepAfterPayload) {
+			return emitter.emit("debug:step:after", payload);
+		},
+
+		debugVariableInspect(payload: DebugVariableInspectPayload) {
+			return emitter.emit("debug:variable:inspect", payload);
+		},
+
+		debugExecutionPause(payload: DebugExecutionPausePayload) {
+			return emitter.emit("debug:execution:pause", payload);
+		},
+
+		debugExecutionResume(payload: DebugExecutionResumePayload) {
+			return emitter.emit("debug:execution:resume", payload);
 		},
 
 		// ========================================================================

@@ -1,8 +1,9 @@
 # SPARC Story Generator Workflow Architecture
 
-> **Version**: 1.1.0
+> **Version**: 1.2.0
 > **Status**: Draft
 > **Created**: 2026-01-21
+> **Updated**: 2026-01-21
 
 ---
 
@@ -12,7 +13,7 @@
 
 Create a workflow that implements the SPARC methodology (Specification, Pseudocode, Architecture, Refinement, Completion) to analyze complex architectural documents and generate implementation stories in YAML format.
 
-### 1.2 Key Design Decision
+### 1.2 Key Design Decisions
 
 **The workflow graph IS the orchestrator.** Unlike traditional SPARC implementations that use an AI "orchestrator" prompt to manage phases, our LangGraph-based workflow provides deterministic control flow. This means:
 
@@ -20,6 +21,14 @@ Create a workflow that implements the SPARC methodology (Specification, Pseudoco
 - We do **NOT** use an orchestrator prompt
 - Phase transitions are **deterministic** (workflow edges)
 - AI is used **only** where reasoning/creativity is required
+
+**AI nodes use `agentSession` WITHOUT planning mode.** Since the workflow graph handles orchestration and planning:
+
+- Each AI node calls `tools.agentSession()` with `permissionMode: "bypassPermissions"`
+- We do **NOT** use `planMode` option (workflow handles control flow)
+- We do **NOT** use `planningAgentSession` (two-phase planning is our workflow's job)
+- Agents receive specific prompts and return JSON-formatted responses
+- Workflow code parses JSON responses deterministically
 
 ### 1.3 Scope
 
@@ -406,9 +415,132 @@ tags:
 
 ---
 
-## 7. AI Agent Review System
+## 7. AI Tool Integration (`agentSession`)
 
-### 7.1 Purpose
+### 7.1 Why `agentSession` (Not `claudeSdk` or `planningAgentSession`)
+
+The workflow uses `tools.agentSession()` for all AI nodes because:
+
+| Tool | Use Case | Why NOT for SPARC |
+|------|----------|-------------------|
+| `claudeSdk` | Structured schema-based outputs | Limited context, no file reading capability |
+| `planningAgentSession` | Two-phase plan+implement | Our workflow IS the planner |
+| `agentSession` | Full Claude Code capabilities | ✅ Can read files, analyze, return structured responses |
+
+**Key Insight:** `agentSession` gives us Claude Code's full capabilities (file reading, code analysis) while the workflow maintains deterministic control flow.
+
+### 7.2 `agentSession` Configuration Pattern
+
+All AI nodes follow this pattern:
+
+```typescript
+const result = await tools.agentSession(prompt, {
+  label: "Phase Name",
+  model: "sonnet",  // or "opus" for complex analysis
+  permissionMode: "bypassPermissions",  // No interactive prompts
+  // DO NOT USE: planMode, tools restrictions, etc.
+});
+
+if (!result.success) {
+  return stateError(`Phase failed: ${result.error}`);
+}
+
+// Parse JSON from agent's response
+const parsed = parseJsonFromOutput(result.output);
+```
+
+### 7.3 JSON Response Pattern
+
+Each AI node instructs the agent to return JSON in a specific format. The prompt includes:
+
+```markdown
+## Output Format
+Return your analysis as a JSON object with this exact structure:
+\`\`\`json
+{
+  "field1": "value",
+  "field2": ["array", "items"],
+  ...
+}
+\`\`\`
+
+IMPORTANT: Return ONLY the JSON object, no additional text.
+```
+
+### 7.4 JSON Parsing Strategy
+
+Since `agentSession` returns free-form text, we need robust JSON extraction:
+
+```typescript
+function parseJsonFromOutput<T>(output: string): T | null {
+  // Strategy 1: Try parsing entire output as JSON
+  try {
+    return JSON.parse(output) as T;
+  } catch {}
+
+  // Strategy 2: Extract JSON from markdown code block
+  const jsonMatch = output.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[1].trim()) as T;
+    } catch {}
+  }
+
+  // Strategy 3: Find first { to last }
+  const firstBrace = output.indexOf('{');
+  const lastBrace = output.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      return JSON.parse(output.slice(firstBrace, lastBrace + 1)) as T;
+    } catch {}
+  }
+
+  return null;
+}
+```
+
+### 7.5 Model Selection by Phase
+
+| Phase | Model | Rationale |
+|-------|-------|-----------|
+| Specification | `opus` | Complex document analysis, requirement extraction |
+| Pseudocode | `sonnet` | Lighter planning, cost-effective |
+| Architecture | `opus` | Critical structural decisions |
+| Refinement (story gen) | `sonnet` | Bulk generation, good quality/cost |
+| Completion | `sonnet` | Validation checks |
+| Analysis Review | `sonnet` | Cost-effective secondary validation |
+| Story Review | `sonnet` | Consistent quality checks |
+
+### 7.6 Error Handling
+
+Each AI node handles these scenarios:
+
+1. **Agent failure** (`!result.success`): Return error state, workflow can retry or route to error handler
+2. **JSON parse failure**: Log warning, attempt retry with clarification prompt
+3. **Invalid schema**: Validate parsed JSON, re-prompt if missing required fields
+4. **Timeout**: Agent sessions have implicit timeouts, workflow can resume from checkpoint
+
+### 7.7 What `agentSession` CAN Do (and we leverage)
+
+- ✅ Read files from the project (for context)
+- ✅ Analyze code structure
+- ✅ Access the full document content
+- ✅ Reason about complex requirements
+- ✅ Generate structured JSON responses
+
+### 7.8 What `agentSession` Should NOT Do (workflow handles)
+
+- ❌ Write files (workflow writes YAML output)
+- ❌ Make decisions about control flow (workflow edges)
+- ❌ Track state between phases (workflow state)
+- ❌ Manage batching/looping (workflow nodes)
+- ❌ Save checkpoints (workflow checkpointing)
+
+---
+
+## 8. AI Agent Review System
+
+### 8.1 Purpose
 
 Quality assurance through secondary AI agent review at two critical points:
 1. **Analysis Review** - Before story generation begins
@@ -420,9 +552,9 @@ This dual-review approach ensures:
 - No manual intervention required in the workflow
 - Consistent quality standards across all outputs
 
-### 7.2 Analysis Review (Post-Architecture Phase)
+### 8.2 Analysis Review (Post-Architecture Phase)
 
-#### 7.2.1 Reviewer Responsibilities
+#### 8.2.1 Reviewer Responsibilities
 
 The secondary AI agent (reviewer) receives:
 - Original source document
@@ -437,7 +569,7 @@ The reviewer validates:
 | Dependencies | Logical dependency relationships identified |
 | Gaps | No critical requirements missing from analysis |
 
-#### 7.2.2 Review Output
+#### 8.2.2 Review Output
 
 ```typescript
 interface AnalysisReviewResult {
@@ -453,7 +585,7 @@ interface AnalysisReviewResult {
 }
 ```
 
-#### 7.2.3 Rejection Handling
+#### 8.2.3 Rejection Handling
 
 If analysis is rejected:
 1. Reviewer provides specific, actionable feedback
@@ -462,9 +594,9 @@ If analysis is rejected:
 4. Maximum 3 refinement attempts before escalation
 5. On max attempts: Save partial results, flag for manual review
 
-### 7.3 Story Review (Post-Generation per Batch)
+### 8.3 Story Review (Post-Generation per Batch)
 
-#### 7.3.1 Reviewer Responsibilities
+#### 8.3.1 Reviewer Responsibilities
 
 The secondary AI agent receives:
 - Architectural analysis (approved)
@@ -481,7 +613,7 @@ The reviewer validates each story:
 | Traceability | Clear link to source requirement or component |
 | Effort Estimation | Effort estimate is reasonable for scope |
 
-#### 7.3.2 Review Output
+#### 8.3.2 Review Output
 
 ```typescript
 interface StoryReviewResult {
@@ -504,7 +636,7 @@ interface BatchReviewResult {
 }
 ```
 
-#### 7.3.3 Story Rejection Handling
+#### 8.3.3 Story Rejection Handling
 
 Stories that fail review are:
 1. Collected with their feedback
@@ -512,7 +644,7 @@ Stories that fail review are:
 3. Regenerated (max 2 attempts per story)
 4. If still failing: Marked as "needs_manual_review" and included in output
 
-### 7.4 Review Model Configuration
+### 8.4 Review Model Configuration
 
 Different models can be used for generation vs review:
 
@@ -525,7 +657,7 @@ Different models can be used for generation vs review:
 
 Using a different model for review than generation helps catch model-specific biases.
 
-### 7.5 Review Prompts (Contracts)
+### 8.5 Review Prompts (Contracts)
 
 #### Analysis Review Prompt Contract
 - Compare analysis against original document section by section
@@ -543,9 +675,9 @@ Using a different model for review than generation helps catch model-specific bi
 
 ---
 
-## 8. Output Artifacts
+## 9. Output Artifacts
 
-### 8.1 Generated Files
+### 9.1 Generated Files
 
 ```
 .cw/generated/sparc-output/
@@ -562,7 +694,7 @@ Using a different model for review than generation helps catch model-specific bi
 └── manifest.json               # Metadata, timestamps, stats
 ```
 
-### 8.2 Manifest Schema
+### 9.2 Manifest Schema
 
 ```typescript
 interface OutputManifest {
@@ -587,9 +719,9 @@ interface OutputManifest {
 
 ---
 
-## 9. Error Handling & Recovery
+## 10. Error Handling & Recovery
 
-### 9.1 Failure Points
+### 10.1 Failure Points
 
 | Phase | Potential Failures | Recovery |
 |-------|-------------------|----------|
@@ -598,7 +730,7 @@ interface OutputManifest {
 | Refinement | Story generation timeout | Resume from last batch |
 | Completion | YAML validation fails | Regenerate invalid stories |
 
-### 9.2 Checkpointing
+### 10.2 Checkpointing
 
 State is saved after each major step:
 - After specification analysis
@@ -610,9 +742,9 @@ Recovery command: `cw run sparc-story-generator --resume`
 
 ---
 
-## 10. Configuration
+## 11. Configuration
 
-### 10.1 Workflow Configuration
+### 11.1 Workflow Configuration
 
 ```yaml
 # .cw/workflows/sparc-story-generator/config.yaml
@@ -653,37 +785,56 @@ review:
     allowPartialBatch: true   # Continue if some stories fail
 ```
 
-### 10.2 CLI Usage
+### 11.2 CLI Usage
+
+**Current Implementation:**
 
 ```bash
-# Basic usage
+# Basic usage (workflow prompts for input path)
+cw run -w sparc-story-generator
+
+# With workflow selection
+cw run sparc-story-generator
+
+# Resume interrupted run (with checkpointing)
+cw run -w sparc-story-generator --resume --checkpoint
+
+# Verbose mode
+cw run -w sparc-story-generator --verbose
+```
+
+**Future Enhancement (Planned):**
+
+CLI argument support for workflow-specific options is planned:
+
+```bash
+# With input path argument (future)
 cw run sparc-story-generator --input=./architecture.md
 
-# With options
+# With configuration options (future)
 cw run sparc-story-generator \
   --input=./architecture.md \
   --output=./stories \
   --batch-size=15
 
-# Resume interrupted run
-cw run sparc-story-generator --resume
-
-# Dry run (analysis only, no stories)
+# Analysis-only mode (future)
 cw run sparc-story-generator --input=./architecture.md --analysis-only
+```
 
-# Skip reviews (not recommended, for testing only)
-cw run sparc-story-generator \
-  --input=./architecture.md \
-  --skip-analysis-review \
-  --skip-story-review
+**Current Workaround:**
 
-# Verbose mode (shows review details)
-cw run sparc-story-generator --input=./architecture.md --verbose
+Modify the `inputPath` variable in `.cw/workflows/sparc-story-generator/workflow.ts` directly:
+
+```typescript
+vars: {
+  inputPath: "./path/to/your/architecture.md",  // Set your input path here
+  // ... other vars
+}
 ```
 
 ---
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 | Metric | Target |
 |--------|--------|
@@ -697,9 +848,9 @@ cw run sparc-story-generator --input=./architecture.md --verbose
 
 ---
 
-## 12. Constraints & Decisions
+## 13. Constraints & Decisions
 
-### 12.1 Design Decisions
+### 13.1 Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
@@ -712,7 +863,7 @@ cw run sparc-story-generator --input=./architecture.md --verbose
 | Opus for analysis phases | Complex reasoning required for extraction |
 | Sonnet for generation & review | Good quality/cost balance for bulk work |
 
-### 12.2 Constraints
+### 13.2 Constraints
 
 | Constraint | Reason |
 |------------|--------|
@@ -723,7 +874,7 @@ cw run sparc-story-generator --input=./architecture.md --verbose
 
 ---
 
-## 13. Dependencies
+## 14. Dependencies
 
 | Dependency | Purpose |
 |------------|---------|
@@ -734,7 +885,7 @@ cw run sparc-story-generator --input=./architecture.md --verbose
 
 ---
 
-## 14. Future Enhancements
+## 15. Future Enhancements
 
 | Enhancement | Priority |
 |-------------|----------|
@@ -814,3 +965,4 @@ stories:
 |---------|------|---------|
 | 1.0.0 | 2026-01-21 | Initial draft |
 | 1.1.0 | 2026-01-21 | Replaced human approval with AI agent review system; added story review mechanism; updated state schema, configuration, and metrics |
+| 1.2.0 | 2026-01-21 | Added Section 7 "AI Tool Integration" clarifying `agentSession` usage without planMode; workflow handles orchestration/planning |

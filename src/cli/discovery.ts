@@ -36,6 +36,10 @@ export interface DiscoveredWorkflow {
  *
  * Discovers both legacy (.workflow.ts) and LangGraph (.ts) workflows.
  * Legacy workflows take precedence if both exist with the same name.
+ *
+ * Searches in:
+ * - .cw/workflows/[name].ts (direct files)
+ * - .cw/workflows/[name]/workflow.ts (subdirectories)
  */
 export async function discoverWorkflows(
 	projectPath: string,
@@ -54,7 +58,7 @@ export async function discoverWorkflows(
 
 		const files = await readdir(workflowsDir);
 
-		// First pass: find legacy .workflow.ts files
+		// First pass: find legacy .workflow.ts files (direct files)
 		for (const file of files) {
 			if (file.endsWith(".workflow.ts")) {
 				const name = basename(file, ".workflow.ts");
@@ -84,6 +88,34 @@ export async function discoverWorkflows(
 						format: "langgraph",
 					});
 				}
+			}
+		}
+
+		// Third pass: find workflow.ts files in subdirectories
+		for (const file of files) {
+			const fullPath = join(workflowsDir, file);
+			try {
+				const fileStat = await stat(fullPath);
+				if (fileStat.isDirectory()) {
+					const workflowFile = join(fullPath, "workflow.ts");
+					try {
+						await stat(workflowFile);
+						// workflow.ts exists in this subdirectory
+						const name = file; // Use directory name as workflow name
+						if (!seenNames.has(name)) {
+							seenNames.add(name);
+							workflows.push({
+								name,
+								path: workflowFile,
+								format: "langgraph",
+							});
+						}
+					} catch {
+						// No workflow.ts in this subdirectory, skip
+					}
+				}
+			} catch {
+				// Error accessing file, skip
 			}
 		}
 	} catch {
